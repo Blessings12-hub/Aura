@@ -1,0 +1,87 @@
+from pathlib import Path
+
+out_dir = Path("output")
+out_dir.mkdir(exist_ok=True)
+
+svg = """<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1600" height="1600" viewBox="0 0 1600 1600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="80%">
+      <stop offset="0%" stop-color="#1b2550"/>
+      <stop offset="55%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#080d1a"/>
+    </radialGradient>
+
+    <radialGradient id="glow1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#4f46e5" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="glow2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ec4899" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ec4899" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="auraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#eef2ff"/>
+      <stop offset="100%" stop-color="#c7d2fe"/>
+    </linearGradient>
+
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+
+    <filter id="softBlur">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1600" fill="url(#bg)"/>
+
+  <circle cx="380" cy="320" r="260" fill="url(#glow1)" filter="url(#softBlur)"/>
+  <circle cx="1260" cy="420" r="230" fill="url(#glow2)" filter="url(#softBlur)"/>
+  <circle cx="1240" cy="1280" r="280" fill="#10b981" opacity="0.12" filter="url(#softBlur)"/>
+
+  <circle cx="800" cy="720" r="430" fill="#0f172a" opacity="0.92" stroke="rgba(255,255,255,0.08)" stroke-width="6" filter="url(#shadow)"/>
+  <circle cx="800" cy="720" r="345" fill="#111827" stroke="rgba(255,255,255,0.10)" stroke-width="4"/>
+
+  <circle cx="800" cy="720" r="260" fill="url(#accentGrad)" opacity="0.95"/>
+  <circle cx="800" cy="720" r="260" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
+
+  <path d="M 620 1010 L 760 470 L 840 470 L 980 1010 L 890 1010 L 855 900 L 745 900 L 710 1010 Z" fill="url(#auraGrad)"/>
+  <path d="M 700 845 L 900 845 L 928 735 L 672 735 Z" fill="url(#accentGrad)"/>
+
+  <circle cx="1085" cy="555" r="28" fill="#ec4899"/>
+  <circle cx="1120" cy="505" r="10" fill="#ffffff" opacity="0.9"/>
+  <circle cx="1145" cy="530" r="6" fill="#ffffff" opacity="0.75"/>
+
+  <text x="800" y="1210" text-anchor="middle"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="150" font-weight="700" fill="#ffffff">Aura</text>
+
+  <text x="800" y="1290" text-anchor="middle"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="46" font-weight="400" fill="#cbd5e1">Anonymous social app</text>
+
+  <text x="800" y="1360" text-anchor="middle"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="30" font-weight="400" fill="#94a3b8">chat • match • events • skills • collaborate</text>
+</svg>
+"""
+
+svg_path = out_dir / "aura_logo.svg"
+svg_path.write_text(svg, encoding="utf-8")
+
+meta_path = out_dir / "aura_logo.svg.meta.json"
+meta_path.write_text(
+    '{"caption":"Aura social app logo","description":"Professional SVG logo with a glowing monogram A, circular badge, and modern social-app branding."}',
+    encoding="utf-8"
+)
+
+print(svg_path)

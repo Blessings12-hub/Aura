@@ -1,0 +1,16 @@
+{
+  "back": "Back",
+  "dark_mode": "Dark mode",
+  "light_mode": "Light mode",
+  "loading": "Loading...",
+  "send": "Send",
+  "submit_answer": "Submit Answer",
+  "post_profile": "Post Profile",
+  "post_event": "Post Event",
+  "post_swap": "Post Swap",
+  "start_chat": "Start Chat",
+  "change_mood": "Change Mood",
+  "voice": "Voice",
+  "stop_voice": "Stop Voice",
+  "clear_canvas": "Clear Canvas"
+}

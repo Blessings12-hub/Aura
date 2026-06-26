@@ -1,0 +1,9 @@
+{
+  "app_name": "Aura",
+  "welcome": "欢迎来到 Aura",
+  "anonymous_presence": "匿名存在。年龄 + 性别可见。每天刷新。",
+  "enter_anonymously": "匿名进入 Aura",
+  "back": "返回",
+  "dark_mode": "深色模式",
+  "light_mode": "浅色模式"
+}

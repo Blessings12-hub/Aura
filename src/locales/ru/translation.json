@@ -1,0 +1,9 @@
+{
+  "app_name": "Aura",
+  "welcome": "Добро пожаловать в Aura",
+  "anonymous_presence": "Анонимное присутствие. Возраст + пол видны. Каждый день заново.",
+  "enter_anonymously": "Войти в Aura анонимно",
+  "back": "Назад",
+  "dark_mode": "Тёмная тема",
+  "light_mode": "Светлая тема"
+}
