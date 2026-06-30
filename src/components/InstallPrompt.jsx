@@ -1,123 +1,122 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Smartphone, X } from 'lucide-react';
+
+const DISMISS_KEY = 'aura_install_prompt_dismissed';
 
 export default function InstallPrompt() {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [show, setShow] = useState(false);
+  const [deferred, setDeferred] = useState(null);
 
   useEffect(() => {
-    const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
-    if (isInstalled) return;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    if (isStandalone || localStorage.getItem(DISMISS_KEY)) return;
 
-    const hasDismissed = localStorage.getItem('aura-install-prompt-dismissed');
-    if (hasDismissed) return;
-
-    const handleBeforeInstallPrompt = (e) => {
+    const onBeforeInstall = (e) => {
       e.preventDefault();
-      setDeferredPrompt(e);
-      setTimeout(() => setShowPrompt(true), 5000);
+      setDeferred(e);
+      setTimeout(() => setShow(true), 5000);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstall);
   }, []);
 
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-
-    try {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log(`User response to install prompt: ${outcome}`);
-      setDeferredPrompt(null);
-      setShowPrompt(false);
-    } catch (error) {
-      console.error('Install prompt error:', error);
-    }
+  const install = async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice;
+    setDeferred(null);
+    setShow(false);
   };
 
-  const handleDismiss = () => {
-    setShowPrompt(false);
-    localStorage.setItem('aura-install-prompt-dismissed', 'true');
+  const dismiss = () => {
+    setShow(false);
+    localStorage.setItem(DISMISS_KEY, 'true');
   };
 
-  if (!showPrompt) return null;
+  if (!show) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: '20px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      backgroundColor: '#4F46E5',
-      color: 'white',
-      padding: '1.5rem',
-      borderRadius: '12px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-      zIndex: 1000,
-      maxWidth: '90%',
-      width: '400px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '1rem'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-        <div>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-            Install Aura 📱
-          </h3>
-          <p style={{ fontSize: '0.875rem', opacity: 0.9 }}>
-            Get Aura on your home screen for quick access to chatting, matching, events, and more!
-          </p>
+    <div
+      role="dialog"
+      aria-labelledby="install-aura-title"
+      style={{
+        position: 'fixed',
+        bottom: 20,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: 'var(--primary)',
+        color: '#fff',
+        padding: '1.25rem 1.25rem 1rem',
+        borderRadius: 14,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
+        zIndex: 1000,
+        maxWidth: 'min(90vw, 420px)',
+        width: '100%'
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Smartphone size={20} />
+          <div>
+            <h3 id="install-aura-title" style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
+              Install Aura
+            </h3>
+            <p style={{ fontSize: '0.85rem', opacity: 0.9, margin: '4px 0 0' }}>
+              Add Aura to your home screen for quick access.
+            </p>
+          </div>
         </div>
+
         <button
-          onClick={handleDismiss}
+          type="button"
+          onClick={dismiss}
+          aria-label="Dismiss install prompt"
           style={{
-            background: 'none',
+            background: 'transparent',
             border: 'none',
-            color: 'white',
-            fontSize: '1.5rem',
+            color: '#fff',
             cursor: 'pointer',
-            padding: '0'
+            padding: 0,
+            alignSelf: 'flex-start'
           }}
         >
-          ✕
+          <X size={18} />
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
         <button
-          onClick={handleInstallClick}
+          type="button"
+          onClick={install}
           style={{
             flex: 1,
-            backgroundColor: 'white',
-            color: '#4F46E5',
-            padding: '0.75rem 1rem',
-            borderRadius: '8px',
+            background: '#fff',
+            color: 'var(--primary)',
+            padding: '0.65rem 1rem',
+            borderRadius: 10,
             border: 'none',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            fontSize: '0.875rem'
+            fontWeight: 700,
+            cursor: 'pointer'
           }}
         >
-          Install Now
+          Install
         </button>
+
         <button
-          onClick={handleDismiss}
+          type="button"
+          onClick={dismiss}
           style={{
             flex: 1,
-            backgroundColor: 'transparent',
-            color: 'white',
-            padding: '0.75rem 1rem',
-            borderRadius: '8px',
-            border: '1px solid white',
-            cursor: 'pointer',
-            fontSize: '0.875rem'
+            background: 'transparent',
+            color: '#fff',
+            padding: '0.65rem 1rem',
+            borderRadius: 10,
+            border: '1px solid rgba(255, 255, 255, 0.6)',
+            cursor: 'pointer'
           }}
         >
-          Not Now
+          Not now
         </button>
       </div>
     </div>

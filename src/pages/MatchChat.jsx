@@ -1,92 +1,152 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  Timestamp
+} from 'firebase/firestore';
+import { Send } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, addDoc, onSnapshot, query, orderBy, Timestamp, setDoc } from 'firebase/firestore';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 
-export default function MatchChat({ theme, setTheme }) {
+const pairId = (a, b) => [a, b].sort().join('_');
+
+export default function MatchChat() {
   const navigate = useNavigate();
   const location = useLocation();
   const profile = location.state?.profile;
-  const [userId, setUserId] = useState(null);
+  const { userId, loading } = useCurrentUser();
   const [messages, setMessages] = useState([]);
-  const [message, setMessage] = useState('');
+  const [text, setText] = useState('');
 
   useEffect(() => {
-    const uid = localStorage.getItem('aura_userId');
-    if (!uid) return navigate('/');
-    setUserId(uid);
-  }, [navigate]);
+    if (!profile || !userId) return undefined;
 
-  useEffect(() => {
-    if (!profile || !userId) return;
-    const chatId = [userId, profile.userId].sort().join('_');
+    const chatId = pairId(userId, profile.userId);
     const chatRef = doc(db, 'matchChats', chatId);
 
-    const init = async () => {
-      const snap = await getDoc(chatRef);
+    getDoc(chatRef).then((snap) => {
       if (!snap.exists()) {
-        await setDoc(chatRef, {
+        setDoc(chatRef, {
           userA: userId,
           userB: profile.userId,
           createdAt: Timestamp.now()
         });
       }
-    };
+    });
 
-    init();
+    const q = query(
+      collection(db, 'matchChats', chatId, 'messages'),
+      orderBy('createdAt', 'asc')
+    );
 
-    const qref = query(collection(db, 'matchChats', chatId, 'messages'), orderBy('createdAt', 'asc'));
-    const unsub = onSnapshot(qref, (snap) => setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
-    return () => unsub();
+    return onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
   }, [profile, userId]);
 
-  const sendMessage = async () => {
-    if (!message.trim() || !profile || !userId) return;
-    const chatId = [userId, profile.userId].sort().join('_');
+  const send = async () => {
+    if (!text.trim() || !profile || !userId) return;
+
+    const chatId = pairId(userId, profile.userId);
 
     await addDoc(collection(db, 'matchChats', chatId, 'messages'), {
-      text: message.trim(),
+      text: text.trim(),
       userId,
       createdAt: Timestamp.now()
     });
 
-    setMessage('');
+    setText('');
   };
 
-  if (!profile) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">No match selected.</div></div></div>;
-  if (!userId) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">Loading...</div></div></div>;
+  if (!profile) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <div className="aura-card">
+            <p>No match selected.</p>
+            <button
+              type="button"
+              onClick={() => navigate('/aura/match')}
+              className="aura-btn aura-btn-primary"
+              style={{ marginTop: 12 }}
+            >
+              Back to Match Finder
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <div className="aura-card">Loading…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar
           title="Match Chat"
-          subtitle="Private chat with your match."
+          subtitle="A private chat with your match."
           onBack={() => navigate(-1)}
-          theme={theme}
-          setTheme={setTheme}
         />
 
         <div className="aura-card aura-section">
-          <div className="aura-grid">
-            {messages.map((msg) => (
-              <div key={msg.id} className="aura-card-compact" style={{ background: msg.userId === userId ? 'rgba(79,70,229,0.08)' : 'var(--surface-2)' }}>
-                <p style={{ margin: 0, color: 'var(--text)' }}>{msg.text}</p>
+          <div style={{ display: 'grid', gap: 8, maxHeight: 480, overflowY: 'auto' }}>
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`message${m.userId === userId ? ' message--mine' : ''}`}
+                style={{
+                  maxWidth: '85%',
+                  alignSelf: m.userId === userId ? 'flex-end' : 'flex-start'
+                }}
+              >
+                <p style={{ color: 'var(--text)', margin: 0 }}>{m.text}</p>
               </div>
             ))}
+
+            {messages.length === 0 && (
+              <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
+                Say hi to get the conversation started.
+              </p>
+            )}
           </div>
 
           <div className="aura-row" style={{ marginTop: 16 }}>
             <input
               className="aura-input"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type a message..."
-              style={{ flex: '1 1 300px' }}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') send();
+              }}
+              placeholder="Type a message…"
+              style={{ flex: '1 1 280px' }}
             />
-            <button onClick={sendMessage} className="aura-btn aura-btn-primary">
-              Send
+
+            <button
+              type="button"
+              onClick={send}
+              disabled={!text.trim()}
+              className="aura-btn aura-btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Send size={16} /> Send
             </button>
           </div>
         </div>

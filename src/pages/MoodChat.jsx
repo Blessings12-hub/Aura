@@ -1,63 +1,48 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import {
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+  Timestamp
+} from 'firebase/firestore';
+import { Send, Mic } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
+import { MOODS } from '../constants/moods';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
+import Avatar from '../components/Avatar';
 
-export default function MoodChat({ theme, setTheme }) {
+export default function MoodChat() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
-  const [user, setUser] = useState(null);
+  const { user, userId, loading } = useCurrentUser();
   const [mood, setMood] = useState('');
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [voiceRecording, setVoiceRecording] = useState(false);
-  const [voiceMediaRecorder, setVoiceMediaRecorder] = useState(null);
-
-  const moods = [
-    { name: 'Happy', color: '#10B981' },
-    { name: 'Stressed', color: '#F59E0B' },
-    { name: 'Excited', color: '#EC4899' },
-    { name: 'Sad', color: '#3B82F6' },
-    { name: 'Calm', color: '#8B5CF6' },
-    { name: 'Anxious', color: '#EF4444' },
-    { name: 'Lonely', color: '#6366F1' },
-    { name: 'Creative', color: '#14B8A6' }
-  ];
+  const [text, setText] = useState('');
 
   useEffect(() => {
-    const getUserData = async () => {
-      const userId = localStorage.getItem('aura_userId');
-      if (!userId) return navigate('/');
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (userDoc.exists()) setUser(userDoc.data());
-      else navigate('/');
-    };
-    getUserData();
-  }, [navigate]);
+    if (!mood) {
+      setMessages([]);
+      return undefined;
+    }
 
-  useEffect(() => {
-    if (!mood) return;
-    const chatQuery = query(collection(db, 'chats', mood, 'messages'), orderBy('createdAt', 'asc'));
-    const unsubscribe = onSnapshot(chatQuery, (snapshot) => {
-      const msgs = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return { id: docSnap.id, ...data, isVoice: !!data.voiceUrl };
-      });
-      setMessages(msgs);
+    const q = query(
+      collection(db, 'chats', mood, 'messages'),
+      orderBy('createdAt', 'asc')
+    );
+
+    return onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-    return () => unsubscribe();
   }, [mood]);
 
-  const handleSendMessage = async () => {
-    const userId = localStorage.getItem('aura_userId');
-    if (!newMessage.trim() || !mood || !userId) return;
+  const send = async () => {
+    if (!text.trim() || !mood || !userId) return;
 
     await addDoc(collection(db, 'chats', mood, 'messages'), {
-      text: newMessage.trim(),
-      voiceUrl: '',
-      isVoice: false,
+      text: text.trim(),
       userId,
       userAge: user?.age,
       userGender: user?.gender,
@@ -65,165 +50,182 @@ export default function MoodChat({ theme, setTheme }) {
       createdAt: Timestamp.now()
     });
 
-    setNewMessage('');
+    setText('');
   };
 
-  const startVoiceRecording = async () => {
-    const userId = localStorage.getItem('aura_userId');
-    if (!userId) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioUrl = `voice-${Date.now()}.webm`;
-
-        await addDoc(collection(db, 'chats', mood, 'messages'), {
-          text: '',
-          voiceUrl: audioUrl,
-          isVoice: true,
-          userId,
-          userAge: user?.age,
-          userGender: user?.gender,
-          userColor: user?.avatarColor,
-          createdAt: Timestamp.now()
-        });
-
-        setVoiceRecording(false);
-      };
-
-      mediaRecorder.start();
-      setVoiceMediaRecorder(mediaRecorder);
-      setVoiceRecording(true);
-    } catch (error) {
-      console.error('Voice error', error);
-      alert('Cannot access microphone. Please check permissions.');
-    }
-  };
-
-  const stopVoiceRecording = () => {
-    if (voiceMediaRecorder) voiceMediaRecorder.stop();
-  };
-
-  if (!user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">Loading...</div></div></div>;
+  if (loading || !user) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <div className="aura-card">Loading…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar
           title="Mood Chat"
-          subtitle={`Anonymous chat. Your info: ${user.age}, ${user.gender}`}
+          subtitle={`Anonymous chat • ${user.age}, ${user.gender}`}
           onBack={() => navigate(-1)}
-          theme={theme}
-          setTheme={setTheme}
         />
 
         <div className="aura-card aura-section">
           {!mood ? (
-            <div>
-              <h2 style={{ textAlign: 'center', marginBottom: '2rem', color: 'var(--text)', fontSize: '1.5rem' }}>
-                Choose Your Mood to Join Chat
-              </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                {moods.map((m) => (
-                  <button
-                    key={m.name}
-                    onClick={() => setMood(m.name)}
-                    className="aura-btn"
-                    style={{ padding: '1.5rem', background: m.color, color: '#fff', borderRadius: '12px' }}
-                  >
-                    {m.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <MoodPicker onPick={setMood} />
           ) : (
-            <div>
-              <div style={{ background: 'var(--primary)', color: '#fff', padding: '2rem', borderRadius: '16px', marginBottom: '2rem', textAlign: 'center' }}>
-                <h2 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{mood}</h2>
-                <p style={{ fontSize: '1rem', marginBottom: '1rem' }}>{messages.length} messages • Anonymous chat</p>
-                <button onClick={() => setMood('')} className="aura-btn aura-btn-secondary">
-                  Change Mood
-                </button>
-              </div>
-
-              <div className="aura-card-compact" style={{ marginBottom: '2rem', maxHeight: '500px', overflowY: 'auto' }}>
-                {messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '3rem' }}>
-                    <div style={{ fontSize: '3rem', color: 'var(--muted)', marginBottom: '1rem' }}>👋</div>
-                    <p className="aura-muted">No messages yet. Be the first to chat!</p>
-                  </div>
-                ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      style={{
-                        background: msg.userId === localStorage.getItem('aura_userId') ? 'rgba(79,70,229,0.08)' : 'var(--surface-2)',
-                        borderRadius: '12px',
-                        padding: '1rem 1.25rem',
-                        marginBottom: '0.75rem',
-                        border: msg.userId === localStorage.getItem('aura_userId') ? '2px solid rgba(79,70,229,0.15)' : 'none'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: msg.userColor || '#ddd', marginRight: '0.75rem', border: '2px solid var(--border)' }} />
-                        <div>
-                          <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: '0.95rem' }}>Person {msg.userId?.slice(0, 6)}</span>
-                          <span style={{ color: 'var(--muted)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
-                            {msg.userAge} • {msg.userGender}
-                          </span>
-                        </div>
-                      </div>
-
-                      {msg.isVoice ? (
-                        <div style={{ background: 'var(--primary)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span>🎤</span>
-                          <span>Voice note</span>
-                        </div>
-                      ) : (
-                        <p style={{ color: 'var(--text)', lineHeight: 1.6, fontSize: '1rem', margin: 0 }}>{msg.text}</p>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="aura-row">
-                <input
-                  type="text"
-                  className="aura-input"
-                  placeholder="Type anonymous message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSendMessage();
-                  }}
-                  style={{ flex: '1 1 300px' }}
-                />
-                <button
-                  onClick={voiceRecording ? stopVoiceRecording : startVoiceRecording}
-                  className="aura-btn aura-btn-secondary"
-                  style={{ background: voiceRecording ? 'var(--danger)' : 'var(--success)', color: '#fff', border: 'none' }}
-                  disabled={!mood}
-                >
-                  {voiceRecording ? 'Stop Voice' : 'Voice'}
-                </button>
-                <button
-                  onClick={handleSendMessage}
-                  className="aura-btn aura-btn-primary"
-                  disabled={!mood || !newMessage.trim()}
-                >
-                  Send
-                </button>
-              </div>
-            </div>
+            <ChatView
+              mood={mood}
+              messages={messages}
+              userId={userId}
+              text={text}
+              setText={setText}
+              onSend={send}
+              onChangeMood={() => setMood('')}
+            />
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MoodPicker({ onPick }) {
+  return (
+    <div>
+      <h2 style={{ textAlign: 'center', color: 'var(--text)', marginTop: 0 }}>
+        How are you feeling right now?
+      </h2>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: 12,
+          marginTop: 20
+        }}
+      >
+        {MOODS.map((m) => (
+          <button
+            key={m.name}
+            type="button"
+            onClick={() => onPick(m.name)}
+            className="aura-btn"
+            style={{
+              padding: '1.2rem',
+              background: m.color,
+              color: '#fff'
+            }}
+          >
+            {m.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChatView({ mood, messages, userId, text, setText, onSend, onChangeMood }) {
+  return (
+    <div>
+      <div
+        style={{
+          background: 'var(--primary)',
+          color: '#fff',
+          padding: '1.25rem',
+          borderRadius: 14,
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap'
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>{mood}</h2>
+          <p style={{ margin: '4px 0 0', opacity: 0.85, fontSize: '0.9rem' }}>
+            {messages.length} message{messages.length === 1 ? '' : 's'} • anonymous
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onChangeMood}
+          className="aura-btn aura-btn-secondary"
+        >
+          Change mood
+        </button>
+      </div>
+
+      <div
+        className="aura-card-compact"
+        style={{ marginBottom: 16, maxHeight: 500, overflowY: 'auto' }}
+      >
+        {messages.length === 0 ? (
+          <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>
+            No messages yet. Be the first to say hi.
+          </p>
+        ) : (
+          messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`message${msg.userId === userId ? ' message--mine' : ''}`}
+            >
+              <div className="message__header">
+                <Avatar color={msg.userColor} size={32} />
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ color: 'var(--text)', fontSize: '0.9rem' }}>
+                    Person {msg.userId?.slice(0, 6)}
+                  </strong>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: 6 }}>
+                    {msg.userAge} • {msg.userGender}
+                  </span>
+                </div>
+              </div>
+
+              <p style={{ color: 'var(--text)', margin: 0, lineHeight: 1.5 }}>
+                {msg.text}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="aura-row">
+        <input
+          type="text"
+          className="aura-input"
+          placeholder="Type an anonymous message…"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSend();
+          }}
+          style={{ flex: '1 1 280px' }}
+        />
+
+        <button
+          type="button"
+          className="aura-btn aura-btn-secondary"
+          title="Voice notes — coming soon"
+          disabled
+          aria-label="Send voice note (coming soon)"
+        >
+          <Mic size={18} />
+        </button>
+
+        <button
+          type="button"
+          onClick={onSend}
+          className="aura-btn aura-btn-primary"
+          disabled={!text.trim()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <Send size={16} /> Send
+        </button>
       </div>
     </div>
   );

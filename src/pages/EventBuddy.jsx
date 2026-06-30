@@ -1,42 +1,41 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+  Timestamp
+} from 'firebase/firestore';
 import { db } from '../firebase';
-import { doc, getDoc, collection, addDoc, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
+import Avatar from '../components/Avatar';
 
-export default function EventBuddy({ theme, setTheme }) {
+export default function EventBuddy() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const { user, userId, loading } = useCurrentUser();
   const [eventName, setEventName] = useState('');
-  const [dateOption, setDateOption] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [timeOption, setTimeOption] = useState('');
-  const [placeOption, setPlaceOption] = useState('');
+  const [time, setTime] = useState('');
+  const [place, setPlace] = useState('');
+  const [error, setError] = useState('');
   const [events, setEvents] = useState([]);
 
   useEffect(() => {
-    const loadUser = async () => {
-      const userId = localStorage.getItem('aura_userId');
-      if (!userId) return navigate('/');
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (userDoc.exists()) setUser(userDoc.data());
-      else navigate('/');
-    };
-    loadUser();
-  }, [navigate]);
-
-  useEffect(() => {
-    const qref = query(collection(db, 'eventBuddy'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(qref, (snap) => {
+    const q = query(collection(db, 'eventBuddy'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snap) => {
       setEvents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-    return () => unsub();
   }, []);
 
-  const postEvent = async () => {
-    const userId = localStorage.getItem('aura_userId');
-    if (!userId || !eventName.trim() || !dateOption.trim() || !timeOption.trim() || !placeOption.trim()) {
-      alert('Please fill all fields');
+  const post = async () => {
+    setError('');
+
+    if (!userId) return;
+    if (!eventName.trim() || !selectedDate || !time || !place.trim()) {
+      setError('Please fill in every field.');
       return;
     }
 
@@ -46,81 +45,140 @@ export default function EventBuddy({ theme, setTheme }) {
       userGender: user?.gender,
       userColor: user?.avatarColor,
       eventName: eventName.trim(),
-      dateOption: dateOption.trim(),
-      selectedDate: selectedDate.trim(),
-      timeOption: timeOption.trim(),
-      placeOption: placeOption.trim(),
+      date: selectedDate,
+      time,
+      place: place.trim(),
       createdAt: Timestamp.now()
     });
 
     setEventName('');
-    setDateOption('');
     setSelectedDate('');
-    setTimeOption('');
-    setPlaceOption('');
+    setTime('');
+    setPlace('');
   };
 
-  if (!user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">Loading...</div></div></div>;
+  if (loading || !user) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <div className="aura-card">Loading…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar
           title="Event Buddy"
-          subtitle="Find anonymous event partners. Join dates, concerts, trips, and more."
+          subtitle="Find someone to join you. Concerts, dinners, walks — anything."
           onBack={() => navigate(-1)}
-          theme={theme}
-          setTheme={setTheme}
         />
 
         <div className="aura-card aura-section">
-          <h2 style={{ color: 'var(--text)', marginBottom: '1rem' }}>Create Event</h2>
-          <input className="aura-input" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Event name e.g., Concert, Dinner, Movie" style={{ marginBottom: 14 }} />
+          <h2 style={{ marginTop: 0, color: 'var(--text)' }}>Post an event</h2>
 
-          <label style={{ color: 'var(--text)', fontWeight: 600, marginBottom: 8, display: 'block' }}>
-            Select Date
-            <input className="aura-input" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} type="date" style={{ marginTop: 8 }} />
-          </label>
+          <input
+            className="aura-input"
+            value={eventName}
+            onChange={(e) => setEventName(e.target.value)}
+            placeholder="Event name (concert, dinner, movie…)"
+            style={{ marginBottom: 12 }}
+          />
 
-          <label style={{ color: 'var(--text)', fontWeight: 600, marginBottom: 8, display: 'block', marginTop: 14 }}>
-            Time Option
-            <input className="aura-input" value={timeOption} onChange={(e) => setTimeOption(e.target.value)} placeholder="e.g., 7:00 PM" type="time" style={{ marginTop: 8 }} />
-          </label>
+          <Field label="Date">
+            <input
+              className="aura-input"
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+          </Field>
 
-          <label style={{ color: 'var(--text)', fontWeight: 600, marginBottom: 8, display: 'block', marginTop: 14 }}>
-            Location Option
-            <input className="aura-input" value={placeOption} onChange={(e) => setPlaceOption(e.target.value)} placeholder="e.g., Central Park OR Coffee Shop Downtown" style={{ marginTop: 8 }} />
-          </label>
+          <Field label="Time">
+            <input
+              className="aura-input"
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </Field>
 
-          <button onClick={postEvent} className="aura-btn aura-btn-primary" style={{ marginTop: 24 }}>
-            Post Event
+          <Field label="Location">
+            <input
+              className="aura-input"
+              value={place}
+              onChange={(e) => setPlace(e.target.value)}
+              placeholder="e.g. Central Park, the coffee shop downtown"
+            />
+          </Field>
+
+          {error && (
+            <p
+              role="alert"
+              style={{
+                color: 'var(--danger)',
+                fontSize: '0.9rem',
+                margin: '0 0 12px'
+              }}
+            >
+              {error}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={post}
+            className="aura-btn aura-btn-primary"
+          >
+            Post event
           </button>
         </div>
 
         <div className="aura-section">
-          <h2 style={{ color: 'var(--text)', marginBottom: '1rem' }}>Available Events ({events.length})</h2>
+          <h2 style={{ color: 'var(--text)', marginBottom: 12 }}>
+            Available events ({events.length})
+          </h2>
+
           {events.length === 0 ? (
             <div className="aura-card" style={{ textAlign: 'center' }}>
-              <p className="aura-muted">No events yet. Create one!</p>
+              <p className="aura-muted">No events yet. Create one.</p>
             </div>
           ) : (
             <div className="aura-grid">
               {events.map((event) => (
                 <div key={event.id} className="aura-card-compact">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: event.userColor || '#ddd' }} />
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      marginBottom: 12
+                    }}
+                  >
+                    <Avatar color={event.userColor} size={36} />
                     <div>
-                      <strong style={{ color: 'var(--text)' }}>Person {event.userId?.slice(0, 6)}</strong>
-                      <span style={{ color: 'var(--muted)', marginLeft: 8 }}>
+                      <strong style={{ color: 'var(--text)' }}>
+                        Person {event.userId?.slice(0, 6)}
+                      </strong>
+                      <span className="aura-muted" style={{ fontSize: '0.85rem', marginLeft: 6 }}>
                         {event.userAge} • {event.userGender}
                       </span>
                     </div>
                   </div>
-                  <h3 style={{ color: 'var(--primary)', marginBottom: '8px' }}>{event.eventName}</h3>
-                  <div style={{ marginBottom: 8 }}><strong>Calendar Date:</strong> {event.selectedDate || 'Not set'}</div>
-                  <div style={{ marginBottom: 8 }}><strong>Date Options:</strong> {event.dateOption}</div>
-                  <div style={{ marginBottom: 8 }}><strong>Time:</strong> {event.timeOption}</div>
-                  <div style={{ marginBottom: 12 }}><strong>Location:</strong> {event.placeOption}</div>
+
+                  <h3 style={{ color: 'var(--primary)', margin: '0 0 8px' }}>
+                    {event.eventName}
+                  </h3>
+
+                  <p style={{ margin: '4px 0', color: 'var(--text)' }}>
+                    <strong>Date:</strong> {event.date || 'TBD'} • {event.time || 'TBD'}
+                  </p>
+
+                  <p style={{ margin: '4px 0', color: 'var(--text)' }}>
+                    <strong>Where:</strong> {event.place}
+                  </p>
                 </div>
               ))}
             </div>
@@ -128,5 +186,16 @@ export default function EventBuddy({ theme, setTheme }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: 'block', marginBottom: 12, color: 'var(--text)' }}>
+      <span style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }

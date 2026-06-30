@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { ThemeProvider } from './context/ThemeContext';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import MoodChat from './pages/MoodChat';
@@ -13,30 +13,23 @@ import CollabStudio from './pages/CollabStudio';
 import NotificationManager from './notifications/NotificationManager';
 
 export default function App() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('aura_theme') || 'light');
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('aura_theme', theme);
-  }, [theme]);
-
   return (
-    <BrowserRouter>
-      <NotificationManager />
-      <div style={{ minHeight: '100vh' }}>
+    <ThemeProvider>
+      <BrowserRouter>
+        <NotificationManager />
         <Routes>
-          <Route path="/" element={<Login theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura" element={<Home theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/chat" element={<MoodChat theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/match" element={<MatchFinder theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/match/chat" element={<MatchChat theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/question" element={<DailyQuestion theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/swap" element={<SkillSwap theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/swap/call" element={<SkillSwapCall theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/event" element={<EventBuddy theme={theme} setTheme={setTheme} />} />
-          <Route path="/aura/collab" element={<CollabStudio theme={theme} setTheme={setTheme} />} />
+          <Route path="/" element={<Login />} />
+          <Route path="/aura" element={<Home />} />
+          <Route path="/aura/chat" element={<MoodChat />} />
+          <Route path="/aura/match" element={<MatchFinder />} />
+          <Route path="/aura/match/chat" element={<MatchChat />} />
+          <Route path="/aura/question" element={<DailyQuestion />} />
+          <Route path="/aura/swap" element={<SkillSwap />} />
+          <Route path="/aura/swap/call" element={<SkillSwapCall />} />
+          <Route path="/aura/event" element={<EventBuddy />} />
+          <Route path="/aura/collab" element={<CollabStudio />} />
         </Routes>
-      </div>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }

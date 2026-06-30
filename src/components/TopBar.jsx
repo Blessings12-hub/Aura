@@ -1,22 +1,36 @@
-export default function TopBar({ title, subtitle, onBack, theme, setTheme }) {
+import { ArrowLeft, Moon, Sun } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+
+export default function TopBar({ title, subtitle, onBack }) {
+  const { theme, toggleTheme } = useTheme();
+
   return (
-    <div className="aura-card" style={{ marginBottom: 20 }}>
-      <div className="aura-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1 }}>
+    <div className="aura-card aura-topbar">
+      <div className="aura-row aura-topbar-inner">
+        <div className="aura-topbar-copy">
           {onBack && (
-            <div className="aura-back">
-              <button onClick={onBack}>← Back</button>
-            </div>
+            <button
+              type="button"
+              onClick={onBack}
+              className="aura-btn aura-btn-secondary aura-topbar-back"
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
           )}
-          <h1 className="aura-title" style={{ fontSize: '2.4rem', color: 'var(--primary)' }}>{title}</h1>
-          {subtitle && <p className="aura-subtitle" style={{ marginTop: 8 }}>{subtitle}</p>}
+
+          <h1 className="aura-title aura-topbar-title">{title}</h1>
+
+          {subtitle && <p className="aura-subtitle aura-topbar-subtitle">{subtitle}</p>}
         </div>
 
         <button
-          className="aura-btn aura-btn-secondary"
-          onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+          type="button"
+          className="aura-btn aura-btn-secondary aura-theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
         >
-          {theme === 'light' ? 'Dark mode' : 'Light mode'}
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
         </button>
       </div>
     </div>

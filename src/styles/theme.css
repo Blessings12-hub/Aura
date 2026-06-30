@@ -1,4 +1,7 @@
-:root {
+/* Aura theme — dark by default, light via [data-theme=\"light\"]. */
+
+:root,
+:root[data-theme='dark'] {
   --bg: #0b1020;
   --surface: rgba(17, 24, 39, 0.94);
   --surface-2: rgba(255, 255, 255, 0.04);
@@ -17,15 +20,36 @@
   --radius-sm: 12px;
 }
 
-html, body, #root {
+:root[data-theme='light'] {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #f1f3f9;
+  --text: #0f172a;
+  --muted: #475569;
+  --border: rgba(15, 23, 42, 0.10);
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
+  --shadow-soft: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+html,
+body,
+#root {
   min-height: 100%;
 }
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top, rgba(79,70,229,0.16), transparent 30%), var(--bg);
+  background:
+    radial-gradient(circle at top, rgba(79, 70, 229, 0.16), transparent 30%),
+    var(--bg);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -34,13 +58,19 @@ body {
   box-sizing: border-box;
 }
 
-img, video, canvas {
+img,
+video,
+canvas {
   max-width: 100%;
 }
 
-button, input, textarea, select {
+button,
+input,
+textarea,
+select {
   font: inherit;
   max-width: 100%;
+  color: var(--text);
 }
 
 .aura-page {
@@ -93,8 +123,10 @@ button, input, textarea, select {
   padding: 12px 18px;
   cursor: pointer;
   font-weight: 700;
-  transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
-  max-width: 100%;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    opacity 120ms ease;
 }
 
 .aura-btn:hover {
@@ -109,7 +141,7 @@ button, input, textarea, select {
 
 .aura-btn-primary {
   background: var(--primary);
-  color: white;
+  color: #fff;
 }
 
 .aura-btn-primary:hover {
@@ -124,7 +156,7 @@ button, input, textarea, select {
 
 .aura-btn-danger {
   background: var(--danger);
-  color: white;
+  color: #fff;
 }
 
 .aura-input,
@@ -137,6 +169,13 @@ button, input, textarea, select {
   border-radius: 12px;
   padding: 14px 16px;
   outline: none;
+}
+
+.aura-input:focus-visible,
+.aura-select:focus-visible,
+.aura-textarea:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
 }
 
 .aura-textarea {
@@ -161,21 +200,63 @@ button, input, textarea, select {
   color: var(--muted);
 }
 
-.aura-back {
-  margin-bottom: 16px;
-}
-
-.aura-back button {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 14px;
-  cursor: pointer;
-}
-
 .aura-section {
   margin-top: 20px;
+}
+
+/* Activity card on the home screen. */
+.activity-card {
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 220px;
+}
+
+.activity-card__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.activity-card__cta {
+  margin-top: auto;
+  align-self: flex-start;
+  padding: 10px 18px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Message bubbles. */
+.message {
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+}
+
+.message--mine {
+  background: rgba(79, 70, 229, 0.12);
+  border: 1px solid rgba(79, 70, 229, 0.25);
+}
+
+.message__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 @media (min-width: 700px) {

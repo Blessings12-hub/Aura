@@ -1,3 +1,4 @@
+// src/firebase-messaging.js
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { app } from './firebase';
 
@@ -14,10 +15,11 @@ export async function requestNotificationPermission() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return null;
 
-  await registerServiceWorker();
+  const registration = await registerServiceWorker();
 
   const token = await getToken(messaging, {
-    vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY
+    vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+    serviceWorkerRegistration: registration || undefined
   });
 
   return token;

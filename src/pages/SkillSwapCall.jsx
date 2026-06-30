@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { db } from '../firebase';
 import {
   doc,
   getDoc,
@@ -13,75 +12,108 @@ import {
   query,
   orderBy
 } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 
-const iceServers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] };
+const ICE_SERVERS = {
+  iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+};
 
-export default function SkillSwapCall({ theme, setTheme }) {
+export default function SkillSwapCall() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { callId, otherUser } = location.state || {};
+  const { state } = useLocation();
+  const callId = state?.callId;
+  const otherUser = state?.otherUser;
+
+  const { userId, loading } = useCurrentUser();
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
-  const [status, setStatus] = useState('Connecting...');
+  const [status, setStatus] = useState('Connecting…');
 
   useEffect(() => {
-    if (!callId) return navigate('/aura/swap');
+    if (loading) return undefined;
+    if (!callId || !userId) {
+      navigate('/aura/swap');
+      return undefined;
+    }
 
-    let unsubCall = null;
-    let unsubCandidates = null;
-    let closed = false;
+    let unsubCall;
+    let unsubCandidates;
+    let cancelled = false;
 
     const start = async () => {
-      const userId = localStorage.getItem('aura_userId');
-      if (!userId) return navigate('/');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-      const pc = new RTCPeerConnection(iceServers);
+      const pc = new RTCPeerConnection(ICE_SERVERS);
       pcRef.current = pc;
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-      };
-
-      pc.onicecandidate = async (event) => {
-        if (!event.candidate) return;
-
-        const callSnap = await getDoc(doc(db, 'skillSwapCalls', callId));
-        const data = callSnap.data();
-        const targetCollection = data?.userA === userId ? 'offerCandidates' : 'answerCandidates';
-
-        await addDoc(collection(db, 'skillSwapCalls', callId, targetCollection), {
-          candidate: event.candidate.toJSON(),
-          userId,
-          createdAt: serverTimestamp()
-        });
+      pc.ontrack = (e) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = e.streams[0];
+        }
       };
 
       const callRef = doc(db, 'skillSwapCalls', callId);
-      const callSnap = await getDoc(callRef);
+      let callSnap = await getDoc(callRef);
+      const isInitiator = !callSnap.exists();
 
-      if (!callSnap.exists()) {
+      if (isInitiator) {
         await setDoc(callRef, {
           userA: userId,
           userB: otherUser?.userId || null,
           status: 'requested',
           createdAt: serverTimestamp()
         });
+        callSnap = await getDoc(callRef);
       }
+
+      pc.onicecandidate = async (e) => {
+        if (!e.candidate) return;
+        const targetCollection = isInitiator ? 'offerCandidates' : 'answerCandidates';
+        await addDoc(collection(callRef, targetCollection), {
+          candidate: e.candidate.toJSON(),
+          userId,
+          createdAt: serverTimestamp()
+        });
+      };
+
+      const candidatesQ = query(
+        collection(callRef, isInitiator ? 'answerCandidates' : 'offerCandidates'),
+        orderBy('createdAt', 'asc')
+      );
+
+      unsubCandidates = onSnapshot(candidatesQ, (snap) => {
+        snap.docChanges().forEach(async (change) => {
+          if (change.type !== 'added') return;
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(change.doc.data().candidate));
+          } catch (err) {
+            console.error('Failed to add ICE candidate', err);
+          }
+        });
+      });
 
       unsubCall = onSnapshot(callRef, async (snap) => {
         const data = snap.data();
-        if (!data || closed) return;
+        if (!data) return;
 
-        if (data.offer && pc.signalingState === 'stable' && data.userA !== userId) {
+        if (!isInitiator && data.offer && !pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -92,63 +124,69 @@ export default function SkillSwapCall({ theme, setTheme }) {
           setStatus('Answered');
         }
 
-        if (data.answer && pc.signalingState === 'have-local-offer') {
+        if (isInitiator && data.answer && !pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setStatus('Connected');
         }
       });
 
-      const offerCandidatesQ = query(collection(db, 'skillSwapCalls', callId, 'offerCandidates'), orderBy('createdAt', 'asc'));
-      const answerCandidatesQ = query(collection(db, 'skillSwapCalls', callId, 'answerCandidates'), orderBy('createdAt', 'asc'));
-
-      unsubCandidates = onSnapshot(
-        userId === callSnap.data()?.userA ? answerCandidatesQ : offerCandidatesQ,
-        (snap) => {
-          snap.docChanges().forEach(async (change) => {
-            if (change.type === 'added') {
-              await pc.addIceCandidate(new RTCIceCandidate(change.doc.data().candidate));
-            }
-          });
-        }
-      );
-
-      if (callSnap.data()?.userA === userId && !callSnap.data()?.offer) {
+      if (isInitiator) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await updateDoc(callRef, {
           offer: { type: offer.type, sdp: offer.sdp },
           status: 'offered'
         });
-        setStatus('Offered');
+        setStatus('Calling…');
       }
     };
 
-    start();
+    start().catch((err) => {
+      console.error(err);
+      setStatus('Could not start the call');
+    });
 
     return () => {
-      closed = true;
-      unsubCall && unsubCall();
-      unsubCandidates && unsubCandidates();
-      pcRef.current && pcRef.current.close();
-      localStreamRef.current && localStreamRef.current.getTracks().forEach((t) => t.stop());
+      cancelled = true;
+      if (unsubCall) unsubCall();
+      if (unsubCandidates) unsubCandidates();
+      if (pcRef.current) pcRef.current.close();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
     };
-  }, [callId, navigate, otherUser]);
+  }, [callId, userId, otherUser, navigate, loading]);
 
   return (
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar
-          title="Skill Swap Video Chat"
+          title="Skill Swap Call"
           subtitle={`Status: ${status}`}
           onBack={() => navigate(-1)}
-          theme={theme}
-          setTheme={setTheme}
         />
 
         <div className="aura-card aura-section">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', background: '#000', borderRadius: 12 }} />
-            <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', background: '#000', borderRadius: 12 }} />
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 16
+            }}
+          >
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: '100%', background: '#000', borderRadius: 12 }}
+            />
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              style={{ width: '100%', background: '#000', borderRadius: 12 }}
+            />
           </div>
         </div>
       </div>
