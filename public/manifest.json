@@ -2,8 +2,12 @@
   "name": "Aura",
   "short_name": "Aura",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
-  "icons": []
+  "orientation": "portrait",
+  "description": "A mood-based social app for anonymous chat, matching, and shared activities.",
+  "icons":[]
+    
 }

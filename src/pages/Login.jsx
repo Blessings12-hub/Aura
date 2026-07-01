@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { signInAnonymously } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { AVATAR_COLORS } from '../constants/moods';
 import LanguageSwitcher from '../components/LanguageSwitcher';
@@ -19,149 +19,145 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    // Already logged in & profile complete → skip to home
+    const storedId = localStorage.getItem('aura_userId');
+    if (storedId) {
+      getDoc(doc(db, 'users', storedId)).then((snap) => {
+        if (snap.exists()) navigate('/aura');
+      }).catch(() => {});
+    }
+  }, [navigate]);
+
   const handleLogin = async () => {
     setError('');
-
-    if (!age || !gender) {
-      setError('Please enter your age and choose a gender.');
-      return;
-    }
-
-    if (Number(age) < MIN_AGE) {
-      setError(`You must be ${MIN_AGE} or older to join Aura.`);
-      return;
-    }
-
+    if (!age || !gender) { setError(t('fill_required')); return; }
+    if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
-
     try {
       let uid = localStorage.getItem('aura_userId');
-
       if (!uid) {
-        const cred = await signInAnonymously(auth);
-        uid = cred.user.uid;
+        // Wait for auth state or trigger anonymous sign-in
+        const existing = auth.currentUser;
+        if (existing) {
+          uid = existing.uid;
+        } else {
+          const cred = await signInAnonymously(auth);
+          uid = cred.user.uid;
+        }
         localStorage.setItem('aura_userId', uid);
       }
-
       const userRef = doc(db, 'users', uid);
       const existing = await getDoc(userRef);
-
-      await setDoc(
-        userRef,
-        {
-          age: Number(age),
-          gender,
-          avatarColor,
-          createdAt: existing.exists() ? existing.data().createdAt : new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        { merge: true }
-      );
-
+      await setDoc(userRef, {
+        age: Number(age),
+        gender,
+        avatarColor,
+        createdAt: existing.exists() ? existing.data().createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
       navigate('/aura');
     } catch (err) {
       console.error(err);
-      setError('Could not sign you in. Please try again.');
+      setError(t('signin_failed'));
     } finally {
       setSubmitting(false);
     }
   };
 
+  // Ensure anonymous auth started early
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (!user) signInAnonymously(auth).catch(() => {});
+    });
+    return () => unsub();
+  }, []);
+
   return (
-    <div className="aura-page aura-login-page">
-      <div className="aura-shell aura-login-shell">
-        <div className="aura-login-lang">
+    <div className=\"aura-page aura-login-page\">
+      <div className=\"aura-shell aura-login-shell\">
+        <div className=\"aura-login-lang\">
           <LanguageSwitcher />
         </div>
 
-        <div className="aura-card aura-login-card">
-          <div className="aura-login-hero">
-            <div className="aura-login-mark" aria-hidden="true">
-              A
-            </div>
-
-            <h1 className="aura-login-title">Aura</h1>
-
-            <p className="aura-login-copy">
-              A mood-based social app for anonymous chat, matching, and shared activities.
-              Everything resets every 24 hours.
-            </p>
+        <div className=\"aura-card aura-login-card fade-in\" data-testid=\"login-card\">
+          <div className=\"aura-login-hero\">
+            <div className=\"aura-login-mark\" aria-hidden=\"true\">A</div>
+            <h1 className=\"aura-login-title\" data-testid=\"login-title\">{t('app_name')}</h1>
+            <p className=\"aura-login-copy\" data-testid=\"login-copy\">{t('app_tagline')}</p>
           </div>
 
-          <Field label="Your age">
+          <div className=\"aura-field\">
+            <label className=\"aura-field-label\">{t('age')}</label>
             <input
-              className="aura-input"
-              type="number"
-              inputMode="numeric"
+              className=\"aura-input\"
+              type=\"number\"
+              inputMode=\"numeric\"
               min={MIN_AGE}
               value={age}
-              placeholder="e.g. 23"
+              placeholder={t('age_placeholder')}
               onChange={(e) => setAge(e.target.value)}
+              data-testid=\"login-age-input\"
             />
-          </Field>
+          </div>
 
-          <Field label="Gender">
-            <select className="aura-select" value={gender} onChange={(e) => setGender(e.target.value)}>
-              <option value="">Select gender</option>
-              <option value="Female">Female</option>
-              <option value="Male">Male</option>
-              <option value="Non-binary">Non-binary</option>
-              <option value="Prefer not to say">Prefer not to say</option>
-            </select>
-          </Field>
-
-          <Field label="Pick your colour">
-            <div
-              role="radiogroup"
-              aria-label="Avatar colour"
-              className="aura-color-row"
+          <div className=\"aura-field\">
+            <label className=\"aura-field-label\">{t('gender')}</label>
+            <select
+              className=\"aura-select\"
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              data-testid=\"login-gender-select\"
             >
+              <option value=\"\">{t('select_gender')}</option>
+              <option value=\"Female\">{t('female')}</option>
+              <option value=\"Male\">{t('male')}</option>
+              <option value=\"Non-binary\">{t('non_binary')}</option>
+              <option value=\"Prefer not to say\">{t('prefer_not')}</option>
+            </select>
+          </div>
+
+          <div className=\"aura-field\">
+            <label className=\"aura-field-label\">{t('pick_color')}</label>
+            <div role=\"radiogroup\" aria-label={t('pick_color')} className=\"aura-color-row\">
               {AVATAR_COLORS.map((color) => {
                 const active = avatarColor === color;
                 return (
                   <button
                     key={color}
-                    type="button"
-                    role="radio"
+                    type=\"button\"
+                    role=\"radio\"
                     aria-checked={active}
                     aria-label={`Colour ${color}`}
                     onClick={() => setAvatarColor(color)}
-                    className="aura-color-chip"
-                    style={{
-                      background: color,
-                      outlineColor: active ? 'var(--text)' : 'transparent'
-                    }}
+                    className=\"aura-color-chip\"
+                    data-testid={`login-color-${color.replace('#','')}`}
+                    style={{ background: color, outlineColor: active ? 'var(--primary)' : 'transparent' }}
                   />
                 );
               })}
             </div>
-          </Field>
+          </div>
 
           {error && (
-            <p role="alert" className="aura-login-error">
-              {error}
-            </p>
+            <p role=\"alert\" className=\"aura-login-error\" data-testid=\"login-error\">{error}</p>
           )}
 
           <button
-            type="button"
+            type=\"button\"
             onClick={handleLogin}
             disabled={submitting}
-            className="aura-btn aura-btn-primary aura-login-submit"
+            className=\"aura-btn aura-btn-primary aura-login-submit\"
+            data-testid=\"login-submit-btn\"
           >
-            {submitting ? 'Entering…' : t('enter_anonymously', 'Enter Aura anonymously')}
+            {submitting ? t('entering') : t('enter_anonymously')}
           </button>
+
+          <p className=\"aura-muted\" style={{ fontSize: '0.82rem', margin: '14px 0 0', textAlign: 'center' }}>
+            {t('privacy_note')}
+          </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <div className="aura-field">
-      <label className="aura-field-label">{label}</label>
-      {children}
     </div>
   );
 }
