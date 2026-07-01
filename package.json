@@ -11,22 +11,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "emergentintegrations": "^2.7.2",
-    "fastapi": "^0.0.8",
     "firebase": "^12.15.0",
-    "httpx": "^3.0.1",
     "i18next": "^26.3.3",
-    "install": "^0.13.0",
     "lucide-react": "^0.460.0",
-    "motor": "^0.1.4",
-    "pip": "^0.0.1",
-    "pydantic": "^0.0.1-security",
-    "python-dotenv": "^0.0.1-security",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-i18next": "^17.0.8",
-    "react-router-dom": "^7.18.0",
-    "uvicorn": "^0.0.1-security"
+    "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
