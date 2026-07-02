@@ -5,13 +5,40 @@ import {
   collection, addDoc, query, orderBy, onSnapshot, Timestamp,
 } from 'firebase/firestore';
 import { ref as sref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Send, Mic, Square, Play } from 'lucide-react';
+import { Send, Mic, Square } from 'lucide-react';
 import { db, storage } from '../firebase';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 import { pushAuraNotification } from '../notifications/NotificationManager';
+
+// MediaRecorder's actual output codec depends entirely on what the browser
+// supports — there is no universal default. The previous version hardcoded
+// `new Blob(chunks, { type: 'audio/webm' })` regardless of what was really
+// recorded, which silently mislabels the file on any browser that doesn't
+// use webm/opus (notably Safari/iOS, which records audio/mp4). A mislabeled
+// blob uploads fine but then fails to play back, because the browser trusts
+// the declared type over the actual bytes. This picks the first type the
+// browser actually supports and uses that same type consistently for the
+// recorder, the blob, and the upload's Content-Type metadata.
+const VOICE_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/ogg',
+];
+function pickSupportedMimeType() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  return VOICE_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+}
+function extensionForMime(mime) {
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('ogg')) return 'ogg';
+  return 'webm';
+}
 
 export default function MoodChat() {
   const navigate = useNavigate();
@@ -21,17 +48,28 @@ export default function MoodChat() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
+  const [micError, setMicError] = useState('');
   const recRef = useRef(null);
   const chunksRef = useRef([]);
+  const mimeRef = useRef('');
   const listRef = useRef(null);
   const lastSeenRef = useRef(0);
 
+  // Genuine "who's actually in this room right now" — replaces the old
+  // (incorrect) display of messages.length as if it were an online count.
+  // Server-enforced via RTDB onDisconnect, so it stays accurate even if
+  // someone's tab crashes rather than closes cleanly.
+  const { count: onlineCount } = useRoomPresence(
+    mood ? `mood-${mood}` : null,
+    userId,
+    { color: user?.avatarColor },
+  );
+
   useEffect(() => {
-    if (!mood) { setMessages([]); return undefined; }
+    if (!mood) { setMessages([]); lastSeenRef.current = 0; return undefined; }
     const q = query(collection(db, 'chats', mood, 'messages'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      // notify on incoming new messages from others
       const newOnes = all.slice(lastSeenRef.current);
       newOnes.forEach((m) => {
         if (m.userId !== userId && lastSeenRef.current > 0) {
@@ -55,31 +93,39 @@ export default function MoodChat() {
   };
 
   const startRecording = async () => {
+    setMicError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const mimeType = pickSupportedMimeType();
+      mimeRef.current = mimeType;
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
       rec.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const actualType = rec.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: actualType });
         stream.getTracks().forEach((tr) => tr.stop());
         try {
-          const path = `voice/${mood}/${userId}-${Date.now()}.webm`;
+          const ext = extensionForMime(actualType);
+          const path = `voice/${mood}/${userId}-${Date.now()}.${ext}`;
           const r = sref(storage, path);
-          await uploadBytes(r, blob);
+          // Explicit contentType metadata matters: without it, Firebase
+          // Storage can serve the file as application/octet-stream, which
+          // most browsers refuse to play inline via <audio src>, even
+          // though the download itself "succeeds".
+          await uploadBytes(r, blob, { contentType: actualType });
           const url = await getDownloadURL(r);
           await addDoc(collection(db, 'chats', mood, 'messages'), {
-            type: 'voice', voiceUrl: url, userId,
+            type: 'voice', voiceUrl: url, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
           });
         } catch (err) {
           console.error('voice upload failed', err);
-          // fallback: store as a local data URL message
           const reader = new FileReader();
           reader.onload = async () => {
             await addDoc(collection(db, 'chats', mood, 'messages'), {
-              type: 'voice', voiceUrl: reader.result, userId,
+              type: 'voice', voiceUrl: reader.result, voiceMime: actualType, userId,
               userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
               createdAt: Timestamp.now(),
             });
@@ -92,7 +138,7 @@ export default function MoodChat() {
       setRecording(true);
     } catch (e) {
       console.error('mic permission failed', e);
-      alert('Microphone permission is needed to send voice notes.');
+      setMicError('Microphone access was blocked or unavailable. Check your browser/site permissions and try again.');
     }
   };
 
@@ -109,7 +155,7 @@ export default function MoodChat() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${messages.length} ${t('online_now')}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
+        <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${onlineCount} ${t('online_now')}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
 
         {!mood ? (
           <div className="aura-card aura-section fade-in" data-testid="mood-picker">
@@ -130,7 +176,7 @@ export default function MoodChat() {
         ) : (
           <div className="aura-card aura-section fade-in" data-testid="mood-chat-room">
             <div className="aura-row" style={{ justifyContent: 'space-between' }}>
-              <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {messages.length}</div>
+              <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {onlineCount}</div>
               <button type="button" onClick={() => setMood('')} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="change-mood-btn">{t('change_mood')}</button>
             </div>
 
@@ -153,6 +199,8 @@ export default function MoodChat() {
                 </div>
               ))}
             </div>
+
+            {micError && <p className="aura-login-error" style={{ margin: '10px 0 0' }}>{micError}</p>}
 
             <div className="aura-row">
               <input

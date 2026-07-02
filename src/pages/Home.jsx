@@ -61,6 +61,7 @@ export default function Home() {
         <TopBar
           title={t('welcome_back')}
           subtitle={t('six_activities')}
+          showLogout
         />
 
         <div className="aura-grid">

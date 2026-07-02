@@ -1,13 +1,24 @@
-import { ArrowLeft, Moon, Sun, Bell, BellRing } from 'lucide-react';
+import { ArrowLeft, Moon, Sun, Bell, BellRing, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { signOut } from 'firebase/auth';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from './LanguageSwitcher';
 import { useNotifications } from '../notifications/NotificationManager';
+import { auth } from '../firebase';
 
-export default function TopBar({ title, subtitle, onBack, right = null }) {
+export default function TopBar({ title, subtitle, onBack, right = null, showLogout = false }) {
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const { permission, request } = useNotifications();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    if (!window.confirm('Log out of Aura? You can always come back anonymously again.')) return;
+    try { await signOut(auth); } catch (e) { console.error('sign out failed', e); }
+    localStorage.removeItem('aura_userId');
+    navigate('/');
+  };
 
   return (
     <div className="aura-topbar fade-in">
@@ -51,6 +62,18 @@ export default function TopBar({ title, subtitle, onBack, right = null }) {
         >
           {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
         </button>
+        {showLogout && (
+          <button
+            type="button"
+            className="aura-btn aura-btn-secondary aura-btn-pill"
+            onClick={handleLogout}
+            data-testid="logout-btn"
+            aria-label="Log out"
+            title="Log out"
+          >
+            <LogOut size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

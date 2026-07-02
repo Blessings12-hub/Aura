@@ -24,6 +24,29 @@ export default function CollabStudio() {
   const [strokes, setStrokes] = useState([]);
   const [cursors, setCursors] = useState({});
 
+  // Single source of truth for painting all strokes, so both "strokes
+  // changed" and "canvas just resized" redraw through the same logic.
+  const redrawAll = (strokesToDraw) => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    strokesToDraw.forEach((stroke) => {
+      const pts = stroke.points || [];
+      ctx.strokeStyle = stroke.color || '#000';
+      ctx.lineWidth = stroke.size || 4;
+      ctx.beginPath();
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]; const b = pts[i];
+        ctx.moveTo(a.x * rect.width, a.y * rect.height);
+        ctx.lineTo(b.x * rect.width, b.y * rect.height);
+      }
+      ctx.stroke();
+    });
+  };
+  const strokesRef = useRef([]);
+  useEffect(() => { strokesRef.current = strokes; }, [strokes]);
+
   // Canvas resize
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return undefined;
@@ -33,12 +56,22 @@ export default function CollabStudio() {
       canvas.width = Math.round(rect.width * dpr);
       canvas.height = Math.round(rect.height * dpr);
       const ctx = canvas.getContext('2d');
+      // setTransform (not scale) — resets rather than compounds, so this
+      // stays correct even if resize fires many times in a row (mobile
+      // browsers fire resize on address-bar show/hide, keyboard open/close,
+      // and orientation change, sometimes several times per interaction).
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      // Changing canvas.width/height clears the bitmap as a side effect of
+      // the browser itself — without this, every resize silently erases
+      // the drawing until an unrelated Firestore update happens to
+      // trigger a redraw. Re-paint immediately so nothing is lost.
+      redrawAll(strokesRef.current);
     };
     resize();
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Subscribe strokes
@@ -59,24 +92,11 @@ export default function CollabStudio() {
     });
   }, [userId]);
 
-  // Redraw on stroke changes
+  // Redraw whenever the strokes list itself changes (new stroke arrived,
+  // one was undone/cleared).
   useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    strokes.forEach((stroke) => {
-      const pts = stroke.points || [];
-      ctx.strokeStyle = stroke.color || '#000';
-      ctx.lineWidth = stroke.size || 4;
-      ctx.beginPath();
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1]; const b = pts[i];
-        ctx.moveTo(a.x * rect.width, a.y * rect.height);
-        ctx.lineTo(b.x * rect.width, b.y * rect.height);
-      }
-      ctx.stroke();
-    });
+    redrawAll(strokes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strokes]);
 
   const getPoint = (e) => {
