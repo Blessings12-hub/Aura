@@ -104,21 +104,21 @@ export default function MoodChat() {
     setRecording(false);
   };
 
-  if (loading || !user) return <div className=\"aura-page\"><div className=\"aura-shell\"><div className=\"aura-card\">{t('loading')}</div></div></div>;
+  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
+    <div className="aura-page">
+      <div className="aura-shell">
         <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${messages.length} ${t('online_now')}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
 
         {!mood ? (
-          <div className=\"aura-card aura-section fade-in\" data-testid=\"mood-picker\">
-            <h2 className=\"aura-title\">{t('feeling_now')}</h2>
-            <div className=\"aura-grid\" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+          <div className="aura-card aura-section fade-in" data-testid="mood-picker">
+            <h2 className="aura-title">{t('feeling_now')}</h2>
+            <div className="aura-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
               {MOODS.map((m, i) => (
                 <button
                   key={m.name}
-                  type=\"button\"
+                  type="button"
                   onClick={() => setMood(m.name)}
                   className={`aura-btn aura-btn-primary fade-in delay-${Math.min(i, 3)}`}
                   data-testid={`mood-${m.name.toLowerCase()}`}
@@ -128,22 +128,22 @@ export default function MoodChat() {
             </div>
           </div>
         ) : (
-          <div className=\"aura-card aura-section fade-in\" data-testid=\"mood-chat-room\">
-            <div className=\"aura-row\" style={{ justifyContent: 'space-between' }}>
-              <div className=\"chip\"><span className=\"dot dot--live\" /> {mood} • {t('online_now')}: {messages.length}</div>
-              <button type=\"button\" onClick={() => setMood('')} className=\"aura-btn aura-btn-secondary aura-btn-pill\" data-testid=\"change-mood-btn\">{t('change_mood')}</button>
+          <div className="aura-card aura-section fade-in" data-testid="mood-chat-room">
+            <div className="aura-row" style={{ justifyContent: 'space-between' }}>
+              <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {messages.length}</div>
+              <button type="button" onClick={() => setMood('')} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="change-mood-btn">{t('change_mood')}</button>
             </div>
 
-            <div ref={listRef} className=\"message-list\" data-testid=\"message-list\" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>
+            <div ref={listRef} className="message-list" data-testid="message-list" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>
               {messages.length === 0 ? (
-                <p className=\"aura-muted\" style={{ textAlign: 'center', padding: '2rem' }}>{t('no_messages')}</p>
+                <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>{t('no_messages')}</p>
               ) : messages.map((m) => (
                 <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`msg-${m.id}`}>
-                  <div className=\"aura-row\" style={{ gap: 8 }}>
+                  <div className="aura-row" style={{ gap: 8 }}>
                     <Avatar color={m.userColor} size={24} />
-                    <span className=\"message__meta\">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
+                    <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
                   </div>
-                  <div className=\"message__bubble\">
+                  <div className="message__bubble">
                     {m.type === 'voice' && m.voiceUrl ? (
                       <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} />
                     ) : (
@@ -154,23 +154,23 @@ export default function MoodChat() {
               ))}
             </div>
 
-            <div className=\"aura-row\">
+            <div className="aura-row">
               <input
-                type=\"text\"
-                className=\"aura-input\"
+                type="text"
+                className="aura-input"
                 placeholder={t('type_message')}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
                 style={{ flex: '1 1 240px' }}
-                data-testid=\"message-input\"
+                data-testid="message-input"
               />
               {recording ? (
-                <button type=\"button\" className=\"aura-btn aura-btn-danger\" onClick={stopRecording} data-testid=\"stop-record-btn\"><Square size={16} /> {t('recording')}</button>
+                <button type="button" className="aura-btn aura-btn-danger" onClick={stopRecording} data-testid="stop-record-btn"><Square size={16} /> {t('recording')}</button>
               ) : (
-                <button type=\"button\" className=\"aura-btn aura-btn-secondary\" onClick={startRecording} aria-label={t('send_voice_note')} data-testid=\"record-btn\"><Mic size={16} /></button>
+                <button type="button" className="aura-btn aura-btn-secondary" onClick={startRecording} aria-label={t('send_voice_note')} data-testid="record-btn"><Mic size={16} /></button>
               )}
-              <button type=\"button\" className=\"aura-btn aura-btn-primary\" onClick={send} disabled={!text.trim()} data-testid=\"send-btn\"><Send size={16} /> {t('send')}</button>
+              <button type="button" className="aura-btn aura-btn-primary" onClick={send} disabled={!text.trim()} data-testid="send-btn"><Send size={16} /> {t('send')}</button>
             </div>
           </div>
         )}

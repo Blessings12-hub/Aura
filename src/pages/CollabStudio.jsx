@@ -144,14 +144,14 @@ export default function CollabStudio() {
     if (last) await deleteDoc(doc(db, 'collabStudio', last.id));
   };
 
-  if (loading || !user) return <div className=\"aura-page\"><div className=\"aura-shell\"><div className=\"aura-card\">{t('loading')}</div></div></div>;
+  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
+    <div className="aura-page">
+      <div className="aura-shell">
         <TopBar title={t('collab_studio')} subtitle={t('canvas_strokes', { n: strokes.length })} onBack={() => navigate(-1)} />
 
-        <div className=\"aura-card aura-section fade-in\">
+        <div className="aura-card aura-section fade-in">
           <div ref={wrapRef} style={{ position: 'relative' }}>
             <canvas
               ref={canvasRef}
@@ -162,35 +162,35 @@ export default function CollabStudio() {
               onTouchStart={handleStart}
               onTouchMove={handleMove}
               onTouchEnd={handleEnd}
-              data-testid=\"collab-canvas\"
+              data-testid="collab-canvas"
               style={{
                 width: '100%', height: 460, borderRadius: 14, border: '1px solid var(--border)',
                 cursor: 'crosshair', touchAction: 'none', display: 'block',
                 background: 'var(--surface-2)',
               }}
-              aria-label=\"Shared drawing canvas\"
+              aria-label="Shared drawing canvas"
             />
             {Object.entries(cursors).map(([uid, c]) => {
               const rect = canvasRef.current?.getBoundingClientRect();
               if (!rect) return null;
               return (
-                <div key={uid} style={{ position: 'absolute', left: c.x * 100 + '%', top: c.y * 100 + '%' }} className=\"canvas-cursor\" >
-                  <span className=\"canvas-name\" style={{ background: c.color }}>{c.name}</span>
+                <div key={uid} style={{ position: 'absolute', left: c.x * 100 + '%', top: c.y * 100 + '%' }} className="canvas-cursor" >
+                  <span className="canvas-name" style={{ background: c.color }}>{c.name}</span>
                 </div>
               );
             })}
           </div>
 
-          <div className=\"canvas-toolbar\">
-            <label className=\"chip\"><Brush size={12} /> {t('canvas_color')}
-              <input type=\"color\" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 28, height: 22, border: 'none', background: 'transparent', cursor: 'pointer' }} data-testid=\"color-picker\" />
+          <div className="canvas-toolbar">
+            <label className="chip"><Brush size={12} /> {t('canvas_color')}
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 28, height: 22, border: 'none', background: 'transparent', cursor: 'pointer' }} data-testid="color-picker" />
             </label>
-            <label className=\"chip\">{t('canvas_size')} <input type=\"range\" min=\"1\" max=\"30\" value={size} onChange={(e) => setSize(Number(e.target.value))} data-testid=\"size-range\" /> <span>{size}</span></label>
-            <button type=\"button\" onClick={undoMine} className=\"aura-btn aura-btn-secondary aura-btn-pill\" data-testid=\"undo-btn\"><Undo2 size={14} /> {t('canvas_undo')}</button>
-            <button type=\"button\" onClick={clearAll} className=\"aura-btn aura-btn-danger aura-btn-pill\" data-testid=\"clear-btn\"><Eraser size={14} /> {t('canvas_clear')}</button>
+            <label className="chip">{t('canvas_size')} <input type="range" min="1" max="30" value={size} onChange={(e) => setSize(Number(e.target.value))} data-testid="size-range" /> <span>{size}</span></label>
+            <button type="button" onClick={undoMine} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="undo-btn"><Undo2 size={14} /> {t('canvas_undo')}</button>
+            <button type="button" onClick={clearAll} className="aura-btn aura-btn-danger aura-btn-pill" data-testid="clear-btn"><Eraser size={14} /> {t('canvas_clear')}</button>
           </div>
 
-          <p className=\"aura-muted\" style={{ fontSize: '0.85rem', margin: 0 }}>
+          <p className="aura-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
             {Object.keys(cursors).length > 0 ? `${Object.keys(cursors).length} other drawer(s) live` : 'You’re the only one here — share the link to invite a friend.'}
           </p>
         </div>

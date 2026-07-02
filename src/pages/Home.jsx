@@ -47,23 +47,23 @@ export default function Home() {
 
   if (loading || !user) {
     return (
-      <div className=\"aura-page\">
-        <div className=\"aura-shell\">
-          <div className=\"aura-card\">{t('loading')}</div>
+      <div className="aura-page">
+        <div className="aura-shell">
+          <div className="aura-card">{t('loading')}</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
+    <div className="aura-page">
+      <div className="aura-shell">
         <TopBar
           title={t('welcome_back')}
           subtitle={t('six_activities')}
         />
 
-        <div className=\"aura-grid\">
+        <div className="aura-grid">
           {ACTIVITY_KEYS.map((a, i) => {
             const Icon = ACTIVITY_ICONS[a.id];
             const tint = ACTIVITY_TINTS[a.id];
@@ -71,27 +71,27 @@ export default function Home() {
             return (
               <button
                 key={a.id}
-                type=\"button\"
+                type="button"
                 onClick={() => navigate(a.route)}
                 className={`activity-card fade-in delay-${Math.min(i, 3)}`}
                 data-testid={`activity-${a.id}`}
                 style={{ '--card-tint': tint }}
                 aria-label={`Open ${t(a.titleKey)}`}
               >
-                <div className=\"activity-card__icon\" style={{ background: color }} aria-hidden=\"true\">
-                  <Icon size={22} />
+                <div className="activity-card__header">
+                  <div className="activity-card__icon" style={{ background: color }} aria-hidden="true">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="activity-card__title">{t(a.titleKey)}</h3>
                 </div>
-                <div>
-                  <h3 className=\"activity-card__title\">{t(a.titleKey)}</h3>
-                  <p className=\"activity-card__desc\">{t(a.descKey)}</p>
-                </div>
-                <span className=\"activity-card__cta\">{t('open')} <ArrowRight size={14} /></span>
+                <p className="activity-card__desc">{t(a.descKey)}</p>
+                <span className="activity-card__cta">{t('open')} <ArrowRight size={14} /></span>
               </button>
             );
           })}
         </div>
 
-        <div className=\"aura-banner fade-in\">{t('privacy_footer')}</div>
+        <div className="aura-banner fade-in">{t('privacy_footer')}</div>
       </div>
     </div>
   );

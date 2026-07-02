@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, serverTimestamp, query, orderBy,
 } from 'firebase/firestore';
-import { PhoneOff } from 'lucide-react';
+import { PhoneOff, ShieldAlert } from 'lucide-react';
 import { db } from '../firebase';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
@@ -25,15 +25,35 @@ export default function SkillSwapCall() {
   const pcRef = useRef(null);
   const streamRef = useRef(null);
   const [status, setStatus] = useState('Connecting…');
+  // Three-state consent gate: null = still checking, false = not consented
+  // (blocks camera/mic access entirely), true = both parties accepted and
+  // we're allowed to proceed. This is checked against swapPairs directly —
+  // not inferred from how the person navigated here — so URL-typing or
+  // using the back button can't bypass it.
+  const [consented, setConsented] = useState(null);
+
+  // Consent check — runs BEFORE any getUserMedia() call. Also keeps
+  // listening: if either party revokes consent while a call might be
+  // starting, we never open the camera.
+  useEffect(() => {
+    if (!swapId || !userId) return undefined;
+    const unsub = onSnapshot(doc(db, 'swapPairs', swapId), (snap) => {
+      const data = snap.data();
+      if (!data) { setConsented(false); return; }
+      const isParticipant = data.userA === userId || data.userB === userId;
+      setConsented(Boolean(isParticipant && data.videoA && data.videoB));
+    }, () => setConsented(false));
+    return () => unsub();
+  }, [swapId, userId]);
 
   useEffect(() => {
-    if (loading || !swapId || !userId) return undefined;
+    if (loading || !swapId || !userId || consented !== true) return undefined;
     let cancelled = false;
     let unsubCall, unsubCand;
 
     (async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+      if (cancelled) { stream.getTracks().forEach((tr) => tr.stop()); return; }
       streamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
@@ -62,7 +82,7 @@ export default function SkillSwapCall() {
           if (c.type === 'added') {
             try { await pc.addIceCandidate(new RTCIceCandidate(c.doc.data().candidate)); } catch (e) { console.error(e); }
           }
-        })
+        }),
       );
 
       unsubCall = onSnapshot(callRef, async (s) => {
@@ -92,21 +112,46 @@ export default function SkillSwapCall() {
       if (unsubCall) unsubCall();
       if (unsubCand) unsubCand();
       if (pcRef.current) pcRef.current.close();
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (streamRef.current) streamRef.current.getTracks().forEach((tr) => tr.stop());
     };
-  }, [swapId, userId, loading]);
+  }, [swapId, userId, loading, consented]);
+
+  // While consent is still being checked, or if it isn't there, never touch
+  // the camera/mic — show a clear message instead of a blank/broken screen.
+  if (loading || consented === null) {
+    return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  }
+
+  if (consented === false) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <TopBar title={t('skill_swap')} onBack={() => navigate(-1)} />
+          <div className="aura-card aura-section fade-in" style={{ textAlign: 'center' }} data-testid="video-not-consented">
+            <ShieldAlert size={28} style={{ marginBottom: 8, color: 'var(--warning)' }} />
+            <p className="aura-muted">
+              This video call hasn't been accepted by both people yet. Go back to the chat and request — or accept — a video call first.
+            </p>
+            <button type="button" onClick={() => navigate(`/aura/swap/chat/${swapId}`)} className="aura-btn aura-btn-primary" style={{ marginTop: 10 }}>
+              {t('open_chat')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
-        <TopBar title=\"Skill Swap Call\" subtitle={status} onBack={() => navigate(-1)} />
-        <div className=\"aura-card aura-section fade-in\">
-          <div className=\"video-grid\">
-            <video ref={localVideoRef} autoPlay playsInline muted data-testid=\"local-video\" />
-            <video ref={remoteVideoRef} autoPlay playsInline data-testid=\"remote-video\" />
+    <div className="aura-page">
+      <div className="aura-shell">
+        <TopBar title="Skill Swap Call" subtitle={status} onBack={() => navigate(-1)} />
+        <div className="aura-card aura-section fade-in">
+          <div className="video-grid">
+            <video ref={localVideoRef} autoPlay playsInline muted data-testid="local-video" />
+            <video ref={remoteVideoRef} autoPlay playsInline data-testid="remote-video" />
           </div>
-          <div className=\"aura-row\" style={{ justifyContent: 'center', marginTop: 14 }}>
-            <button type=\"button\" onClick={() => navigate(-1)} className=\"aura-btn aura-btn-danger\" data-testid=\"end-call-btn\"><PhoneOff size={16} /> {t('end_call')}</button>
+          <div className="aura-row" style={{ justifyContent: 'center', marginTop: 14 }}>
+            <button type="button" onClick={() => navigate(-1)} className="aura-btn aura-btn-danger" data-testid="end-call-btn"><PhoneOff size={16} /> {t('end_call')}</button>
           </div>
         </div>
       </div>

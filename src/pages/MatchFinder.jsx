@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, getDocs, updateDoc,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc,
 } from 'firebase/firestore';
 import { Heart, Lock, Sparkles } from 'lucide-react';
 import { db } from '../firebase';
@@ -20,7 +20,11 @@ export default function MatchFinder() {
   const [hobbies, setHobbies] = useState('');
   const [lookingFor, setLookingFor] = useState('');
   const [profiles, setProfiles] = useState([]);
-  const [matches, setMatches] = useState({}); // matchId -> {status, theirId, isInitiator}
+  const [matches, setMatches] = useState({}); // pairId -> {status, theirId, isInitiator}
+  // Identity (age/gender) for people we've actually matched with, fetched
+  // separately from userIdentities/{uid} — never bundled into the public
+  // card, so it's never sent to a browser until a real match exists.
+  const [identities, setIdentities] = useState({}); // uid -> {age, gender}
 
   useEffect(() => {
     const q = query(collection(db, 'matchProfiles'), orderBy('createdAt', 'desc'));
@@ -43,13 +47,41 @@ export default function MatchFinder() {
     return () => { unsubA(); unsubB(); };
   }, [userId]);
 
+  // Once a pair becomes 'matched', fetch the other person's identity doc.
+  // Firestore rules only allow this read once matchPairs status === 'matched',
+  // so this genuinely fails (silently, per onSnapshot's error handling) for
+  // anyone who tries to fetch it before a real match — not just hidden by UI.
+  useEffect(() => {
+    if (!userId) return undefined;
+    const unsubs = Object.values(matches)
+      .filter((m) => m.status === 'matched' && m.theirId && !identities[m.theirId])
+      .map((m) => onSnapshot(
+        doc(db, 'userIdentities', m.theirId),
+        (snap) => {
+          if (snap.exists()) {
+            setIdentities((prev) => ({ ...prev, [m.theirId]: snap.data() }));
+          }
+        },
+        () => { /* not matched yet or no permission — expected, ignore */ },
+      ));
+    return () => unsubs.forEach((u) => u());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, userId]);
+
   const post = async () => {
     if (!userId || !bio.trim() || !hobbies.trim() || !lookingFor.trim()) return;
+    // Public card: NO age/gender here. This is enforced both here and by
+    // Firestore rules (matchProfiles create rule rejects age/gender fields).
     await addDoc(collection(db, 'matchProfiles'), {
-      userId, age: user?.age, gender: user?.gender, avatarColor: user?.avatarColor,
+      userId, avatarColor: user?.avatarColor,
       bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
       createdAt: Timestamp.now(),
     });
+    // Identity lives in its own doc, keyed by uid, only readable by the
+    // owner or a matched partner (see firestore.rules).
+    await setDoc(doc(db, 'userIdentities', userId), {
+      age: user?.age, gender: user?.gender,
+    }, { merge: true });
     setBio(''); setHobbies(''); setLookingFor('');
   };
 
@@ -85,61 +117,66 @@ export default function MatchFinder() {
     return { status: m.status === 'matched' ? 'matched' : (m.userAAccepted && m.userBAccepted ? 'matched' : 'pending'), id, ...m };
   };
 
-  if (loading || !user) return <div className=\"aura-page\"><div className=\"aura-shell\"><div className=\"aura-card\">{t('loading')}</div></div></div>;
+  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
+    <div className="aura-page">
+      <div className="aura-shell">
         <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
 
-        <div className=\"aura-card aura-section fade-in\">
-          <h2 className=\"aura-title\">{t('match_create_card')}</h2>
-          <input className=\"aura-input\" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} data-testid=\"match-bio\" />
-          <input className=\"aura-input\" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} data-testid=\"match-hobbies\" />
-          <input className=\"aura-input\" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} data-testid=\"match-looking\" />
-          <button type=\"button\" onClick={post} disabled={!bio.trim() || !hobbies.trim() || !lookingFor.trim()} className=\"aura-btn aura-btn-primary\" data-testid=\"match-post-btn\">{t('post_card')}</button>
+        <div className="aura-card aura-section fade-in">
+          <h2 className="aura-title">{t('match_create_card')}</h2>
+          <input className="aura-input" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} data-testid="match-bio" />
+          <input className="aura-input" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} data-testid="match-hobbies" />
+          <input className="aura-input" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} data-testid="match-looking" />
+          <button type="button" onClick={post} disabled={!bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
         </div>
 
-        <h2 className=\"aura-title\">{t('available_matches')} ({profiles.length})</h2>
-        <div className=\"match-deck\">
+        <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
+        <div className="match-deck">
           {profiles.filter((p) => p.userId !== userId).map((p, i) => {
             const state = getMatchState(p);
             const matched = state.status === 'matched';
+            const identity = matched ? identities[p.userId] : null;
             return (
               <div key={p.id} className={`match-card fade-in delay-${Math.min(i, 3)} ${matched ? '' : 'match-locked'}`} data-testid={`match-card-${p.id}`}>
-                <div className=\"aura-row\" style={{ gap: 14 }}>
+                <div className="aura-row" style={{ gap: 14 }}>
                   <Avatar color={p.avatarColor} size={56} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className=\"aura-row\" style={{ gap: 8 }}>
-                      <strong>{matched ? `${p.age} • ${p.gender}` : t('anonymous_profile')}</strong>
-                      {!matched && <span className=\"chip\"><Lock size={12} /> locked</span>}
-                      {matched && <span className=\"chip\" style={{ color: 'var(--success)' }}><Sparkles size={12} /> matched</span>}
+                    <div className="aura-row" style={{ gap: 8 }}>
+                      <strong>
+                        {matched
+                          ? (identity ? `${identity.age} • ${identity.gender}` : t('loading'))
+                          : t('anonymous_profile')}
+                      </strong>
+                      {!matched && <span className="chip"><Lock size={12} /> locked</span>}
+                      {matched && <span className="chip" style={{ color: 'var(--success)' }}><Sparkles size={12} /> matched</span>}
                     </div>
                     {matched ? (
                       <>
-                        <p className=\"aura-muted\" style={{ margin: '6px 0 0' }}><strong>Hobbies:</strong> {p.hobbies}</p>
-                        <p className=\"aura-muted\" style={{ margin: '4px 0 0' }}><strong>Looking for:</strong> {p.lookingFor}</p>
+                        <p className="aura-muted" style={{ margin: '6px 0 0' }}><strong>Hobbies:</strong> {p.hobbies}</p>
+                        <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>Looking for:</strong> {p.lookingFor}</p>
                       </>
                     ) : (
-                      <p className=\"aura-muted\" style={{ margin: '6px 0 0' }}>{p.bio?.slice(0, 70)}{p.bio?.length > 70 ? '…' : ''}</p>
+                      <p className="aura-muted" style={{ margin: '6px 0 0' }}>{p.bio?.slice(0, 70)}{p.bio?.length > 70 ? '…' : ''}</p>
                     )}
                   </div>
                 </div>
 
-                <div className=\"aura-row\" style={{ marginTop: 8 }}>
+                <div className="aura-row" style={{ marginTop: 8 }}>
                   {matched ? (
-                    <button type=\"button\" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className=\"aura-btn aura-btn-primary\" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
+                    <button type="button" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className="aura-btn aura-btn-primary" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
                   ) : state.status === 'pending' ? (
-                    <button type=\"button\" onClick={() => requestMatch(p)} className=\"aura-btn aura-btn-secondary\" data-testid={`pending-${p.id}`}>{state.isInitiator ? t('match_pending') : `${t('accept')} ${t('match_finder')}`}</button>
+                    <button type="button" onClick={() => requestMatch(p)} className="aura-btn aura-btn-secondary" data-testid={`pending-${p.id}`}>{state.isInitiator ? t('match_pending') : `${t('accept')} ${t('match_finder')}`}</button>
                   ) : (
-                    <button type=\"button\" onClick={() => requestMatch(p)} className=\"aura-btn aura-btn-primary\" data-testid={`request-${p.id}`}><Heart size={14} /> {t('request_match')}</button>
+                    <button type="button" onClick={() => requestMatch(p)} className="aura-btn aura-btn-primary" data-testid={`request-${p.id}`}><Heart size={14} /> {t('request_match')}</button>
                   )}
                 </div>
               </div>
             );
           })}
           {profiles.filter((p) => p.userId !== userId).length === 0 && (
-            <div className=\"aura-card\" style={{ textAlign: 'center' }}><p className=\"aura-muted\">{t('empty_no_matches')}</p></div>
+            <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_matches')}</p></div>
           )}
         </div>
       </div>

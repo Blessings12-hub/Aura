@@ -20,18 +20,18 @@ export default function App() {
       <NotificationProvider>
         <BrowserRouter>
           <Routes>
-            <Route path=\"/\" element={<Login />} />
-            <Route path=\"/aura\" element={<Home />} />
-            <Route path=\"/aura/chat\" element={<MoodChat />} />
-            <Route path=\"/aura/match\" element={<MatchFinder />} />
-            <Route path=\"/aura/match/chat/:matchId\" element={<MatchChat />} />
-            <Route path=\"/aura/question\" element={<DailyQuestion />} />
-            <Route path=\"/aura/swap\" element={<SkillSwap />} />
-            <Route path=\"/aura/swap/chat/:swapId\" element={<SkillSwapChat />} />
-            <Route path=\"/aura/swap/call/:swapId\" element={<SkillSwapCall />} />
-            <Route path=\"/aura/event\" element={<EventBuddy />} />
-            <Route path=\"/aura/event/chat/:eventId\" element={<EventChat />} />
-            <Route path=\"/aura/collab\" element={<CollabStudio />} />
+            <Route path="/" element={<Login />} />
+            <Route path="/aura" element={<Home />} />
+            <Route path="/aura/chat" element={<MoodChat />} />
+            <Route path="/aura/match" element={<MatchFinder />} />
+            <Route path="/aura/match/chat/:matchId" element={<MatchChat />} />
+            <Route path="/aura/question" element={<DailyQuestion />} />
+            <Route path="/aura/swap" element={<SkillSwap />} />
+            <Route path="/aura/swap/chat/:swapId" element={<SkillSwapChat />} />
+            <Route path="/aura/swap/call/:swapId" element={<SkillSwapCall />} />
+            <Route path="/aura/event" element={<EventBuddy />} />
+            <Route path="/aura/event/chat/:eventId" element={<EventChat />} />
+            <Route path="/aura/collab" element={<CollabStudio />} />
           </Routes>
         </BrowserRouter>
       </NotificationProvider>

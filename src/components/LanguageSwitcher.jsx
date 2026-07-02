@@ -25,11 +25,11 @@ export default function LanguageSwitcher({ compact = false }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        type=\"button\"
+        type="button"
         onClick={() => setOpen((v) => !v)}
-        className=\"aura-btn aura-btn-secondary aura-btn-pill\"
-        data-testid=\"language-switcher-btn\"
-        aria-haspopup=\"listbox\"
+        className="aura-btn aura-btn-secondary aura-btn-pill"
+        data-testid="language-switcher-btn"
+        aria-haspopup="listbox"
         aria-expanded={open}
       >
         <Globe size={14} />
@@ -38,9 +38,9 @@ export default function LanguageSwitcher({ compact = false }) {
 
       {open && (
         <div
-          className=\"aura-card-compact\"
-          role=\"listbox\"
-          data-testid=\"language-switcher-list\"
+          className="aura-card-compact"
+          role="listbox"
+          data-testid="language-switcher-list"
           style={{
             position: 'absolute', top: 'calc(100% + 8px)', right: 0,
             zIndex: 50, minWidth: 180, padding: 6, display: 'grid', gap: 4,
@@ -52,12 +52,12 @@ export default function LanguageSwitcher({ compact = false }) {
             return (
               <button
                 key={lang.code}
-                type=\"button\"
-                role=\"option\"
+                type="button"
+                role="option"
                 aria-selected={active}
                 onClick={() => change(lang.code)}
                 data-testid={`lang-option-${lang.code}`}
-                className=\"aura-btn aura-btn-ghost\"
+                className="aura-btn aura-btn-ghost"
                 style={{
                   justifyContent: 'flex-start', borderRadius: 10, padding: '8px 12px',
                   background: active ? 'var(--surface-3)' : 'transparent',

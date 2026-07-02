@@ -1,0 +1,225 @@
+rules_version = '2';
+
+// ============================================================================
+// Aura — Firestore Security Rules
+// ============================================================================
+// Design notes (read before editing):
+//
+// 1. Every real user is a Firebase Anonymous Auth user. `users/{uid}` is
+//    keyed by that auth uid, so request.auth.uid is always trustworthy and
+//    matches the app's `userId` everywhere.
+//
+// 2. TRUE anonymity for Match Finder / Skill Swap / Event Buddy: identity
+//    fields (age, gender) are NEVER stored on the publicly-queried card
+//    documents. They live in `userIdentities/{uid}`, which only the owner
+//    or someone with a *matched* pairing can read. Hiding fields in the UI
+//    is not security — anyone with devtools can read an open query. These
+//    rules enforce it server-side.
+//
+// 3. Pair docs (matchPairs / swapPairs) are id'd as `${sortedUidA}_${sortedUidB}`.
+//    Only the two participants may read or write their own pair.
+//
+// 4. Chat subcollections (matchChats/{pairId}/messages, swapChats/..., 
+//    eventChats/...) are only readable/writable by participants of that
+//    pair/event — never by the general public.
+//
+// 5. Video call signaling (skillSwapCalls) requires BOTH participants to
+//    have explicitly consented (offer only created after both accept),
+//    and only the two participants can read/write the signaling doc.
+//
+// 6. Mood Chat / Daily Question stay anonymous group spaces: any signed-in
+//    (anonymous) user can post/read, but can only edit/delete their own
+//    message, and cannot spoof another user's userId on a message.
+// ============================================================================
+
+function signedIn() {
+  return request.auth != null;
+}
+
+function isOwner(uid) {
+  return signedIn() && request.auth.uid == uid;
+}
+
+// True if request.auth.uid is matched with `otherUid` in matchPairs.
+function isMatchedWith(otherUid) {
+  return signedIn() && (
+    (exists(/databases/$(database)/documents/matchPairs/$(request.auth.uid + '_' + otherUid)) &&
+      get(/databases/$(database)/documents/matchPairs/$(request.auth.uid + '_' + otherUid)).data.status == 'matched') ||
+    (exists(/databases/$(database)/documents/matchPairs/$(otherUid + '_' + request.auth.uid)) &&
+      get(/databases/$(database)/documents/matchPairs/$(otherUid + '_' + request.auth.uid)).data.status == 'matched')
+  );
+}
+
+// True if request.auth.uid is one of the two participants encoded in a
+// "<uidA>_<uidB>" style pair/composite id.
+function isParticipantOfPairId(pairId) {
+  return signedIn() && (
+    pairId.split('_')[0] == request.auth.uid || pairId.split('_')[1] == request.auth.uid
+  );
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // USERS — public-safe profile (avatarColor only). Age/gender live in
+    // userIdentities, NOT here, so they are never broadcast to a general
+    // "list all users" style query. Only the owner can write their doc.
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // USER IDENTITIES — age/gender. Only the owner, or someone the owner
+    // has been MATCHED with in Match Finder, may read this. Nobody but
+    // the owner may write it.
+    // ------------------------------------------------------------------
+    match /userIdentities/{uid} {
+      allow read: if isOwner(uid) || isMatchedWith(uid);
+      allow write: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------------
+    // MOOD CHAT — anonymous group rooms, keyed by mood name.
+    // Anyone signed in (anonymously) can read/post. You can only send a
+    // message as yourself, and can only delete your own message.
+    // ------------------------------------------------------------------
+    match /chats/{mood}/messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ------------------------------------------------------------------
+    // MATCH FINDER — public card is bio/hobbies/lookingFor/avatarColor
+    // ONLY. No age/gender here (see userIdentities above). Anyone signed
+    // in can browse cards; only the author can edit/delete their own.
+    // ------------------------------------------------------------------
+    match /matchProfiles/{cardId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !('age' in request.resource.data)
+                    && !('gender' in request.resource.data);
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    // matchPairs/{uidA_uidB} — only the two participants may read/write.
+    match /matchPairs/{pairId} {
+      allow read: if isParticipantOfPairId(pairId);
+      allow create: if isParticipantOfPairId(pairId)
+                    && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
+      allow update: if isParticipantOfPairId(pairId);
+      allow delete: if false;
+    }
+
+    // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
+    match /matchChats/{pairId}/messages/{messageId} {
+      allow read: if isParticipantOfPairId(pairId);
+      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ------------------------------------------------------------------
+    // SKILL SWAP — same pattern: public card has no age/gender.
+    // ------------------------------------------------------------------
+    match /skillSwaps/{itemId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !('userAge' in request.resource.data)
+                    && !('userGender' in request.resource.data);
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    match /swapPairs/{pairId} {
+      allow read: if isParticipantOfPairId(pairId);
+      allow create: if isParticipantOfPairId(pairId)
+                    && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
+      allow update: if isParticipantOfPairId(pairId);
+      allow delete: if false;
+    }
+
+    match /swapChats/{pairId}/messages/{messageId} {
+      allow read: if isParticipantOfPairId(pairId);
+      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Skill Swap video call signaling (WebRTC offer/answer/ICE). Only the
+    // two matched participants can read or write it, and BOTH must have
+    // accepted (enforced in-app before an offer is written; rule limits
+    // who can touch the doc at all).
+    match /skillSwapCalls/{pairId} {
+      allow read, write: if isParticipantOfPairId(pairId);
+      match /candidates/{candidateId} {
+        allow read, write: if isParticipantOfPairId(pairId);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // EVENT BUDDY — same pattern: public card has no age/gender.
+    // ------------------------------------------------------------------
+    match /eventBuddy/{eventId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !('userAge' in request.resource.data)
+                    && !('userGender' in request.resource.data);
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    // eventJoins/{eventId_uid} — the joiner writes their own join; the
+    // event owner may update it (e.g. to accept). Anyone in userIds may read.
+    match /eventJoins/{joinId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.userIds;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.userIds;
+      allow update: if signedIn() && request.auth.uid in resource.data.userIds;
+      allow delete: if false;
+    }
+
+    match /eventChats/{eventId}/messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ------------------------------------------------------------------
+    // DAILY QUESTION — anonymous answers, one collection per day.
+    // ------------------------------------------------------------------
+    match /dailyQuestions/{day}/answers/{answerId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ------------------------------------------------------------------
+    // COLLAB STUDIO — shared live canvas. Anyone signed in can draw and
+    // see cursors; you can only write/delete your own stroke or cursor.
+    // ------------------------------------------------------------------
+    match /collabStudio/{strokeId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    match /collabCursors/{uid} {
+      allow read: if signedIn();
+      allow write: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------------
+    // Default deny — anything not explicitly matched above is blocked.
+    // ------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

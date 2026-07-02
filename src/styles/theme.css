@@ -1,5 +1,5 @@
 
-/* Aura — design tokens & global styles. Dark by default, light via [data-theme=\"light\"]. */
+/* Aura — design tokens & global styles. Dark by default, light via [data-theme="light"]. */
 
 :root,
 :root[data-theme='dark'] {
@@ -194,11 +194,11 @@ a { color: var(--primary); }
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: var(--radius-lg);
-  padding: 22px;
-  min-height: 200px;
+  padding: 20px;
+  min-height: 176px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   overflow: hidden;
   transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
 }
@@ -210,16 +210,48 @@ a { color: var(--primary); }
   opacity: 0.85;
 }
 .activity-card:hover { transform: translateY(-4px); border-color: var(--border-strong); box-shadow: var(--shadow); }
-.activity-card__icon {
+.activity-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* Icon + title share a row, like a typical social-app feature tile, so the
+   card reads top-to-bottom as: header row -> description -> action —
+   instead of icon stacked alone above a separate title line. */
+.activity-card__header {
   position: relative; z-index: 1;
-  width: 48px; height: 48px;
-  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.activity-card__icon {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  border-radius: 13px;
   display: grid; place-items: center;
   color: #fff;
   box-shadow: 0 10px 20px -8px var(--card-tint, rgba(99,102,241,.5));
 }
-.activity-card__title { font-size: 1.1rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; position: relative; z-index: 1; }
-.activity-card__desc { color: var(--muted); margin: 4px 0 0; font-size: 0.92rem; line-height: 1.5; position: relative; z-index: 1; }
+.activity-card__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+/* Clamped to 2 lines so cards stay the same visual height even where a
+   language's translated description runs longer (German/French run ~20-30%
+   longer than English for the same strings). */
+.activity-card__desc {
+  color: var(--muted);
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  position: relative; z-index: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .activity-card__cta {
   margin-top: auto;
   align-self: flex-start;
@@ -231,7 +263,9 @@ a { color: var(--primary); }
   border: 1px solid var(--border);
   font-size: 0.82rem; font-weight: 600;
   color: var(--text);
+  transition: background 160ms ease, gap 160ms ease;
 }
+.activity-card:hover .activity-card__cta { gap: 9px; background: var(--surface-3); }
 
 /* Messages */
 .message-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; padding: 4px; }
@@ -282,9 +316,67 @@ a { color: var(--primary); }
 .aura-login-hero { text-align: center; margin-bottom: 16px; }
 .aura-login-title { margin: 6px 0 8px; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.03em; font-family: 'Instrument Serif', serif; }
 .aura-login-copy { margin: 0 0 18px; color: var(--muted); line-height: 1.55; }
-.aura-login-submit { width: 100%; padding: 14px; font-size: 1rem; margin-top: 8px; }
+.aura-login-submit { width: 100%; padding: 14px; font-size: 1rem; margin-top: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .aura-login-error { color: var(--danger); font-size: 0.88rem; margin: 0 0 10px; }
 .aura-login-lang { display: flex; justify-content: flex-end; }
+
+/* Live inline field feedback, distinct from the top-level submit error —
+   shows as you type instead of only after you hit submit. */
+.aura-field-hint { font-size: 0.8rem; margin-top: 2px; color: var(--muted); }
+.aura-field-hint.is-error { color: var(--danger); }
+.aura-input.has-error, .aura-select.has-error { border-color: var(--danger); }
+
+/* Segmented button group, used for gender selection instead of a native
+   <select> — reads as part of the app's own UI rather than a bare HTML
+   form control, matching the onboarding pattern of most dating/social apps. */
+.aura-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.aura-segmented-option {
+  padding: 12px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  text-align: center;
+}
+.aura-segmented-option:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+.aura-segmented-option.is-active {
+  border-color: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(99, 102, 241, 0.6);
+}
+
+/* Selected-state check badge on the avatar colour chips, so "which colour
+   is picked" doesn't rely on a subtle outline alone. */
+.aura-color-chip { position: relative; }
+.aura-color-chip__check {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.aura-color-chip.is-active .aura-color-chip__check { opacity: 1; transform: scale(1); }
+
+/* Small inline spinner for the submit button's loading state. */
+.aura-spinner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  animation: aura-spin 700ms linear infinite;
+  display: inline-block;
+}
+@keyframes aura-spin { to { transform: rotate(360deg); } }
 
 /* Voice & call layout */
 .video-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }

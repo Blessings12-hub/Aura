@@ -50,38 +50,38 @@ export default function SkillSwapChat() {
   const iAccepted = pair && (pair.userA === userId ? pair.videoA : pair.videoB);
   const theyAccepted = pair && (pair.userA === userId ? pair.videoB : pair.videoA);
 
-  if (loading) return <div className=\"aura-page\"><div className=\"aura-shell\"><div className=\"aura-card\">{t('loading')}</div></div></div>;
+  if (loading) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
 
   return (
-    <div className=\"aura-page\">
-      <div className=\"aura-shell\">
+    <div className="aura-page">
+      <div className="aura-shell">
         <TopBar
           title={t('skill_swap')}
           subtitle={videoBothAccepted ? 'Both accepted — start video' : (iAccepted ? 'Waiting for them to accept video' : (theyAccepted ? 'They want a video call' : 'Chat — request a video call anytime'))}
           onBack={() => navigate(-1)}
           right={
             videoBothAccepted ? (
-              <button type=\"button\" onClick={() => navigate(`/aura/swap/call/${swapId}`)} className=\"aura-btn aura-btn-primary aura-btn-pill\" data-testid=\"start-video-btn\"><Video size={14} /> {t('start_video')}</button>
+              <button type="button" onClick={() => navigate(`/aura/swap/call/${swapId}`)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="start-video-btn"><Video size={14} /> {t('start_video')}</button>
             ) : iAccepted ? (
-              <button type=\"button\" onClick={() => toggleVideoRequest(false)} className=\"aura-btn aura-btn-secondary aura-btn-pill\" data-testid=\"cancel-video-btn\"><X size={14} /> Cancel</button>
+              <button type="button" onClick={() => toggleVideoRequest(false)} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="cancel-video-btn"><X size={14} /> Cancel</button>
             ) : (
-              <button type=\"button\" onClick={() => toggleVideoRequest(true)} className=\"aura-btn aura-btn-primary aura-btn-pill\" data-testid=\"request-video-btn\"><Video size={14} /> {theyAccepted ? t('accept') : t('request_video')}</button>
+              <button type="button" onClick={() => toggleVideoRequest(true)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="request-video-btn"><Video size={14} /> {theyAccepted ? t('accept') : t('request_video')}</button>
             )
           }
         />
 
-        <div className=\"aura-card aura-section fade-in\">
-          <div className=\"message-list\" data-testid=\"swap-messages\">
+        <div className="aura-card aura-section fade-in">
+          <div className="message-list" data-testid="swap-messages">
             {messages.map((m) => (
               <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
-                <div className=\"message__bubble\">{m.text}</div>
+                <div className="message__bubble">{m.text}</div>
               </div>
             ))}
-            {messages.length === 0 && <p className=\"aura-muted\" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
+            {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
           </div>
-          <div className=\"aura-row\">
-            <input className=\"aura-input\" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid=\"swap-chat-input\" />
-            <button type=\"button\" onClick={send} disabled={!text.trim()} className=\"aura-btn aura-btn-primary\" data-testid=\"swap-chat-send\"><Send size={16} /> {t('send')}</button>
+          <div className="aura-row">
+            <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="swap-chat-input" />
+            <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="swap-chat-send"><Send size={16} /> {t('send')}</button>
           </div>
         </div>
       </div>
