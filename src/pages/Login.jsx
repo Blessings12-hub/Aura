@@ -28,21 +28,45 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Single source of truth for "is Firebase Auth actually ready yet".
+  // Previously this page had two separate effects: one that read Firestore
+  // immediately using whatever uid happened to be in localStorage (with the
+  // failure silently swallowed by .catch(() => {})), and a second, unrelated
+  // effect that handled anonymous sign-in. Because the Firestore read didn't
+  // wait for the sign-in/session-restore to actually finish, it could fire
+  // while request.auth was still null server-side, get rejected by the
+  // security rules, and silently fail — leaving an already-onboarded person
+  // stuck looking at the login form again instead of being sent to Home.
   useEffect(() => {
-    const storedId = localStorage.getItem('aura_userId');
-    if (storedId) {
-      getDoc(doc(db, 'users', storedId)).then((snap) => {
-        if (snap.exists()) navigate('/aura');
-      }).catch(() => {});
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (!user) signInAnonymously(auth).catch(() => {});
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      let uid = user?.uid;
+      if (!uid) {
+        try {
+          const cred = await signInAnonymously(auth);
+          uid = cred.user.uid;
+        } catch (e) {
+          console.error('anonymous sign-in failed', e);
+          return;
+        }
+      }
+      const storedId = localStorage.getItem('aura_userId');
+      // Only worth checking "are they already onboarded" if the uid we
+      // have now matches what's stored — otherwise this is a fresh session
+      // and they need to fill out the form.
+      if (storedId && storedId === uid) {
+        try {
+          const snap = await getDoc(doc(db, 'users', storedId));
+          if (snap.exists()) navigate('/aura');
+        } catch (e) {
+          // A real failure here (not just "no doc yet") is worth knowing
+          // about instead of silently swallowing it — surfacing it in the
+          // console at minimum, rather than the previous bare .catch(() => {}).
+          console.error('redirect check failed', e);
+        }
+      }
     });
     return () => unsub();
-  }, []);
+  }, [navigate]);
 
   // Live inline validation, distinct from the submit-time error banner —
   // shows as soon as the person has touched the field, not only after
