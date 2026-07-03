@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { Send, Video, X } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 
@@ -17,12 +18,22 @@ export default function SkillSwapChat() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [pair, setPair] = useState(null);
+  const [chatError, setChatError] = useState('');
 
   useEffect(() => {
     if (!swapId) return undefined;
-    const unsubMsg = onSnapshot(query(collection(db, 'swapChats', swapId, 'messages'), orderBy('createdAt', 'asc')),
-      (s) => setMessages(s.docs.map((d) => ({ id: d.id, ...d.data() }))));
-    const unsubPair = onSnapshot(doc(db, 'swapPairs', swapId), (s) => setPair(s.data() || null));
+    const unsubMsg = subscribe(
+      query(collection(db, 'swapChats', swapId, 'messages'), orderBy('createdAt', 'asc')),
+      (s) => setMessages(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setChatError('Messages could not be loaded. Check your connection and try again.'),
+      `swap chat (${swapId})`,
+    );
+    const unsubPair = subscribe(
+      doc(db, 'swapPairs', swapId),
+      (s) => setPair(s.data() || null),
+      () => setChatError('Could not load this swap. Check your connection and try again.'),
+      `swap pair (${swapId})`,
+    );
     return () => { unsubMsg(); unsubPair(); };
   }, [swapId]);
 
@@ -79,6 +90,7 @@ export default function SkillSwapChat() {
             ))}
             {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
           </div>
+          {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="swap-chat-error">{chatError}</p>}
           <div className="aura-row">
             <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="swap-chat-input" />
             <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="swap-chat-send"><Send size={16} /> {t('send')}</button>

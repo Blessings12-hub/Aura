@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, onSnapshot, Timestamp,
+  collection, addDoc, query, orderBy, Timestamp,
 } from 'firebase/firestore';
 import { Send } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import {
   DAILY_QUESTIONS, questionForDate, todayKey,
 } from '../constants/dailyQuestions';
@@ -26,6 +27,7 @@ export default function DailyQuestion() {
   const { user, userId, loading } = useCurrentUser();
   const [answers, setAnswers] = useState([]);
   const [text, setText] = useState('');
+  const [chatError, setChatError] = useState('');
   const listRef = useRef(null);
   const lastSeenRef = useRef(0);
 
@@ -41,7 +43,7 @@ export default function DailyQuestion() {
 
   useEffect(() => {
     const q = query(collection(db, 'dailyQuestions', day, 'answers'), orderBy('createdAt', 'asc'));
-    return onSnapshot(q, (snap) => {
+    return subscribe(q, (snap) => {
       const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const newOnes = all.slice(lastSeenRef.current);
       newOnes.forEach((m) => {
@@ -52,7 +54,7 @@ export default function DailyQuestion() {
       lastSeenRef.current = all.length;
       setAnswers(all);
       requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
-    });
+    }, () => setChatError('Answers could not be loaded. Check your connection and try again.'), `daily question (${day})`);
   }, [day, userId, t]);
 
   const submit = async () => {
@@ -100,6 +102,8 @@ export default function DailyQuestion() {
               </div>
             ))}
           </div>
+
+          {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="daily-chat-error">{chatError}</p>}
 
           <div className="aura-row">
             <input

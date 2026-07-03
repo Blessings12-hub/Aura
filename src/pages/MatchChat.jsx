@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { Send } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -18,6 +19,7 @@ export default function MatchChat() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [theirIdentity, setTheirIdentity] = useState(null);
+  const [chatError, setChatError] = useState('');
 
   // matchId is "<uidA>_<uidB>" (sorted). The other participant is whichever
   // half isn't me.
@@ -26,7 +28,12 @@ export default function MatchChat() {
   useEffect(() => {
     if (!matchId) return undefined;
     const q = query(collection(db, 'matchChats', matchId, 'messages'), orderBy('createdAt', 'asc'));
-    return onSnapshot(q, (snap) => setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return subscribe(
+      q,
+      (snap) => setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setChatError('Messages could not be loaded. Check your connection and try again.'),
+      `match chat (${matchId})`,
+    );
   }, [matchId]);
 
   // Now that we're matched, Firestore rules allow reading their identity
@@ -66,6 +73,7 @@ export default function MatchChat() {
             ))}
             {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('no_messages')}</p>}
           </div>
+          {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="match-chat-error">{chatError}</p>}
           <div className="aura-row">
             <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="match-input" />
             <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>

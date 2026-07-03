@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, onSnapshot, Timestamp,
+  collection, addDoc, query, orderBy, Timestamp,
 } from 'firebase/firestore';
 import { ref as sref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Send, Mic, Square } from 'lucide-react';
 import { db, storage } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRoomPresence } from '../hooks/useRoomPresence';
@@ -49,6 +50,7 @@ export default function MoodChat() {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
   const [micError, setMicError] = useState('');
+  const [chatError, setChatError] = useState('');
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const mimeRef = useRef('');
@@ -67,8 +69,9 @@ export default function MoodChat() {
 
   useEffect(() => {
     if (!mood) { setMessages([]); lastSeenRef.current = 0; return undefined; }
+    setChatError('');
     const q = query(collection(db, 'chats', mood, 'messages'), orderBy('createdAt', 'asc'));
-    return onSnapshot(q, (snap) => {
+    return subscribe(q, (snap) => {
       const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const newOnes = all.slice(lastSeenRef.current);
       newOnes.forEach((m) => {
@@ -79,7 +82,7 @@ export default function MoodChat() {
       lastSeenRef.current = all.length;
       setMessages(all);
       requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
-    });
+    }, () => setChatError('Messages could not be loaded. Check your connection and try reopening this mood.'), `mood chat (${mood})`);
   }, [mood, userId, t]);
 
   const send = async () => {
@@ -200,6 +203,7 @@ export default function MoodChat() {
               ))}
             </div>
 
+            {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="chat-error">{chatError}</p>}
             {micError && <p className="aura-login-error" style={{ margin: '10px 0 0' }}>{micError}</p>}
 
             <div className="aura-row">
