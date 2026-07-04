@@ -83,6 +83,7 @@ export default function SkillSwapCall() {
             try { await pc.addIceCandidate(new RTCIceCandidate(c.doc.data().candidate)); } catch (e) { console.error(e); }
           }
         }),
+        (err) => { console.error('ICE candidate subscription failed', err); setStatus('Connection lost — check your internet and try again'); },
       );
 
       unsubCall = onSnapshot(callRef, async (s) => {
@@ -97,7 +98,7 @@ export default function SkillSwapCall() {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setStatus('Connected');
         }
-      });
+      }, (err) => { console.error('call signaling subscription failed', err); setStatus('Connection lost — check your internet and try again'); });
 
       if (isInitiator) {
         const offer = await pc.createOffer();

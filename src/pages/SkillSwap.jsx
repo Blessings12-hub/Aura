@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { Video, MessageCircle, Repeat } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -20,22 +21,38 @@ export default function SkillSwap() {
   const [want, setWant] = useState('');
   const [items, setItems] = useState([]);
   const [pairs, setPairs] = useState({});
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const q = query(collection(db, 'skillSwaps'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return subscribe(
+      q,
+      (snap) => setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError('Skill swaps could not be loaded. Check your connection and try again.'),
+      'skill swaps',
+    );
   }, []);
 
   useEffect(() => {
     if (!userId) return undefined;
-    const unsubA = onSnapshot(query(collection(db, 'swapPairs'), where('userA', '==', userId)), (s) => {
-      const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: true }; });
-      setPairs((p) => ({ ...p, ...m }));
-    });
-    const unsubB = onSnapshot(query(collection(db, 'swapPairs'), where('userB', '==', userId)), (s) => {
-      const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: false }; });
-      setPairs((p) => ({ ...p, ...m }));
-    });
+    const unsubA = subscribe(
+      query(collection(db, 'swapPairs'), where('userA', '==', userId)),
+      (s) => {
+        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: true }; });
+        setPairs((p) => ({ ...p, ...m }));
+      },
+      () => setLoadError('Swap requests could not be loaded. Check your connection and try again.'),
+      'swap pairs (as userA)',
+    );
+    const unsubB = subscribe(
+      query(collection(db, 'swapPairs'), where('userB', '==', userId)),
+      (s) => {
+        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: false }; });
+        setPairs((p) => ({ ...p, ...m }));
+      },
+      () => setLoadError('Swap requests could not be loaded. Check your connection and try again.'),
+      'swap pairs (as userB)',
+    );
     return () => { unsubA(); unsubB(); };
   }, [userId]);
 
@@ -90,6 +107,7 @@ export default function SkillSwap() {
         </div>
 
         <h2 className="aura-title">{t('available_swaps')} ({items.length})</h2>
+        {loadError && <p className="aura-login-error" data-testid="swap-load-error">{loadError}</p>}
         {items.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_swaps')}</p></div>
         ) : (

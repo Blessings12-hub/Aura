@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { CalendarHeart, MessageCircle, Check } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -23,18 +24,29 @@ export default function EventBuddy() {
   const [error, setError] = useState('');
   const [events, setEvents] = useState([]);
   const [joins, setJoins] = useState({});
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const q = query(collection(db, 'eventBuddy'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (s) => setEvents(s.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return subscribe(
+      q,
+      (s) => setEvents(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError('Events could not be loaded. Check your connection and try again.'),
+      'event buddy',
+    );
   }, []);
 
   useEffect(() => {
     if (!userId) return undefined;
-    return onSnapshot(query(collection(db, 'eventJoins'), where('userIds', 'array-contains', userId)), (s) => {
-      const m = {}; s.docs.forEach((d) => { m[d.id] = d.data(); });
-      setJoins(m);
-    });
+    return subscribe(
+      query(collection(db, 'eventJoins'), where('userIds', 'array-contains', userId)),
+      (s) => {
+        const m = {}; s.docs.forEach((d) => { m[d.id] = d.data(); });
+        setJoins(m);
+      },
+      () => setLoadError('Event requests could not be loaded. Check your connection and try again.'),
+      'event joins',
+    );
   }, [userId]);
 
   const post = async () => {
@@ -88,6 +100,7 @@ export default function EventBuddy() {
         </div>
 
         <h2 className="aura-title">{t('available_events')} ({events.length})</h2>
+        {loadError && <p className="aura-login-error" data-testid="event-load-error">{loadError}</p>}
         {events.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_events')}</p></div>
         ) : (

@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, onSnapshot, Timestamp,
-  doc, setDoc, onSnapshot as onDocSnap, deleteDoc, getDocs, writeBatch,
+  doc, setDoc, deleteDoc, getDocs, writeBatch,
 } from 'firebase/firestore';
 import { Eraser, Undo2, Brush } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 
@@ -23,6 +24,7 @@ export default function CollabStudio() {
   const [size, setSize] = useState(5);
   const [strokes, setStrokes] = useState([]);
   const [cursors, setCursors] = useState({});
+  const [loadError, setLoadError] = useState('');
 
   // Single source of truth for painting all strokes, so both "strokes
   // changed" and "canvas just resized" redraw through the same logic.
@@ -47,49 +49,59 @@ export default function CollabStudio() {
   const strokesRef = useRef([]);
   useEffect(() => { strokesRef.current = strokes; }, [strokes]);
 
-  // Canvas resize
+  // Canvas resize — ResizeObserver instead of only window 'resize'. This
+  // matters specifically on mobile: window.resize does not reliably fire
+  // when a mobile browser's address bar collapses/expands on scroll (a
+  // documented cross-browser inconsistency), which can leave the canvas's
+  // internal bitmap calibrated against a stale size. ResizeObserver watches
+  // the element's actual rendered box directly, regardless of what caused
+  // the change.
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return undefined;
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return; // not laid out yet
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(rect.width * dpr);
       canvas.height = Math.round(rect.height * dpr);
       const ctx = canvas.getContext('2d');
-      // setTransform (not scale) — resets rather than compounds, so this
-      // stays correct even if resize fires many times in a row (mobile
-      // browsers fire resize on address-bar show/hide, keyboard open/close,
-      // and orientation change, sometimes several times per interaction).
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      // Changing canvas.width/height clears the bitmap as a side effect of
-      // the browser itself — without this, every resize silently erases
-      // the drawing until an unrelated Firestore update happens to
-      // trigger a redraw. Re-paint immediately so nothing is lost.
       redrawAll(strokesRef.current);
     };
     resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Subscribe strokes
   useEffect(() => {
     const q = query(collection(db, 'collabStudio'), orderBy('createdAt', 'asc'));
-    return onSnapshot(q, (s) => setStrokes(s.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return subscribe(
+      q,
+      (s) => setStrokes(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError('The canvas could not be loaded. Check your connection and try again.'),
+      'collab studio strokes',
+    );
   }, []);
 
   // Subscribe cursors (live presence)
   useEffect(() => {
-    return onSnapshot(collection(db, 'collabCursors'), (s) => {
-      const c = {};
-      s.docs.forEach((d) => {
-        const data = d.data();
-        if (d.id !== userId && data.ts && (Date.now() - (data.ts || 0)) < 8000) c[d.id] = data;
-      });
-      setCursors(c);
-    });
+    return subscribe(
+      collection(db, 'collabCursors'),
+      (s) => {
+        const c = {};
+        s.docs.forEach((d) => {
+          const data = d.data();
+          if (d.id !== userId && data.ts && (Date.now() - (data.ts || 0)) < 8000) c[d.id] = data;
+        });
+        setCursors(c);
+      },
+      () => setLoadError('Live cursors could not be loaded. Check your connection and try again.'),
+      'collab studio cursors',
+    );
   }, [userId]);
 
   // Redraw whenever the strokes list itself changes (new stroke arrived,
@@ -170,6 +182,7 @@ export default function CollabStudio() {
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar title={t('collab_studio')} subtitle={t('canvas_strokes', { n: strokes.length })} onBack={() => navigate(-1)} />
+        {loadError && <p className="aura-login-error" data-testid="collab-load-error">{loadError}</p>}
 
         <div className="aura-card aura-section fade-in">
           <div ref={wrapRef} style={{ position: 'relative' }}>

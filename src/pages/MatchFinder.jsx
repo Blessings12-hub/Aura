@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { Heart, Lock, Sparkles } from 'lucide-react';
 import { db } from '../firebase';
+import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -21,6 +22,7 @@ export default function MatchFinder() {
   const [lookingFor, setLookingFor] = useState('');
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState({}); // pairId -> {status, theirId, isInitiator}
+  const [loadError, setLoadError] = useState('');
   // Identity (age/gender) for people we've actually matched with, fetched
   // separately from userIdentities/{uid} — never bundled into the public
   // card, so it's never sent to a browser until a real match exists.
@@ -28,22 +30,37 @@ export default function MatchFinder() {
 
   useEffect(() => {
     const q = query(collection(db, 'matchProfiles'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return subscribe(
+      q,
+      (snap) => setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError('Profiles could not be loaded. Check your connection and try again.'),
+      'match profiles',
+    );
   }, []);
 
   // listen to matches where I'm involved
   useEffect(() => {
     if (!userId) return undefined;
-    const unsubA = onSnapshot(query(collection(db, 'matchPairs'), where('userA', '==', userId)), (snap) => {
-      const map = {};
-      snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
-      setMatches((prev) => ({ ...prev, ...map }));
-    });
-    const unsubB = onSnapshot(query(collection(db, 'matchPairs'), where('userB', '==', userId)), (snap) => {
-      const map = {};
-      snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
-      setMatches((prev) => ({ ...prev, ...map }));
-    });
+    const unsubA = subscribe(
+      query(collection(db, 'matchPairs'), where('userA', '==', userId)),
+      (snap) => {
+        const map = {};
+        snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
+        setMatches((prev) => ({ ...prev, ...map }));
+      },
+      () => setLoadError('Matches could not be loaded. Check your connection and try again.'),
+      'match pairs (as userA)',
+    );
+    const unsubB = subscribe(
+      query(collection(db, 'matchPairs'), where('userB', '==', userId)),
+      (snap) => {
+        const map = {};
+        snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
+        setMatches((prev) => ({ ...prev, ...map }));
+      },
+      () => setLoadError('Matches could not be loaded. Check your connection and try again.'),
+      'match pairs (as userB)',
+    );
     return () => { unsubA(); unsubB(); };
   }, [userId]);
 
@@ -133,6 +150,7 @@ export default function MatchFinder() {
         </div>
 
         <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
+        {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
         <div className="match-deck">
           {profiles.filter((p) => p.userId !== userId).map((p, i) => {
             const state = getMatchState(p);
