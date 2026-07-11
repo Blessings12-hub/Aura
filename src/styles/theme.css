@@ -414,6 +414,18 @@ a { color: var(--primary); }
 
 /* Toolbar */
 .canvas-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding-top: 12px; }
+/* Collab Studio — canvas + live chat side-by-side on wide screens,
+   stacked on narrow ones so drawing stays usable on mobile. */
+.collab-layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.collab-canvas-col { flex: 2 1 380px; min-width: 280px; display: flex; flex-direction: column; gap: 12px; }
+.collab-chat-col { flex: 1 1 240px; min-width: 240px; max-width: 340px; display: flex; flex-direction: column; }
+.collab-layout--chat-hidden .collab-canvas-col { flex: 1 1 100%; }
+.collab-chat-list { max-height: 460px; min-height: 200px; }
+@media (max-width: 720px) {
+  .collab-chat-col { max-width: 100%; }
+  .collab-chat-list { max-height: 260px; }
+}
+
 .canvas-cursor {
   position: absolute;
   width: 18px; height: 18px;
