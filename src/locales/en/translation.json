@@ -105,5 +105,12 @@
   "empty_no_messages": "No messages yet. Say hi to get started.",
   "empty_no_matches": "No one’s here yet — post a card to be first.",
   "empty_no_swaps": "No swaps yet. Be the first to post.",
-  "empty_no_events": "No events yet. Create one."
+  "empty_no_events": "No events yet. Create one.",
+  "display_name": "Your name",
+  "display_name_ph": "e.g. Alex — only shown once you match",
+  "match_identity_hint": "Your name and age stay hidden until you both match.",
+  "draw_and_chat": "Draw together, chat live — both update in real-time.",
+  "toggle_chat": "Toggle chat",
+  "hide_chat": "Hide chat",
+  "show_chat": "Show chat"
 }
