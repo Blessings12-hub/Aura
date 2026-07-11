@@ -17,6 +17,7 @@ export default function MatchFinder() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [hobbies, setHobbies] = useState('');
   const [lookingFor, setLookingFor] = useState('');
@@ -27,6 +28,16 @@ export default function MatchFinder() {
   // separately from userIdentities/{uid} — never bundled into the public
   // card, so it's never sent to a browser until a real match exists.
   const [identities, setIdentities] = useState({}); // uid -> {age, gender}
+
+  // Prefill the name field from any identity doc the person already has
+  // (e.g. they posted a card before), so re-posting doesn't force retyping.
+  useEffect(() => {
+    if (!userId) return;
+    getDoc(doc(db, 'userIdentities', userId)).then((snap) => {
+      const name = snap.exists() ? snap.data()?.displayName : null;
+      if (name) setDisplayName(name);
+    }).catch(() => {});
+  }, [userId]);
 
   useEffect(() => {
     const q = query(collection(db, 'matchProfiles'), orderBy('createdAt', 'desc'));
@@ -86,18 +97,20 @@ export default function MatchFinder() {
   }, [matches, userId]);
 
   const post = async () => {
-    if (!userId || !bio.trim() || !hobbies.trim() || !lookingFor.trim()) return;
-    // Public card: NO age/gender here. This is enforced both here and by
-    // Firestore rules (matchProfiles create rule rejects age/gender fields).
+    if (!userId || !displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()) return;
+    // Public card: NO age/gender/name here. This is enforced both here and
+    // by Firestore rules (matchProfiles create rule rejects age/gender
+    // fields) — the card that's browsable by everyone stays anonymous.
     await addDoc(collection(db, 'matchProfiles'), {
       userId, avatarColor: user?.avatarColor,
       bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
       createdAt: Timestamp.now(),
     });
-    // Identity lives in its own doc, keyed by uid, only readable by the
-    // owner or a matched partner (see firestore.rules).
+    // Identity (name, age, gender) lives in its own doc, keyed by uid, only
+    // readable by the owner or a matched partner (see firestore.rules) —
+    // this is the "dating account" info that unlocks only after a match.
     await setDoc(doc(db, 'userIdentities', userId), {
-      age: user?.age, gender: user?.gender,
+      displayName: displayName.trim(), age: user?.age, gender: user?.gender,
     }, { merge: true });
     setBio(''); setHobbies(''); setLookingFor('');
   };
@@ -143,10 +156,12 @@ export default function MatchFinder() {
 
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('match_create_card')}</h2>
+          <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
           <input className="aura-input" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} data-testid="match-bio" />
           <input className="aura-input" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} data-testid="match-hobbies" />
           <input className="aura-input" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} data-testid="match-looking" />
-          <button type="button" onClick={post} disabled={!bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
+          <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 10px' }}>{t('match_identity_hint')}</p>
+          <button type="button" onClick={post} disabled={!displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
         </div>
 
         <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
@@ -164,7 +179,7 @@ export default function MatchFinder() {
                     <div className="aura-row" style={{ gap: 8 }}>
                       <strong>
                         {matched
-                          ? (identity ? `${identity.age} • ${identity.gender}` : t('loading'))
+                          ? (identity ? `${identity.displayName || 'Person ' + p.userId?.slice(0, 6)} • ${identity.age} • ${identity.gender}` : t('loading'))
                           : t('anonymous_profile')}
                       </strong>
                       {!matched && <span className="chip"><Lock size={12} /> locked</span>}

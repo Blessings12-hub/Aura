@@ -5,11 +5,14 @@ import {
   collection, addDoc, query, orderBy, onSnapshot, Timestamp,
   doc, setDoc, deleteDoc, getDocs, writeBatch,
 } from 'firebase/firestore';
-import { Eraser, Undo2, Brush } from 'lucide-react';
+import {
+  Eraser, Undo2, Brush, Send, MessageCircle, X,
+} from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
+import Avatar from '../components/Avatar';
 
 export default function CollabStudio() {
   const navigate = useNavigate();
@@ -25,6 +28,38 @@ export default function CollabStudio() {
   const [strokes, setStrokes] = useState([]);
   const [cursors, setCursors] = useState({});
   const [loadError, setLoadError] = useState('');
+
+  // Live chat alongside the shared canvas — one room, since there's one
+  // shared board. Same pattern as Mood Chat: a flat collection, ordered by
+  // createdAt, with a scroll-to-bottom on new messages.
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatText, setChatText] = useState('');
+  const [chatError, setChatError] = useState('');
+  const chatListRef = useRef(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'collabChatMessages'), orderBy('createdAt', 'asc'));
+    return subscribe(
+      q,
+      (snap) => {
+        setChatMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        requestAnimationFrame(() => {
+          if (chatListRef.current) chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
+        });
+      },
+      () => setChatError('Chat could not be loaded. Check your connection and try again.'),
+      'collab studio chat',
+    );
+  }, []);
+
+  const sendChat = async () => {
+    if (!chatText.trim() || !userId) return;
+    await addDoc(collection(db, 'collabChatMessages'), {
+      text: chatText.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+    });
+    setChatText('');
+  };
 
   // Single source of truth for painting all strokes, so both "strokes
   // changed" and "canvas just resized" redraw through the same logic.
@@ -181,51 +216,101 @@ export default function CollabStudio() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={t('collab_studio')} subtitle={t('canvas_strokes', { n: strokes.length })} onBack={() => navigate(-1)} />
+        <TopBar
+          title={t('collab_studio')}
+          subtitle={t('draw_and_chat')}
+          onBack={() => navigate(-1)}
+          right={
+            <button
+              type="button"
+              onClick={() => setChatOpen((v) => !v)}
+              className="aura-btn aura-btn-secondary aura-btn-pill"
+              data-testid="collab-chat-toggle"
+              aria-label={chatOpen ? t('hide_chat') : t('show_chat')}
+              title={chatOpen ? t('hide_chat') : t('show_chat')}
+            >
+              {chatOpen ? <X size={14} /> : <MessageCircle size={14} />}
+            </button>
+          }
+        />
         {loadError && <p className="aura-login-error" data-testid="collab-load-error">{loadError}</p>}
+        {chatError && <p className="aura-login-error" data-testid="collab-chat-error">{chatError}</p>}
 
-        <div className="aura-card aura-section fade-in">
-          <div ref={wrapRef} style={{ position: 'relative' }}>
-            <canvas
-              ref={canvasRef}
-              onMouseDown={handleStart}
-              onMouseMove={handleMove}
-              onMouseUp={handleEnd}
-              onMouseLeave={handleEnd}
-              onTouchStart={handleStart}
-              onTouchMove={handleMove}
-              onTouchEnd={handleEnd}
-              data-testid="collab-canvas"
-              style={{
-                width: '100%', height: 460, borderRadius: 14, border: '1px solid var(--border)',
-                cursor: 'crosshair', touchAction: 'none', display: 'block',
-                background: 'var(--surface-2)',
-              }}
-              aria-label="Shared drawing canvas"
-            />
-            {Object.entries(cursors).map(([uid, c]) => {
-              const rect = canvasRef.current?.getBoundingClientRect();
-              if (!rect) return null;
-              return (
-                <div key={uid} style={{ position: 'absolute', left: c.x * 100 + '%', top: c.y * 100 + '%' }} className="canvas-cursor" >
-                  <span className="canvas-name" style={{ background: c.color }}>{c.name}</span>
-                </div>
-              );
-            })}
+        <div className={`aura-card aura-section fade-in collab-layout${chatOpen ? '' : ' collab-layout--chat-hidden'}`}>
+          <div className="collab-canvas-col">
+            <div ref={wrapRef} style={{ position: 'relative' }}>
+              <canvas
+                ref={canvasRef}
+                onMouseDown={handleStart}
+                onMouseMove={handleMove}
+                onMouseUp={handleEnd}
+                onMouseLeave={handleEnd}
+                onTouchStart={handleStart}
+                onTouchMove={handleMove}
+                onTouchEnd={handleEnd}
+                data-testid="collab-canvas"
+                style={{
+                  width: '100%', height: 460, borderRadius: 14, border: '1px solid var(--border)',
+                  cursor: 'crosshair', touchAction: 'none', display: 'block',
+                  background: 'var(--surface-2)',
+                }}
+                aria-label="Shared drawing canvas"
+              />
+              {Object.entries(cursors).map(([uid, c]) => {
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (!rect) return null;
+                return (
+                  <div key={uid} style={{ position: 'absolute', left: c.x * 100 + '%', top: c.y * 100 + '%' }} className="canvas-cursor" >
+                    <span className="canvas-name" style={{ background: c.color }}>{c.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="canvas-toolbar">
+              <label className="chip"><Brush size={12} /> {t('canvas_color')}
+                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 28, height: 22, border: 'none', background: 'transparent', cursor: 'pointer' }} data-testid="color-picker" />
+              </label>
+              <label className="chip">{t('canvas_size')} <input type="range" min="1" max="30" value={size} onChange={(e) => setSize(Number(e.target.value))} data-testid="size-range" /> <span>{size}</span></label>
+              <button type="button" onClick={undoMine} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="undo-btn"><Undo2 size={14} /> {t('canvas_undo')}</button>
+              <button type="button" onClick={clearAll} className="aura-btn aura-btn-danger aura-btn-pill" data-testid="clear-btn"><Eraser size={14} /> {t('canvas_clear')}</button>
+            </div>
+
+            <p className="aura-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
+              {Object.keys(cursors).length > 0 ? `${Object.keys(cursors).length} other drawer(s) live` : 'You’re the only one here — share the link to invite a friend.'}
+            </p>
           </div>
 
-          <div className="canvas-toolbar">
-            <label className="chip"><Brush size={12} /> {t('canvas_color')}
-              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 28, height: 22, border: 'none', background: 'transparent', cursor: 'pointer' }} data-testid="color-picker" />
-            </label>
-            <label className="chip">{t('canvas_size')} <input type="range" min="1" max="30" value={size} onChange={(e) => setSize(Number(e.target.value))} data-testid="size-range" /> <span>{size}</span></label>
-            <button type="button" onClick={undoMine} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="undo-btn"><Undo2 size={14} /> {t('canvas_undo')}</button>
-            <button type="button" onClick={clearAll} className="aura-btn aura-btn-danger aura-btn-pill" data-testid="clear-btn"><Eraser size={14} /> {t('canvas_clear')}</button>
-          </div>
-
-          <p className="aura-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-            {Object.keys(cursors).length > 0 ? `${Object.keys(cursors).length} other drawer(s) live` : 'You’re the only one here — share the link to invite a friend.'}
-          </p>
+          {chatOpen && (
+            <div className="collab-chat-col" data-testid="collab-chat-panel">
+              <div ref={chatListRef} className="message-list collab-chat-list" data-testid="collab-chat-list">
+                {chatMessages.length === 0 ? (
+                  <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem 0.5rem' }}>{t('no_messages')}</p>
+                ) : chatMessages.map((m) => (
+                  <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`collab-msg-${m.id}`}>
+                    <div className="aura-row" style={{ gap: 6 }}>
+                      <Avatar color={m.userColor} size={18} />
+                      <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                    </div>
+                    <div className="message__bubble">{m.text}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="aura-row" style={{ marginTop: 8 }}>
+                <input
+                  type="text"
+                  className="aura-input"
+                  placeholder={t('type_message')}
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
+                  style={{ flex: '1 1 160px' }}
+                  data-testid="collab-chat-input"
+                />
+                <button type="button" onClick={sendChat} disabled={!chatText.trim()} className="aura-btn aura-btn-primary" data-testid="collab-chat-send"><Send size={16} /></button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

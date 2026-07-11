@@ -57,7 +57,9 @@ export default function MatchChat() {
 
   if (loading) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
 
-  const title = theirIdentity ? `${theirIdentity.age} • ${theirIdentity.gender}` : t('match_finder');
+  const title = theirIdentity
+    ? `${theirIdentity.displayName || 'Person ' + theirUid?.slice(0, 6)} • ${theirIdentity.age} • ${theirIdentity.gender}`
+    : t('match_finder');
 
   return (
     <div className="aura-page">
