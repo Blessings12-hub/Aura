@@ -215,6 +215,17 @@ service cloud.firestore {
       allow write: if isOwner(uid);
     }
 
+    // Collab Studio live chat — same anonymous-group-room pattern as Mood
+    // Chat: one shared room since there's one shared canvas. Anyone
+    // signed in can read/post; you can only send as yourself and only
+    // delete your own message.
+    match /collabChatMessages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
     // ------------------------------------------------------------------
     // Default deny — anything not explicitly matched above is blocked.
     // ------------------------------------------------------------------
