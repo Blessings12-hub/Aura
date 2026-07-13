@@ -40,6 +40,16 @@ function isOwner(uid) {
   return signedIn() && request.auth.uid == uid;
 }
 
+// Server-side backstop for the age gate on Login.jsx (MIN_AGE = 16 there).
+// The client already blocks submitting an age below this, but that's only
+// ever a UI check — anyone can call the SDK directly with any payload. This
+// is what actually prevents an underage value (or a tampered/negative one)
+// from ever being written, on both the initial write and any later update.
+// If MIN_AGE changes in Login.jsx, update the literal below to match.
+function validAge(data) {
+  return !('age' in data) || (data.age is int && data.age >= 16);
+}
+
 // True if request.auth.uid is matched with `otherUid` in matchPairs.
 function isMatchedWith(otherUid) {
   return signedIn() && (
@@ -68,19 +78,23 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /users/{uid} {
       allow read: if signedIn();
-      allow create: if isOwner(uid);
-      allow update: if isOwner(uid);
+      allow create: if isOwner(uid) && validAge(request.resource.data);
+      allow update: if isOwner(uid) && validAge(request.resource.data);
       allow delete: if false;
     }
 
     // ------------------------------------------------------------------
     // USER IDENTITIES — age/gender. Only the owner, or someone the owner
     // has been MATCHED with in Match Finder, may read this. Nobody but
-    // the owner may write it.
+    // the owner may write it. Split out of a single "write" rule so the
+    // age check only ever applies to create/update, never to delete (a
+    // delete has no request.resource.data to validate against).
     // ------------------------------------------------------------------
     match /userIdentities/{uid} {
       allow read: if isOwner(uid) || isMatchedWith(uid);
-      allow write: if isOwner(uid);
+      allow create: if isOwner(uid) && validAge(request.resource.data);
+      allow update: if isOwner(uid) && validAge(request.resource.data);
+      allow delete: if isOwner(uid);
     }
 
     // ------------------------------------------------------------------
@@ -240,6 +254,43 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ------------------------------------------------------------------
+    // BLOCKS — a user's personal block list. Doc id is always
+    // "<blockerUid>_<blockedUid>", never sorted, so it's asymmetric by
+    // design: you can only read/create/delete the row where YOU are the
+    // blocker. There's deliberately no way to query "who has blocked me" —
+    // that would let someone retaliate against whoever blocked them.
+    // ------------------------------------------------------------------
+    match /blocks/{blockId} {
+      allow read: if signedIn() && resource.data.blockerId == request.auth.uid;
+      allow create: if signedIn()
+                    && blockId == request.auth.uid + '_' + request.resource.data.blockedId
+                    && request.resource.data.blockerId == request.auth.uid
+                    && request.resource.data.blockedId is string
+                    && request.resource.data.blockedId != request.auth.uid;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.blockerId == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------
+    // REPORTS — write-only from the client, on purpose. Nobody can read,
+    // edit, or delete a report through these rules, not even the person
+    // who filed it — reports are only ever reviewed via the Firebase
+    // Console or Admin SDK, both of which bypass rules entirely. This
+    // also means a reported person has no way to detect or retaliate
+    // against whoever reported them.
+    // ------------------------------------------------------------------
+    match /reports/{reportId} {
+      allow create: if signedIn()
+                    && request.resource.data.reporterId == request.auth.uid
+                    && request.resource.data.reportedId is string
+                    && request.resource.data.reportedId != request.auth.uid
+                    && request.resource.data.reason is string
+                    && request.resource.data.reason.size() > 0
+                    && request.resource.data.reason.size() < 300;
+      allow read, update, delete: if false;
     }
 
     // ------------------------------------------------------------------
