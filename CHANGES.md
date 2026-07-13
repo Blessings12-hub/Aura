@@ -1,37 +1,54 @@
-# Root cause found: matchPairs / swapPairs read rule
+# What was actually wrong, and what's fixed
 
-Confirmed by process of elimination:
-- Match Finder error was specifically "Matches could not be loaded" (the
-  `matchPairs` query) — NOT "Profiles could not be loaded" (`matchProfiles`,
-  which works fine).
-- Skill Swap error was specifically "Swap requests could not be loaded"
-  (`swapPairs`) — NOT "Skill swaps could not be loaded" (`skillSwaps`,
-  which works fine).
+## 1. "Buttons don't work" — real bug, fixed
+`requestMatch` (Match Finder), `requestSwap` (Skill Swap), and
+`joinEvent`/`acceptJoin` (Event Buddy) had **zero error handling and zero
+loading feedback**. If the Firestore write failed for any reason, or was
+just slow, the button appeared to do nothing — no spinner, no error, no
+disabled state. That's not a rules or deployment problem, it's a missing
+piece of UI code. Fixed in all three: buttons now show a loading state,
+disable themselves mid-request (no more double-tap spam), and show a real
+error message if something actually fails.
 
-Both failing collections used a security rule that checks the **document
-ID** (`isParticipantOfPairId`, which parses "uidA_uidB" out of the ID). But
-the app queries both collections with `where('userA','==',uid)` and
-`where('userB','==',uid)` — filtering on a **data field**. Firestore
-requires the rule condition and the query filter to be checkable against
-the same thing for a list query; an ID-based rule paired with a
-field-based query gets denied outright, even though every real document
-your app creates does satisfy both. It's not a bug in your data, your
-deployment, or your auth — it's a mismatch between how the rule and the
-query were each written.
+## 2. "Online is fake" — root cause found
+Realtime Database (which powers presence) has its **own separate security
+rules**, completely independent from Firestore's. You published Firestore's
+rules a while back — Realtime Database's rules (`database.rules.json`) have
+likely never been published, so every presence read/write has been silently
+denied this whole time. The presence *code* itself (`usePresence.js`,
+`useRoomPresence.js`) is correct — genuine server-enforced online/offline
+detection, not a fake client-side guess — it just never had permission to
+run.
 
-## Fix
-`matchPairs` and `swapPairs` now check `resource.data.userA` /
-`resource.data.userB` for `read`, matching exactly what the app's `where()`
-queries filter on. `create` and `update` still use the ID-based check (fine
-there — those are single-document writes, not list queries, so there's no
-mismatch).
+### To fix, publish `database.rules.json`:
+1. Firebase Console → **Realtime Database** (separate section from
+   Firestore Database, usually just below it in the sidebar)
+2. If you've never opened this before, you may need to click **Create
+   Database** first — choose a location, start in **locked mode**
+3. Tab along the top → **Rules**
+4. Replace the contents with the attached `database.rules.json`
+5. **Publish**
 
-## Deploy
-Same as before — no code changes this time, only rules:
-1. Firebase Console → Firestore Database → Rules
-2. Replace with the attached `firestore.rules`
-3. Publish
+I also added error logging to both presence hooks (console.error, with a
+note pointing at "check Realtime Database rules"), so if this ever breaks
+again it'll say so instead of silently doing nothing.
 
-This should be the last piece — Collab Studio's chat/canvas/cursors all
-use the same plain `signedIn()` pattern as Mood Chat (which already
-works), so they weren't affected by this particular bug.
+## 3. Cleanup — regressions from the last upload
+A few things I'd already fixed had reverted in this upload — worth knowing
+in case this keeps happening from however you're syncing your local copy
+to GitHub:
+- `src/firebase.js` was back to hardcoded API keys instead of reading
+  `.env` — reverted again to env vars.
+- `src/App.css`, `src/index.css`, `src/components/Canvas.jsx`,
+  `public/manifest.webmanifest` had all reappeared (dead Vite-template
+  files) — removed again.
+- A `backend/` folder appeared containing a Python FastAPI + MongoDB
+  server unrelated to Aura's actual Firebase architecture (looks like
+  scaffold from whatever tool originally generated the repo). Removed —
+  Aura doesn't use a custom backend, everything runs through Firebase
+  directly from the client, by design.
+
+If you're not sure why files keep reverting: check whether you have more
+than one local copy of the repo, or are ever pulling instead of always
+pushing your latest edits — a stale local folder getting pushed on top of
+newer GitHub changes would explain exactly this pattern.
