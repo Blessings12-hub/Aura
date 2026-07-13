@@ -6,14 +6,14 @@ import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk,
-  authDomain: import.meta.env.VITE_aura-5693e.firebaseapp.com,
-  databaseURL: import.meta.env.VITE_https://aura-5693e-default-rtdb.firebaseio.com,
-  projectId: import.meta.env.VITE_aura-5693e,
-  storageBucket: import.meta.env.VITE_aura-5693e.firebasestorage.app,
-  messagingSenderId: import.meta.env.VITE_1028269030459,
-  appId: import.meta.env.VITE_1:1028269030459:web:43762becb2ccccb61c301e,
-  measurementId: import.meta.env.VITE_G-9PG36HYYR7,
+  apiKey: "AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk",
+  authDomain: "aura-5693e.firebaseapp.com",
+  databaseURL: "https://aura-5693e-default-rtdb.firebaseio.com",
+  projectId: "aura-5693e",
+  storageBucket: "aura-5693e.firebasestorage.app",
+  messagingSenderId: "1028269030459",
+  appId: "1:1028269030459:web:43762becb2ccccb61c301e",
+  measurementId: "G-9PG36HYYR7"
 };
 
 if (!firebaseConfig.apiKey) {
