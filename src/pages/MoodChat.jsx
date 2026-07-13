@@ -10,6 +10,7 @@ import { db, storage } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -45,6 +46,7 @@ export default function MoodChat() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [mood, setMood] = useState('');
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -188,9 +190,9 @@ export default function MoodChat() {
             </div>
 
             <div ref={listRef} className="message-list" data-testid="message-list" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>
-              {messages.length === 0 ? (
+              {messages.filter((m) => !blockedUsers.has(m.userId)).length === 0 ? (
                 <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>{t('no_messages')}</p>
-              ) : messages.map((m) => (
+              ) : messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
                 <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`msg-${m.id}`}>
                   <div className="aura-row" style={{ gap: 8 }}>
                     <Avatar color={m.userColor} size={24} />

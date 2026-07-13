@@ -8,6 +8,7 @@ import { Send } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 
@@ -17,6 +18,7 @@ export default function EventChat() {
   const { state } = useLocation();
   const ev = state?.event;
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const { t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -52,7 +54,7 @@ export default function EventChat() {
         <TopBar title={ev?.eventName || t('event_buddy')} subtitle={ev ? `${ev.date} • ${ev.time} • ${ev.place}` : ''} onBack={() => navigate(-1)} />
         <div className="aura-card aura-section fade-in">
           <div className="message-list" data-testid="event-messages">
-            {messages.map((m) => (
+            {messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
               <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
                 <div className="aura-row" style={{ gap: 8 }}>
                   <Avatar color={m.userColor} size={20} />
@@ -61,7 +63,7 @@ export default function EventChat() {
                 <div className="message__bubble">{m.text}</div>
               </div>
             ))}
-            {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
+            {messages.filter((m) => !blockedUsers.has(m.userId)).length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
           </div>
           {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="event-chat-error">{chatError}</p>}
           <div className="aura-row">

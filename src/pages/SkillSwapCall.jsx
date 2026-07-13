@@ -7,6 +7,7 @@ import {
 import { PhoneOff, ShieldAlert } from 'lucide-react';
 import { db } from '../firebase';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 
 const ICE_SERVERS = {
@@ -19,6 +20,7 @@ export default function SkillSwapCall() {
   const navigate = useNavigate();
   const { swapId } = useParams();
   const { userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const { t } = useTranslation();
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -41,10 +43,12 @@ export default function SkillSwapCall() {
       const data = snap.data();
       if (!data) { setConsented(false); return; }
       const isParticipant = data.userA === userId || data.userB === userId;
-      setConsented(Boolean(isParticipant && data.videoA && data.videoB));
+      const otherUid = data.userA === userId ? data.userB : data.userA;
+      const isBlocked = otherUid && blockedUsers.has(otherUid);
+      setConsented(Boolean(isParticipant && data.videoA && data.videoB && !isBlocked));
     }, () => setConsented(false));
     return () => unsub();
-  }, [swapId, userId]);
+  }, [swapId, userId, blockedUsers]);
 
   useEffect(() => {
     if (loading || !swapId || !userId || consented !== true) return undefined;

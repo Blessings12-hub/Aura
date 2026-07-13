@@ -8,6 +8,7 @@ import { CalendarHeart, MessageCircle, Check } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 
@@ -17,6 +18,7 @@ export default function EventBuddy() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [eventName, setEventName] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -118,13 +120,13 @@ export default function EventBuddy() {
           <button type="button" onClick={post} className="aura-btn aura-btn-primary" data-testid="event-post-btn"><CalendarHeart size={16} /> {t('post_event')}</button>
         </div>
 
-        <h2 className="aura-title">{t('available_events')} ({events.length})</h2>
+        <h2 className="aura-title">{t('available_events')} ({events.filter((ev) => !blockedUsers.has(ev.userId)).length})</h2>
         {loadError && <p className="aura-login-error" data-testid="event-load-error">{loadError}</p>}
-        {events.length === 0 ? (
+        {events.filter((ev) => !blockedUsers.has(ev.userId)).length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_events')}</p></div>
         ) : (
           <div className="aura-grid">
-            {events.map((ev) => {
+            {events.filter((ev) => !blockedUsers.has(ev.userId)).map((ev) => {
               const joinId = `${ev.id}_${userId}`;
               const join = joins[joinId];
               const accepted = join?.status === 'accepted';

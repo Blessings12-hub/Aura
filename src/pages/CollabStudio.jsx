@@ -11,6 +11,7 @@ import {
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 
@@ -18,6 +19,7 @@ export default function CollabStudio() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const drawingRef = useRef(false);
@@ -303,9 +305,9 @@ export default function CollabStudio() {
           {chatOpen && (
             <div className="collab-chat-col" data-testid="collab-chat-panel">
               <div ref={chatListRef} className="message-list collab-chat-list" data-testid="collab-chat-list">
-                {chatMessages.length === 0 ? (
+                {chatMessages.filter((m) => !blockedUsers.has(m.userId)).length === 0 ? (
                   <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem 0.5rem' }}>{t('no_messages')}</p>
-                ) : chatMessages.map((m) => (
+                ) : chatMessages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
                   <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`collab-msg-${m.id}`}>
                     <div className="aura-row" style={{ gap: 6 }}>
                       <Avatar color={m.userColor} size={18} />

@@ -11,6 +11,7 @@ import {
   DAILY_QUESTIONS, questionForDate, todayKey,
 } from '../constants/dailyQuestions';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
@@ -25,6 +26,7 @@ export default function DailyQuestion() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [answers, setAnswers] = useState([]);
   const [text, setText] = useState('');
   const [chatError, setChatError] = useState('');
@@ -94,9 +96,9 @@ export default function DailyQuestion() {
           </div>
 
           <div ref={listRef} className="message-list" data-testid="daily-message-list" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>
-            {answers.length === 0 ? (
+            {answers.filter((a) => !blockedUsers.has(a.userId)).length === 0 ? (
               <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>{t('empty_no_messages')}</p>
-            ) : answers.map((a) => (
+            ) : answers.filter((a) => !blockedUsers.has(a.userId)).map((a) => (
               <div key={a.id} className={`message${a.userId === userId ? ' message--mine' : ''}`} data-testid={`daily-msg-${a.id}`}>
                 <div className="aura-row" style={{ gap: 8 }}>
                   <Avatar color={a.userColor} size={24} />

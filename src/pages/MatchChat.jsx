@@ -8,14 +8,17 @@ import { Send } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 export default function MatchChat() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { matchId } = useParams();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [theirIdentity, setTheirIdentity] = useState(null);
@@ -65,26 +68,39 @@ export default function MatchChat() {
     ? `${theirIdentity.displayName || 'Person ' + theirUid?.slice(0, 6)} • ${theirIdentity.age} • ${theirIdentity.gender}`
     : t('match_finder');
 
+  const isBlocked = theirUid && blockedUsers.has(theirUid);
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={title} subtitle={t('start_chat')} onBack={() => navigate(-1)} />
-        <div className="aura-card aura-section fade-in">
-          <div className="message-list" data-testid="match-message-list">
-            {messages.map((m) => (
-              <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
-                <div className="aura-row" style={{ gap: 8 }}><Avatar color={m.userColor} size={20} /><span className="message__meta">Person {m.userId?.slice(0, 6)}</span></div>
-                <div className="message__bubble">{m.text}</div>
-              </div>
-            ))}
-            {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('no_messages')}</p>}
+        <TopBar
+          title={title}
+          subtitle={t('start_chat')}
+          onBack={() => navigate(-1)}
+          right={<ReportBlockMenu userId={userId} otherUserId={theirUid} blocked={isBlocked} context="matchChat" contextId={matchId} />}
+        />
+        {isBlocked ? (
+          <div className="aura-card aura-section fade-in" style={{ textAlign: 'center' }} data-testid="match-chat-blocked">
+            <p className="aura-muted">{t('you_blocked_this_person')}</p>
           </div>
-          {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="match-chat-error">{chatError}</p>}
-          <div className="aura-row">
-            <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="match-input" />
-            <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>
+        ) : (
+          <div className="aura-card aura-section fade-in">
+            <div className="message-list" data-testid="match-message-list">
+              {messages.map((m) => (
+                <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
+                  <div className="aura-row" style={{ gap: 8 }}><Avatar color={m.userColor} size={20} /><span className="message__meta">Person {m.userId?.slice(0, 6)}</span></div>
+                  <div className="message__bubble">{m.text}</div>
+                </div>
+              ))}
+              {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('no_messages')}</p>}
+            </div>
+            {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="match-chat-error">{chatError}</p>}
+            <div className="aura-row">
+              <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="match-input" />
+              <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

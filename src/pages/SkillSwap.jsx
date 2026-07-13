@@ -8,6 +8,7 @@ import { Video, MessageCircle, Repeat } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 
@@ -17,6 +18,7 @@ export default function SkillSwap() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [skill, setSkill] = useState('');
   const [want, setWant] = useState('');
   const [items, setItems] = useState([]);
@@ -124,7 +126,7 @@ export default function SkillSwap() {
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_swaps')}</p></div>
         ) : (
           <div className="aura-grid">
-            {items.filter((i) => i.userId !== userId).map((item) => {
+            {items.filter((i) => i.userId !== userId && !blockedUsers.has(i.userId)).map((item) => {
               const id = pairId(userId, item.userId);
               const p = pairs[id];
               const matched = p?.userAAccepted && p?.userBAccepted;

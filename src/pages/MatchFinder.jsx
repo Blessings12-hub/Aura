@@ -8,6 +8,7 @@ import { Heart, Lock, Sparkles } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import Avatar from '../components/Avatar';
 
@@ -17,6 +18,7 @@ export default function MatchFinder() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const blockedUsers = useBlockedUsers(userId);
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [hobbies, setHobbies] = useState('');
@@ -185,7 +187,7 @@ export default function MatchFinder() {
         {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
         {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
         <div className="match-deck">
-          {profiles.filter((p) => p.userId !== userId).map((p, i) => {
+          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId)).map((p, i) => {
             const state = getMatchState(p);
             const matched = state.status === 'matched';
             const identity = matched ? identities[p.userId] : null;
@@ -226,7 +228,7 @@ export default function MatchFinder() {
               </div>
             );
           })}
-          {profiles.filter((p) => p.userId !== userId).length === 0 && (
+          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId)).length === 0 && (
             <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_matches')}</p></div>
           )}
         </div>
