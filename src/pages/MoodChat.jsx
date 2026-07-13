@@ -87,12 +87,16 @@ export default function MoodChat() {
 
   const send = async () => {
     if (!text.trim() || !mood || !userId) return;
-    await addDoc(collection(db, 'chats', mood, 'messages'), {
-      type: 'text', text: text.trim(), userId,
-      userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
-      createdAt: Timestamp.now(),
-    });
-    setText('');
+    try {
+      await addDoc(collection(db, 'chats', mood, 'messages'), {
+        type: 'text', text: text.trim(), userId,
+        userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
+        createdAt: Timestamp.now(),
+      });
+      setText('');
+    } catch (err) {
+      setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const startRecording = async () => {

@@ -59,15 +59,19 @@ export default function DailyQuestion() {
 
   const submit = async () => {
     if (!userId || !text.trim()) return;
-    await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
-      text: text.trim(),
-      userId,
-      userAge: user?.age,
-      userGender: user?.gender,
-      userColor: user?.avatarColor,
-      createdAt: Timestamp.now(),
-    });
-    setText('');
+    try {
+      await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
+        text: text.trim(),
+        userId,
+        userAge: user?.age,
+        userGender: user?.gender,
+        userColor: user?.avatarColor,
+        createdAt: Timestamp.now(),
+      });
+      setText('');
+    } catch (err) {
+      setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   if (loading || !user) {

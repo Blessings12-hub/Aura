@@ -55,10 +55,14 @@ export default function CollabStudio() {
 
   const sendChat = async () => {
     if (!chatText.trim() || !userId) return;
-    await addDoc(collection(db, 'collabChatMessages'), {
-      text: chatText.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
-    });
-    setChatText('');
+    try {
+      await addDoc(collection(db, 'collabChatMessages'), {
+        text: chatText.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+      });
+      setChatText('');
+    } catch (err) {
+      setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   // Single source of truth for painting all strokes, so both "strokes
@@ -193,22 +197,37 @@ export default function CollabStudio() {
     const points = currentStrokeRef.current;
     currentStrokeRef.current = [];
     if (points.length < 2 || !userId) return;
-    await addDoc(collection(db, 'collabStudio'), {
-      userId, userColor: user?.avatarColor, color, size, points, createdAt: Timestamp.now(),
-    });
+    try {
+      await addDoc(collection(db, 'collabStudio'), {
+        userId, userColor: user?.avatarColor, color, size, points, createdAt: Timestamp.now(),
+      });
+    } catch (err) {
+      // Important one to catch: without this, a failed save meant your
+      // stroke visually disappeared with zero explanation the moment you
+      // lifted your finger/mouse — about as "demo-broken" as it gets.
+      setLoadError(`Your last stroke didn't save. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const clearAll = async () => {
-    const snap = await getDocs(collection(db, 'collabStudio'));
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    try {
+      const snap = await getDocs(collection(db, 'collabStudio'));
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch (err) {
+      setLoadError(`Couldn't clear the canvas. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const undoMine = async () => {
-    const mine = strokes.filter((s) => s.userId === userId);
-    const last = mine[mine.length - 1];
-    if (last) await deleteDoc(doc(db, 'collabStudio', last.id));
+    try {
+      const mine = strokes.filter((s) => s.userId === userId);
+      const last = mine[mine.length - 1];
+      if (last) await deleteDoc(doc(db, 'collabStudio', last.id));
+    } catch (err) {
+      setLoadError(`Couldn't undo. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;

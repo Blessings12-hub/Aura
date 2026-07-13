@@ -39,22 +39,30 @@ export default function SkillSwapChat() {
 
   const send = async () => {
     if (!text.trim() || !userId) return;
-    await addDoc(collection(db, 'swapChats', swapId, 'messages'), {
-      text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
-    });
-    setText('');
+    try {
+      await addDoc(collection(db, 'swapChats', swapId, 'messages'), {
+        text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+      });
+      setText('');
+    } catch (err) {
+      setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const toggleVideoRequest = async (accept) => {
     if (!userId || !swapId) return;
-    const ref = doc(db, 'swapPairs', swapId);
-    const snap = await getDoc(ref);
-    const data = snap.data() || {};
-    const isA = data.userA === userId;
-    const upd = isA
-      ? { videoA: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() }
-      : { videoB: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() };
-    await updateDoc(ref, upd);
+    try {
+      const ref = doc(db, 'swapPairs', swapId);
+      const snap = await getDoc(ref);
+      const data = snap.data() || {};
+      const isA = data.userA === userId;
+      const upd = isA
+        ? { videoA: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() }
+        : { videoB: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() };
+      await updateDoc(ref, upd);
+    } catch (err) {
+      setChatError(`Couldn't update the video call request. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const videoBothAccepted = pair?.videoA && pair?.videoB;

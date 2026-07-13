@@ -49,10 +49,14 @@ export default function MatchChat() {
 
   const send = async () => {
     if (!text.trim() || !userId) return;
-    await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
-      text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
-    });
-    setText('');
+    try {
+      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+      });
+      setText('');
+    } catch (err) {
+      setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   if (loading) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
