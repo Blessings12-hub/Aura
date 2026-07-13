@@ -19,13 +19,15 @@ export function useRoomPresence(roomId, uid, meta = {}) {
     const memberRef = ref(rtdb, `roomPresence/${roomId}/${uid}`);
     const roomRef = ref(rtdb, `roomPresence/${roomId}`);
 
-    onDisconnect(memberRef).remove().then(() => {
-      set(memberRef, { ...meta, joinedAt: rtdbServerTimestamp() });
-    });
+    onDisconnect(memberRef).remove()
+      .then(() => set(memberRef, { ...meta, joinedAt: rtdbServerTimestamp() }))
+      .catch((err) => console.error('room presence: failed to join room (check Realtime Database rules are published)', err));
 
-    const unsub = onValue(roomRef, (snap) => {
-      setMembers(snap.exists() ? snap.val() : {});
-    });
+    const unsub = onValue(
+      roomRef,
+      (snap) => setMembers(snap.exists() ? snap.val() : {}),
+      (err) => console.error('room presence: room listener failed (check Realtime Database rules are published)', err),
+    );
 
     return () => {
       unsub();

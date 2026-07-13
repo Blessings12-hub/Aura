@@ -30,15 +30,20 @@ export function usePresence(uid) {
     const statusRef = ref(rtdb, `status/${uid}`);
     const connectedRef = ref(rtdb, '.info/connected');
 
-    const unsub = onValue(connectedRef, (snap) => {
-      if (snap.val() === false) return;
-      // Queue the offline write on the SERVER first, so it fires even if
-      // our own JS never gets to run again (crash, network loss, etc.).
-      onDisconnect(statusRef).set({ state: 'offline', lastChanged: rtdbServerTimestamp() })
-        .then(() => {
-          set(statusRef, { state: 'online', lastChanged: rtdbServerTimestamp() });
-        });
-    });
+    const unsub = onValue(
+      connectedRef,
+      (snap) => {
+        if (snap.val() === false) return;
+        // Queue the offline write on the SERVER first, so it fires even if
+        // our own JS never gets to run again (crash, network loss, etc.).
+        onDisconnect(statusRef).set({ state: 'offline', lastChanged: rtdbServerTimestamp() })
+          .then(() => {
+            set(statusRef, { state: 'online', lastChanged: rtdbServerTimestamp() });
+          })
+          .catch((err) => console.error('presence: failed to set up onDisconnect', err));
+      },
+      (err) => console.error('presence: .info/connected listener failed (check Realtime Database rules are published)', err),
+    );
 
     return () => unsub();
   }, [uid]);
