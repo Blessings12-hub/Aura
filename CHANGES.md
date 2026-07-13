@@ -1,54 +1,29 @@
-# What was actually wrong, and what's fixed
+# Reliability pass — phase 1 of "make it professional"
 
-## 1. "Buttons don't work" — real bug, fixed
-`requestMatch` (Match Finder), `requestSwap` (Skill Swap), and
-`joinEvent`/`acceptJoin` (Event Buddy) had **zero error handling and zero
-loading feedback**. If the Firestore write failed for any reason, or was
-just slow, the button appeared to do nothing — no spinner, no error, no
-disabled state. That's not a rules or deployment problem, it's a missing
-piece of UI code. Fixed in all three: buttons now show a loading state,
-disable themselves mid-request (no more double-tap spam), and show a real
-error message if something actually fails.
+Same fix as the last batch (Match Finder / Skill Swap / Event Buddy),
+extended to every remaining write in the app. Audited every `addDoc` /
+`setDoc` / `updateDoc` / `deleteDoc` call across all 12 pages — these were
+the ones with no error handling, now fixed:
 
-## 2. "Online is fake" — root cause found
-Realtime Database (which powers presence) has its **own separate security
-rules**, completely independent from Firestore's. You published Firestore's
-rules a while back — Realtime Database's rules (`database.rules.json`) have
-likely never been published, so every presence read/write has been silently
-denied this whole time. The presence *code* itself (`usePresence.js`,
-`useRoomPresence.js`) is correct — genuine server-enforced online/offline
-detection, not a fake client-side guess — it just never had permission to
-run.
+- **Daily Question** — submitting an answer
+- **Event Chat, Match Chat, Skill Swap Chat** — sending a message
+- **Skill Swap Chat** — accepting/declining a video call request
+- **Collab Studio** — sending a chat message, saving a stroke, clearing
+  the canvas, undoing your last stroke
+- **Mood Chat** — sending a text message (voice notes already had this)
 
-### To fix, publish `database.rules.json`:
-1. Firebase Console → **Realtime Database** (separate section from
-   Firestore Database, usually just below it in the sidebar)
-2. If you've never opened this before, you may need to click **Create
-   Database** first — choose a location, start in **locked mode**
-3. Tab along the top → **Rules**
-4. Replace the contents with the attached `database.rules.json`
-5. **Publish**
+The Collab Studio stroke-save one is worth calling out specifically: before
+this fix, if that write failed, your drawing would just visually vanish the
+moment you lifted your finger, with no explanation at all — about as
+"broken demo" as a bug gets. Now it says so.
 
-I also added error logging to both presence hooks (console.error, with a
-note pointing at "check Realtime Database rules"), so if this ever breaks
-again it'll say so instead of silently doing nothing.
+All of these reuse an error state/banner that already existed on each page
+(`chatError` or `loadError`), so no new UI pattern was introduced — just
+consistently wired up everywhere it was missing.
 
-## 3. Cleanup — regressions from the last upload
-A few things I'd already fixed had reverted in this upload — worth knowing
-in case this keeps happening from however you're syncing your local copy
-to GitHub:
-- `src/firebase.js` was back to hardcoded API keys instead of reading
-  `.env` — reverted again to env vars.
-- `src/App.css`, `src/index.css`, `src/components/Canvas.jsx`,
-  `public/manifest.webmanifest` had all reappeared (dead Vite-template
-  files) — removed again.
-- A `backend/` folder appeared containing a Python FastAPI + MongoDB
-  server unrelated to Aura's actual Firebase architecture (looks like
-  scaffold from whatever tool originally generated the repo). Removed —
-  Aura doesn't use a custom backend, everything runs through Firebase
-  directly from the client, by design.
-
-If you're not sure why files keep reverting: check whether you have more
-than one local copy of the repo, or are ever pulling instead of always
-pushing your latest edits — a stale local folder getting pushed on top of
-newer GitHub changes would explain exactly this pattern.
+## What's next (phases 2 and 3, not started)
+You said priority order is reliability → visual polish → missing basics
+(Terms/Privacy, onboarding, age verification). This batch is reliability.
+Let me know when you want to move to phase 2 (visual polish) or phase 3
+(the legal/onboarding basics) and I'll scope those the same way — audit
+first, then fix, rather than guessing at what "professional" means.
