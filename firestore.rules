@@ -109,8 +109,16 @@ service cloud.firestore {
     }
 
     // matchPairs/{uidA_uidB} — only the two participants may read/write.
+    // NOTE: `read` intentionally checks resource.data.userA/userB, NOT the
+    // pairId itself. The app queries this collection with
+    // where('userA','==',uid) / where('userB','==',uid) — Firestore can
+    // only allow a *list* query if the rule is checkable against the same
+    // fields the query filters on. An ID-pattern check (isParticipantOfPairId)
+    // works fine for a single get-by-id, but silently denies the entire
+    // list query here, because Firestore can't statically prove every
+    // possible matching document would also satisfy an ID-based rule.
     match /matchPairs/{pairId} {
-      allow read: if isParticipantOfPairId(pairId);
+      allow read: if signedIn() && (resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
@@ -137,7 +145,7 @@ service cloud.firestore {
     }
 
     match /swapPairs/{pairId} {
-      allow read: if isParticipantOfPairId(pairId);
+      allow read: if signedIn() && (resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
