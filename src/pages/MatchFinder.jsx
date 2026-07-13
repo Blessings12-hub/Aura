@@ -44,7 +44,7 @@ export default function MatchFinder() {
     return subscribe(
       q,
       (snap) => setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => setLoadError('Profiles could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Profiles could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match profiles',
     );
   }, []);
@@ -59,7 +59,7 @@ export default function MatchFinder() {
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
         setMatches((prev) => ({ ...prev, ...map }));
       },
-      () => setLoadError('Matches could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Matches could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match pairs (as userA)',
     );
     const unsubB = subscribe(
@@ -69,7 +69,7 @@ export default function MatchFinder() {
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
         setMatches((prev) => ({ ...prev, ...map }));
       },
-      () => setLoadError('Matches could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Matches could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match pairs (as userB)',
     );
     return () => { unsubA(); unsubB(); };

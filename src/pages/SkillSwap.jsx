@@ -28,7 +28,7 @@ export default function SkillSwap() {
     return subscribe(
       q,
       (snap) => setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => setLoadError('Skill swaps could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Skill swaps could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'skill swaps',
     );
   }, []);
@@ -41,7 +41,7 @@ export default function SkillSwap() {
         const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: true }; });
         setPairs((p) => ({ ...p, ...m }));
       },
-      () => setLoadError('Swap requests could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Swap requests could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'swap pairs (as userA)',
     );
     const unsubB = subscribe(
@@ -50,7 +50,7 @@ export default function SkillSwap() {
         const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: false }; });
         setPairs((p) => ({ ...p, ...m }));
       },
-      () => setLoadError('Swap requests could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Swap requests could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'swap pairs (as userB)',
     );
     return () => { unsubA(); unsubB(); };

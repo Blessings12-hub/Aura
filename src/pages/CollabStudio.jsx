@@ -48,7 +48,7 @@ export default function CollabStudio() {
           if (chatListRef.current) chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
         });
       },
-      () => setChatError('Chat could not be loaded. Check your connection and try again.'),
+      (err) => setChatError(`Chat could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'collab studio chat',
     );
   }, []);
@@ -117,7 +117,7 @@ export default function CollabStudio() {
     return subscribe(
       q,
       (s) => setStrokes(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => setLoadError('The canvas could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`The canvas could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'collab studio strokes',
     );
   }, []);
@@ -134,7 +134,7 @@ export default function CollabStudio() {
         });
         setCursors(c);
       },
-      () => setLoadError('Live cursors could not be loaded. Check your connection and try again.'),
+      (err) => setLoadError(`Live cursors could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'collab studio cursors',
     );
   }, [userId]);
