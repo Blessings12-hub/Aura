@@ -112,5 +112,20 @@
   "draw_and_chat": "Draw together, chat live — both update in real-time.",
   "toggle_chat": "Toggle chat",
   "hide_chat": "Hide chat",
-  "show_chat": "Show chat"
+  "show_chat": "Show chat",
+  "safety_options": "Safety options",
+  "block_user": "Block this person",
+  "unblock_user": "Unblock this person",
+  "report_user": "Report this person",
+  "report_reason": "What's going on?",
+  "report_reason_harassment": "Harassment or abuse",
+  "report_reason_sexual_content": "Unwanted sexual content",
+  "report_reason_spam_or_scam": "Spam or scam",
+  "report_reason_underage": "Appears underage",
+  "report_reason_other": "Other",
+  "report_details_ph": "Add any details that would help (optional)",
+  "submit_report": "Submit report",
+  "report_submitted": "Thanks — we've received your report and will look into it.",
+  "action_failed": "That didn't go through",
+  "you_blocked_this_person": "You've blocked this person. Unblock them from the safety menu to see this chat again."
 }
