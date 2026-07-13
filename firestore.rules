@@ -118,7 +118,11 @@ service cloud.firestore {
     // list query here, because Firestore can't statically prove every
     // possible matching document would also satisfy an ID-based rule.
     match /matchPairs/{pairId} {
-      allow read: if signedIn() && (resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
+      // `resource == null` first so a get() on a not-yet-created pair doc
+      // (the "does this pair exist yet" check before setDoc) doesn't throw
+      // trying to read resource.data off nothing — that used to deny with
+      // permission-denied on every very first request between two people.
+      allow read: if signedIn() && (resource == null || resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
@@ -145,7 +149,8 @@ service cloud.firestore {
     }
 
     match /swapPairs/{pairId} {
-      allow read: if signedIn() && (resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
+      // Same fix as matchPairs above: allow the pre-create existence check.
+      allow read: if signedIn() && (resource == null || resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
@@ -184,7 +189,10 @@ service cloud.firestore {
     // eventJoins/{eventId_uid} — the joiner writes their own join; the
     // event owner may update it (e.g. to accept). Anyone in userIds may read.
     match /eventJoins/{joinId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.userIds;
+      // Same fix: allow the pre-create existence check (joinEvent() does a
+      // getDoc() before the first setDoc()) without denying on a doc that
+      // doesn't exist yet.
+      allow read: if signedIn() && (resource == null || request.auth.uid in resource.data.userIds);
       allow create: if signedIn() && request.auth.uid in request.resource.data.userIds;
       allow update: if signedIn() && request.auth.uid in resource.data.userIds;
       allow delete: if false;
