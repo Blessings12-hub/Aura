@@ -24,6 +24,11 @@ export default function MatchFinder() {
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState({}); // pairId -> {status, theirId, isInitiator}
   const [loadError, setLoadError] = useState('');
+  // Per-pairId "is this request in flight right now" so the button can
+  // show real feedback (spinner/disabled) instead of doing nothing
+  // visible while the write is in progress.
+  const [pendingActions, setPendingActions] = useState({});
+  const [actionError, setActionError] = useState('');
   // Identity (age/gender) for people we've actually matched with, fetched
   // separately from userIdentities/{uid} — never bundled into the public
   // card, so it's never sent to a browser until a real match exists.
@@ -118,25 +123,37 @@ export default function MatchFinder() {
   const requestMatch = async (other) => {
     if (!userId || !other?.userId || other.userId === userId) return;
     const id = pairId(userId, other.userId);
-    const ref = doc(db, 'matchPairs', id);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        userA: userId, userB: other.userId,
-        userAColor: user?.avatarColor, userBColor: other.avatarColor,
-        userAAccepted: true, userBAccepted: false,
-        status: 'pending',
-        createdAt: Timestamp.now(),
-      });
-    } else {
-      const data = snap.data();
-      // if the other person requested first → accept
-      if (data.userA === other.userId && !data.userBAccepted && userId === data.userB) {
-        await updateDoc(ref, { userBAccepted: true, status: 'matched', matchedAt: Timestamp.now() });
+    if (pendingActions[id]) return; // already in flight — ignore double-taps
+    setActionError('');
+    setPendingActions((prev) => ({ ...prev, [id]: true }));
+    try {
+      const ref = doc(db, 'matchPairs', id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          userA: userId, userB: other.userId,
+          userAColor: user?.avatarColor, userBColor: other.avatarColor,
+          userAAccepted: true, userBAccepted: false,
+          status: 'pending',
+          createdAt: Timestamp.now(),
+        });
+      } else {
+        const data = snap.data();
+        // if the other person requested first → accept
+        if (data.userA === other.userId && !data.userBAccepted && userId === data.userB) {
+          await updateDoc(ref, { userBAccepted: true, status: 'matched', matchedAt: Timestamp.now() });
+        }
+        if (data.userA === userId && !data.userAAccepted) {
+          await updateDoc(ref, { userAAccepted: true });
+        }
       }
-      if (data.userA === userId && !data.userAAccepted) {
-        await updateDoc(ref, { userAAccepted: true });
-      }
+    } catch (err) {
+      // This is the fix for "the button doesn't work" — previously any
+      // failure here (permission error, network blip, anything) failed
+      // completely silently. Now it's visible and the button re-enables.
+      setActionError(`Couldn't send that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
@@ -166,6 +183,7 @@ export default function MatchFinder() {
 
         <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
+        {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
         <div className="match-deck">
           {profiles.filter((p) => p.userId !== userId).map((p, i) => {
             const state = getMatchState(p);
@@ -200,9 +218,9 @@ export default function MatchFinder() {
                   {matched ? (
                     <button type="button" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className="aura-btn aura-btn-primary" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
                   ) : state.status === 'pending' ? (
-                    <button type="button" onClick={() => requestMatch(p)} className="aura-btn aura-btn-secondary" data-testid={`pending-${p.id}`}>{state.isInitiator ? t('match_pending') : `${t('accept')} ${t('match_finder')}`}</button>
+                    <button type="button" onClick={() => requestMatch(p)} disabled={!!pendingActions[state.id]} className="aura-btn aura-btn-secondary" data-testid={`pending-${p.id}`}>{pendingActions[state.id] ? t('loading') : (state.isInitiator ? t('match_pending') : `${t('accept')} ${t('match_finder')}`)}</button>
                   ) : (
-                    <button type="button" onClick={() => requestMatch(p)} className="aura-btn aura-btn-primary" data-testid={`request-${p.id}`}><Heart size={14} /> {t('request_match')}</button>
+                    <button type="button" onClick={() => requestMatch(p)} disabled={!!pendingActions[state.id]} className="aura-btn aura-btn-primary" data-testid={`request-${p.id}`}><Heart size={14} /> {pendingActions[state.id] ? t('loading') : t('request_match')}</button>
                   )}
                 </div>
               </div>

@@ -22,6 +22,8 @@ export default function SkillSwap() {
   const [items, setItems] = useState([]);
   const [pairs, setPairs] = useState({});
   const [loadError, setLoadError] = useState('');
+  const [pendingActions, setPendingActions] = useState({});
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     const q = query(collection(db, 'skillSwaps'), orderBy('createdAt', 'desc'));
@@ -71,24 +73,33 @@ export default function SkillSwap() {
   const requestSwap = async (item) => {
     if (!userId || item.userId === userId) return;
     const id = pairId(userId, item.userId);
-    const ref = doc(db, 'swapPairs', id);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        userA: userId, userB: item.userId, status: 'pending',
-        userAAccepted: true, userBAccepted: false,
-        userAColor: user?.avatarColor, userBColor: item.userColor,
-        createdAt: Timestamp.now(),
-      });
-    } else {
-      const data = snap.data();
-      const updates = {};
-      if (data.userA === userId && !data.userAAccepted) updates.userAAccepted = true;
-      if (data.userB === userId && !data.userBAccepted) updates.userBAccepted = true;
-      const a = data.userAAccepted || updates.userAAccepted;
-      const b = data.userBAccepted || updates.userBAccepted;
-      if (a && b) updates.status = 'matched';
-      if (Object.keys(updates).length) await updateDoc(ref, updates);
+    if (pendingActions[id]) return;
+    setActionError('');
+    setPendingActions((prev) => ({ ...prev, [id]: true }));
+    try {
+      const ref = doc(db, 'swapPairs', id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          userA: userId, userB: item.userId, status: 'pending',
+          userAAccepted: true, userBAccepted: false,
+          userAColor: user?.avatarColor, userBColor: item.userColor,
+          createdAt: Timestamp.now(),
+        });
+      } else {
+        const data = snap.data();
+        const updates = {};
+        if (data.userA === userId && !data.userAAccepted) updates.userAAccepted = true;
+        if (data.userB === userId && !data.userBAccepted) updates.userBAccepted = true;
+        const a = data.userAAccepted || updates.userAAccepted;
+        const b = data.userBAccepted || updates.userBAccepted;
+        if (a && b) updates.status = 'matched';
+        if (Object.keys(updates).length) await updateDoc(ref, updates);
+      }
+    } catch (err) {
+      setActionError(`Couldn't send that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
@@ -108,6 +119,7 @@ export default function SkillSwap() {
 
         <h2 className="aura-title">{t('available_swaps')} ({items.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="swap-load-error">{loadError}</p>}
+        {actionError && <p className="aura-login-error" data-testid="swap-action-error">{actionError}</p>}
         {items.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_swaps')}</p></div>
         ) : (
@@ -128,9 +140,9 @@ export default function SkillSwap() {
                   {matched ? (
                     <button type="button" onClick={() => navigate(`/aura/swap/chat/${id}`, { state: { otherUser: item } })} className="aura-btn aura-btn-primary" data-testid={`swap-chat-${item.id}`}><MessageCircle size={14} /> {t('open_chat')}</button>
                   ) : pending ? (
-                    <button type="button" onClick={() => requestSwap(item)} className="aura-btn aura-btn-secondary" data-testid={`swap-pending-${item.id}`}>{p.isInitiator ? t('swap_pending') : t('accept')}</button>
+                    <button type="button" onClick={() => requestSwap(item)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-secondary" data-testid={`swap-pending-${item.id}`}>{pendingActions[id] ? t('loading') : (p.isInitiator ? t('swap_pending') : t('accept'))}</button>
                   ) : (
-                    <button type="button" onClick={() => requestSwap(item)} className="aura-btn aura-btn-primary" data-testid={`swap-request-${item.id}`}>{t('request_swap')}</button>
+                    <button type="button" onClick={() => requestSwap(item)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-primary" data-testid={`swap-request-${item.id}`}>{pendingActions[id] ? t('loading') : t('request_swap')}</button>
                   )}
                 </div>
               );

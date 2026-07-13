@@ -25,6 +25,7 @@ export default function EventBuddy() {
   const [events, setEvents] = useState([]);
   const [joins, setJoins] = useState({});
   const [loadError, setLoadError] = useState('');
+  const [pendingActions, setPendingActions] = useState({});
 
   useEffect(() => {
     const q = query(collection(db, 'eventBuddy'), orderBy('createdAt', 'desc'));
@@ -66,18 +67,36 @@ export default function EventBuddy() {
   const joinEvent = async (ev) => {
     if (!userId || ev.userId === userId) return;
     const id = `${ev.id}_${userId}`;
-    const ref = doc(db, 'eventJoins', id);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        eventId: ev.id, hostId: ev.userId, guestId: userId,
-        userIds: [ev.userId, userId], status: 'pending', createdAt: Timestamp.now(),
-      });
+    if (pendingActions[id]) return;
+    setError('');
+    setPendingActions((prev) => ({ ...prev, [id]: true }));
+    try {
+      const ref = doc(db, 'eventJoins', id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          eventId: ev.id, hostId: ev.userId, guestId: userId,
+          userIds: [ev.userId, userId], status: 'pending', createdAt: Timestamp.now(),
+        });
+      }
+    } catch (err) {
+      setError(`Couldn't send that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
   const acceptJoin = async (joinId) => {
-    await updateDoc(doc(db, 'eventJoins', joinId), { status: 'accepted', acceptedAt: Timestamp.now() });
+    if (pendingActions[joinId]) return;
+    setError('');
+    setPendingActions((prev) => ({ ...prev, [joinId]: true }));
+    try {
+      await updateDoc(doc(db, 'eventJoins', joinId), { status: 'accepted', acceptedAt: Timestamp.now() });
+    } catch (err) {
+      setError(`Couldn't accept that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[joinId]; return next; });
+    }
   };
 
   if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
@@ -134,7 +153,7 @@ export default function EventBuddy() {
                       {myEventRequests.map(([jid, j]) => (
                         <div key={jid} className="aura-row" style={{ marginBottom: 6 }}>
                           <span className="chip">Guest {j.guestId.slice(0, 6)}</span>
-                          <button type="button" onClick={() => acceptJoin(jid)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid={`accept-${jid}`}><Check size={12} /> {t('accept')}</button>
+                          <button type="button" onClick={() => acceptJoin(jid)} disabled={!!pendingActions[jid]} className="aura-btn aura-btn-primary aura-btn-pill" data-testid={`accept-${jid}`}><Check size={12} /> {pendingActions[jid] ? t('loading') : t('accept')}</button>
                         </div>
                       ))}
                     </>
@@ -143,7 +162,7 @@ export default function EventBuddy() {
                   ) : pending ? (
                     <button type="button" disabled className="aura-btn aura-btn-secondary">{t('join_pending')}</button>
                   ) : (
-                    <button type="button" onClick={() => joinEvent(ev)} className="aura-btn aura-btn-primary" data-testid={`event-join-${ev.id}`}><CalendarHeart size={14} /> {t('join_event')}</button>
+                    <button type="button" onClick={() => joinEvent(ev)} disabled={!!pendingActions[`${ev.id}_${userId}`]} className="aura-btn aura-btn-primary" data-testid={`event-join-${ev.id}`}><CalendarHeart size={14} /> {pendingActions[`${ev.id}_${userId}`] ? t('loading') : t('join_event')}</button>
                   )}
                 </div>
               );
