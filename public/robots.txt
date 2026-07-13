@@ -1,0 +1,7 @@
+# Aura — robots.txt
+# Everything here is public and safe to crawl; nothing sensitive lives at
+# a URL (chat rooms/matches require auth to load any real data anyway).
+User-agent: *
+Allow: /
+
+Sitemap: https://aura-blush-zeta.vercel.app/sitemap.xml
