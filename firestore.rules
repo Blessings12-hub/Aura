@@ -76,8 +76,30 @@ function isParticipantOfPairId(pairId) {
   );
 }
 
+// True if the caller has an /admins/{uid} doc. There's no self-service way
+// to become an admin — that doc has no client-writable path anywhere in
+// these rules, so the only way to grant admin access is for the project
+// owner to create it manually from the Firebase Console (Firestore ->
+// admins -> add document with that id -> any field, e.g. {role: 'admin'}).
+function isAdmin() {
+  return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+}
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // ADMINS — allowlist of uids that may review reports (see below).
+    // Nobody can read, write, or even check for the existence of anyone
+    // else's admin doc — you can only look up your OWN, which is exactly
+    // what the client's "am I an admin" check needs and no more. There is
+    // deliberately no create/update/delete rule at all: this can only be
+    // populated by the project owner directly in the Firebase Console.
+    // ------------------------------------------------------------------
+    match /admins/{uid} {
+      allow get: if isOwner(uid);
+      allow list, write: if false;
+    }
 
     // ------------------------------------------------------------------
     // USERS — public-safe profile (avatarColor only). Age/gender live in
@@ -303,12 +325,12 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // REPORTS — write-only from the client, on purpose. Nobody can read,
-    // edit, or delete a report through these rules, not even the person
-    // who filed it — reports are only ever reviewed via the Firebase
-    // Console or Admin SDK, both of which bypass rules entirely. This
-    // also means a reported person has no way to detect or retaliate
-    // against whoever reported them.
+    // REPORTS — write-only from an ordinary client, on purpose. The
+    // reporter themselves cannot read their own report back. The ONLY
+    // read/update/delete path is isAdmin() — see the admins collection
+    // above — which is how the in-app admin review screen works. This
+    // still means a reported person has no way to detect who reported
+    // them: even an admin reading the doc doesn't expose that to them.
     // ------------------------------------------------------------------
     match /reports/{reportId} {
       allow create: if signedIn()
@@ -318,7 +340,7 @@ service cloud.firestore {
                     && request.resource.data.reason is string
                     && request.resource.data.reason.size() > 0
                     && request.resource.data.reason.size() < 300;
-      allow read, update, delete: if false;
+      allow read, update, delete: if isAdmin();
     }
 
     // ------------------------------------------------------------------
