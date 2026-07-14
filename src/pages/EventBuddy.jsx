@@ -111,12 +111,12 @@ export default function EventBuddy() {
 
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('post_event')}</h2>
-          <input className="aura-input" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder={t('event_name')} data-testid="event-name" />
+          <input className="aura-input" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder={t('event_name')} maxLength={150} data-testid="event-name" />
           <div className="aura-row">
             <input type="date" className="aura-input" value={date} onChange={(e) => setDate(e.target.value)} style={{ flex: 1 }} data-testid="event-date" />
             <input type="time" className="aura-input" value={time} onChange={(e) => setTime(e.target.value)} style={{ flex: 1 }} data-testid="event-time" />
           </div>
-          <input className="aura-input" value={place} onChange={(e) => setPlace(e.target.value)} placeholder={t('event_location_ph')} data-testid="event-place" />
+          <input className="aura-input" value={place} onChange={(e) => setPlace(e.target.value)} placeholder={t('event_location_ph')} maxLength={200} data-testid="event-place" />
           {error && <p className="aura-login-error">{error}</p>}
           <button type="button" onClick={post} className="aura-btn aura-btn-primary" data-testid="event-post-btn"><CalendarHeart size={16} /> {t('post_event')}</button>
         </div>

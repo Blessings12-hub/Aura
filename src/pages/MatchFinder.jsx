@@ -177,9 +177,9 @@ export default function MatchFinder() {
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('match_create_card')}</h2>
           <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
-          <input className="aura-input" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} data-testid="match-bio" />
-          <input className="aura-input" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} data-testid="match-hobbies" />
-          <input className="aura-input" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} data-testid="match-looking" />
+          <input className="aura-input" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} maxLength={300} data-testid="match-bio" />
+          <input className="aura-input" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} maxLength={300} data-testid="match-hobbies" />
+          <input className="aura-input" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} maxLength={300} data-testid="match-looking" />
           <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 10px' }}>{t('match_identity_hint')}</p>
           <button type="button" onClick={post} disabled={!displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
         </div>

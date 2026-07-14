@@ -115,8 +115,8 @@ export default function SkillSwap() {
 
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('post_swap')}</h2>
-          <input className="aura-input" value={skill} onChange={(e) => setSkill(e.target.value)} placeholder={t('i_can_teach')} data-testid="swap-skill" />
-          <input className="aura-input" value={want} onChange={(e) => setWant(e.target.value)} placeholder={t('i_want_to_learn')} data-testid="swap-want" />
+          <input className="aura-input" value={skill} onChange={(e) => setSkill(e.target.value)} placeholder={t('i_can_teach')} maxLength={300} data-testid="swap-skill" />
+          <input className="aura-input" value={want} onChange={(e) => setWant(e.target.value)} placeholder={t('i_want_to_learn')} maxLength={300} data-testid="swap-want" />
           <button type="button" onClick={post} disabled={!skill.trim() || !want.trim()} className="aura-btn aura-btn-primary" data-testid="swap-post-btn"><Repeat size={16} /> {t('post_swap')}</button>
         </div>
 

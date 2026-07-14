@@ -100,7 +100,7 @@ export default function MatchChat() {
             </div>
             {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="match-chat-error">{chatError}</p>}
             <div className="aura-row">
-              <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="match-input" />
+              <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: '1 1 240px' }} data-testid="match-input" />
               <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>
             </div>
           </div>

@@ -230,6 +230,7 @@ export default function MoodChat() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+                maxLength={3000}
                 style={{ flex: '1 1 240px' }}
                 data-testid="message-input"
               />

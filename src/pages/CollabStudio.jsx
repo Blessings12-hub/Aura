@@ -335,6 +335,7 @@ export default function CollabStudio() {
                   value={chatText}
                   onChange={(e) => setChatText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
+                  maxLength={3000}
                   style={{ flex: '1 1 160px' }}
                   data-testid="collab-chat-input"
                 />
