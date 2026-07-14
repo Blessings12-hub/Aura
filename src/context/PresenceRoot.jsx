@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { usePresence } from '../hooks/usePresence';
+import IncomingRequestWatcher from '../components/IncomingRequestWatcher';
 
 export default function PresenceRoot({ children }) {
   const [uid, setUid] = useState(() => localStorage.getItem('aura_userId'));
@@ -16,5 +17,10 @@ export default function PresenceRoot({ children }) {
 
   usePresence(uid);
 
-  return children;
+  return (
+    <>
+      <IncomingRequestWatcher userId={uid} />
+      {children}
+    </>
+  );
 }
