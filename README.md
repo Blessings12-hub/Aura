@@ -56,6 +56,11 @@ aura/
 │   └── main.jsx                 # App entry point
 ├── scripts/
 │   └── make_logo.py             # Logo generation utility
+├── functions/                    # Cloud Functions (push notifications)
+│   ├── index.js
+│   └── package.json
+├── tests/
+│   └── firestore.rules.test.js  # Security rules test suite
 ├── firestore.rules              # Firestore security rules
 └── vite.config.js
 ```
@@ -87,14 +92,15 @@ Fill in `.env` with values from **Firebase Console → Project settings →
 General → Your apps → Web app**:
 
 ```env
-  apiKey: "AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk",
-  authDomain: "aura-5693e.firebaseapp.com",
-  databaseURL: "https://aura-5693e-default-rtdb.firebaseio.com",
-  projectId: "aura-5693e",
-  storageBucket: "aura-5693e.firebasestorage.app",
-  messagingSenderId: "1028269030459",
-  appId: "1:1028269030459:web:43762becb2ccccb61c301e",
-  measurementId: "G-9PG36HYYR7"
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_DATABASE_URL=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_MEASUREMENT_ID=...
+VITE_FIREBASE_VAPID_KEY=...
 ```
 
 > **Note on the service worker.** `public/firebase-messaging-sw.js` can't read
@@ -110,13 +116,29 @@ General → Your apps → Web app**:
 firebase deploy --only firestore:rules
 ```
 
-### 4. Run
+### 4. (Optional) Deploy push notifications
+
+Match/swap/event requests notify the recipient in-app while they have Aura
+open (see `IncomingRequestWatcher`), but reaching a closed tab or a
+different device needs a server-side trigger:
+
+```bash
+cd functions && npm install && cd ..
+firebase deploy --only functions
+```
+
+Requires the **Blaze** (pay-as-you-go) plan — Firestore-triggered Cloud
+Functions aren't available on the free Spark plan. See the comment at the
+top of `functions/index.js` for what each function does.
+
+### 5. Run
 
 ```bash
 npm run dev       # start dev server
 npm run build     # production build
 npm run preview   # preview the production build
 npm run lint      # oxlint
+npm run test:rules # Firestore security rules test suite (needs Firebase CLI)
 ```
 
 ## Data model
@@ -137,6 +159,10 @@ Firestore collections actually used by the app:
 | `collabStudio/{id}` | Strokes drawn on the shared Collab Studio canvas. |
 | `collabChatMessages/{id}` | Live chat alongside the Collab Studio canvas. |
 | `collabCursors/{uid}` | Live cursor positions on the shared canvas. |
+| `blocks/{blockerUid_blockedUid}` | A user's personal block list — asymmetric, readable only by the blocker. |
+| `reports/{id}` | User reports — write-only from the client; reviewed via `/aura/admin/reports` or the console. |
+| `admins/{uid}` | Grants access to the admin reports view. Not self-service — added manually via the Firebase Console. |
+| `pushTokens/{uid}` | FCM device token for push notifications, owner-only. Consumed by `functions/index.js`. |
 
 ## Privacy model
 

@@ -307,6 +307,22 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // PUSH TOKENS — deliberately its own collection, not a field on
+    // users/{uid} (that doc is readable by ANY signed-in user, which would
+    // leak every device's raw FCM token to anyone). Only the owner can
+    // read or write their own token; the Cloud Function that actually
+    // sends notifications (functions/index.js) uses the Admin SDK, which
+    // bypasses these rules entirely, so this being owner-only-read doesn't
+    // block it.
+    // ------------------------------------------------------------------
+    match /pushTokens/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && validText(request.resource.data.get('token', ''), 4096);
+      allow update: if isOwner(uid) && validText(request.resource.data.get('token', ''), 4096);
+      allow delete: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------------
     // BLOCKS — a user's personal block list. Doc id is always
     // "<blockerUid>_<blockedUid>", never sorted, so it's asymmetric by
     // design: you can only read/create/delete the row where YOU are the
