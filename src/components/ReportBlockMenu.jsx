@@ -10,7 +10,7 @@ const REPORT_REASONS = ['harassment', 'sexual_content', 'spam_or_scam', 'underag
 // main case. Handles both the block/unblock toggle and the report flow
 // as a single self-contained modal.
 export default function ReportBlockMenu({
-  userId, otherUserId, blocked, context, contextId, onBlockedChange,
+  userId, otherUserId, blocked, context, contextId, onBlockedChange, compact = false,
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -58,13 +58,13 @@ export default function ReportBlockMenu({
     <>
       <button
         type="button"
-        className="aura-btn aura-btn-secondary aura-btn-pill"
+        className={compact ? 'message__safety-btn' : 'aura-btn aura-btn-secondary aura-btn-pill'}
         onClick={() => setOpen(true)}
         aria-label={t('safety_options')}
         title={t('safety_options')}
         data-testid="safety-menu-btn"
       >
-        <MoreVertical size={14} />
+        <MoreVertical size={compact ? 13 : 14} />
       </button>
 
       {open && (
