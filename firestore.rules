@@ -50,6 +50,14 @@ function validAge(data) {
   return !('age' in data) || (data.age is int && data.age >= 16);
 }
 
+// Caps how long a public text field is allowed to be. Uses .get(field, '')
+// instead of a presence check so it's safe to call even on documents where
+// the field is legitimately absent (e.g. Mood Chat voice notes have no
+// `text` field at all) — a missing field just becomes '' and passes.
+function validText(value, maxLen) {
+  return value is string && value.size() <= maxLen;
+}
+
 // True if request.auth.uid is matched with `otherUid` in matchPairs.
 function isMatchedWith(otherUid) {
   return signedIn() && (
@@ -92,8 +100,10 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /userIdentities/{uid} {
       allow read: if isOwner(uid) || isMatchedWith(uid);
-      allow create: if isOwner(uid) && validAge(request.resource.data);
-      allow update: if isOwner(uid) && validAge(request.resource.data);
+      allow create: if isOwner(uid) && validAge(request.resource.data)
+                    && validText(request.resource.data.get('displayName', ''), 100);
+      allow update: if isOwner(uid) && validAge(request.resource.data)
+                    && validText(request.resource.data.get('displayName', ''), 100);
       allow delete: if isOwner(uid);
     }
 
@@ -104,7 +114,13 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /chats/{mood}/messages/{messageId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000)
+                    // Storage upload failures fall back to embedding the
+                    // recording directly as a base64 data URL on the doc
+                    // (see MoodChat.jsx) — cap it well under Firestore's
+                    // 1 MiB document limit so that path can't blow up a doc.
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
@@ -118,7 +134,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && !('age' in request.resource.data)
-                    && !('gender' in request.resource.data);
+                    && !('gender' in request.resource.data)
+                    && validText(request.resource.data.get('bio', ''), 300)
+                    && validText(request.resource.data.get('hobbies', ''), 300)
+                    && validText(request.resource.data.get('lookingFor', ''), 300);
       allow update, delete: if isOwner(resource.data.userId);
     }
 
@@ -146,7 +165,8 @@ service cloud.firestore {
     // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
-      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid;
+      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
@@ -158,7 +178,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && !('userAge' in request.resource.data)
-                    && !('userGender' in request.resource.data);
+                    && !('userGender' in request.resource.data)
+                    && validText(request.resource.data.get('skill', ''), 300)
+                    && validText(request.resource.data.get('want', ''), 300);
       allow update, delete: if isOwner(resource.data.userId);
     }
 
@@ -173,7 +195,8 @@ service cloud.firestore {
 
     match /swapChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
-      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid;
+      allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
@@ -196,7 +219,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && !('userAge' in request.resource.data)
-                    && !('userGender' in request.resource.data);
+                    && !('userGender' in request.resource.data)
+                    && validText(request.resource.data.get('eventName', ''), 150)
+                    && validText(request.resource.data.get('place', ''), 200);
       allow update, delete: if isOwner(resource.data.userId);
     }
 
@@ -214,7 +239,8 @@ service cloud.firestore {
 
     match /eventChats/{eventId}/messages/{messageId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
@@ -224,7 +250,8 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /dailyQuestions/{day}/answers/{answerId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
@@ -251,7 +278,8 @@ service cloud.firestore {
     // delete your own message.
     match /collabChatMessages/{messageId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }
