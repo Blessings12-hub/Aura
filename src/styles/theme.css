@@ -476,3 +476,32 @@ a { color: var(--primary); }
   width: 100%;
   box-shadow: var(--shadow);
 }
+
+/* Loading skeleton */
+.skeleton-line {
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Offline banner */
+.aura-offline-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--warning);
+  color: #1a1200;
+  font-size: 0.82rem;
+  font-weight: 600;
+  animation: fade-up 200ms ease both;
+}
