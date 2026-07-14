@@ -214,6 +214,23 @@ a { color: var(--primary); }
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+.activity-card__badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 /* Icon + title share a row, like a typical social-app feature tile, so the
    card reads top-to-bottom as: header row -> description -> action —
    instead of icon stacked alone above a separate title line. */
