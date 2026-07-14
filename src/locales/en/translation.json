@@ -127,5 +127,6 @@
   "submit_report": "Submit report",
   "report_submitted": "Thanks — we've received your report and will look into it.",
   "action_failed": "That didn't go through",
-  "you_blocked_this_person": "You've blocked this person. Unblock them from the safety menu to see this chat again."
+  "you_blocked_this_person": "You've blocked this person. Unblock them from the safety menu to see this chat again.",
+  "offline_banner": "You're offline — messages won't send until you're back online."
 }
