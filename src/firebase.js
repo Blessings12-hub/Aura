@@ -1,5 +1,6 @@
 // src/firebase.js
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -27,6 +28,34 @@ if (!firebaseConfig.apiKey) {
 }
 
 export const app = initializeApp(firebaseConfig);
+
+// Firebase App Check — proves requests are coming from this real, unmodified
+// app instance, not a script hitting the Firestore/Storage/RTDB REST API
+// directly with the same config values (which anyone can read out of this
+// public bundle; the security rules are the actual gate, but App Check adds
+// a second layer that blocks non-app traffic before it even reaches them).
+//
+// To turn this on: Firebase Console -> App Check -> register this web app
+// with the reCAPTCHA v3 provider, then set VITE_FIREBASE_RECAPTCHA_SITE_KEY
+// in your .env to the site key it gives you. Leave it unset and the app
+// runs exactly as before — App Check is opt-in here, not required.
+// IMPORTANT: only flip enforcement on per-product (Firestore/Storage/RTDB)
+// in the console AFTER confirming real traffic is generating valid tokens
+// (App Check's "Requests" metrics tab), or you'll lock out real users too.
+const recaptchaSiteKey = import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY;
+if (recaptchaSiteKey) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+} else if (import.meta.env.DEV) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    'App Check not initialized — set VITE_FIREBASE_RECAPTCHA_SITE_KEY '
+    + 'to enable it (see comment above this line in src/firebase.js).',
+  );
+}
+
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);

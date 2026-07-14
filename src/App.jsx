@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './notifications/NotificationManager';
 import PresenceRoot from './context/PresenceRoot';
 import AuthGate from './context/AuthGate';
+import OfflineBanner from './components/OfflineBanner';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import MoodChat from './pages/MoodChat';
@@ -22,6 +23,7 @@ export default function App() {
       <NotificationProvider>
         <AuthGate>
           <PresenceRoot>
+            <OfflineBanner />
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Login />} />
