@@ -128,5 +128,19 @@
   "report_submitted": "Thanks — we've received your report and will look into it.",
   "action_failed": "That didn't go through",
   "you_blocked_this_person": "You've blocked this person. Unblock them from the safety menu to see this chat again.",
-  "offline_banner": "You're offline — messages won't send until you're back online."
+  "offline_banner": "You're offline — messages won't send until you're back online.",
+  "admin_reports": "Reports",
+  "admin_not_authorized": "You don't have access to this page.",
+  "admin_no_reports": "No reports yet.",
+  "admin_reviewed": "Reviewed",
+  "admin_open": "Open",
+  "admin_mark_reviewed": "Mark reviewed",
+  "delete": "Delete",
+  "skip": "Skip",
+  "next": "Next",
+  "get_started": "Get started",
+  "onboarding_welcome_title": "Welcome to Aura",
+  "onboarding_welcome_desc": "No profiles, no history that follows you around — just six ways to talk to someone right now. Here's a quick look at each one.",
+  "onboarding_safety_title": "You're always in control",
+  "onboarding_safety_desc": "You can block or report anyone, anywhere in the app, from the ⋮ menu next to their name. Blocking hides them everywhere instantly."
 }
