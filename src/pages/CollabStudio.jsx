@@ -16,6 +16,7 @@ import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 export default function CollabStudio() {
   const navigate = useNavigate();
@@ -313,9 +314,14 @@ export default function CollabStudio() {
                   <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem 0.5rem' }}>{t('no_messages')}</p>
                 ) : chatMessages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
                   <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`collab-msg-${m.id}`}>
-                    <div className="aura-row" style={{ gap: 6 }}>
-                      <Avatar color={m.userColor} size={18} />
-                      <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                    <div className="aura-row" style={{ gap: 6, justifyContent: 'space-between' }}>
+                      <div className="aura-row" style={{ gap: 6 }}>
+                        <Avatar color={m.userColor} size={18} />
+                        <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                      </div>
+                      {m.userId !== userId && (
+                        <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="collabStudio" contextId="global" compact />
+                      )}
                     </div>
                     <div className="message__bubble">{m.text}</div>
                   </div>

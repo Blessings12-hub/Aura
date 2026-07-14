@@ -16,6 +16,7 @@ import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 
 // MediaRecorder's actual output codec depends entirely on what the browser
@@ -198,9 +199,14 @@ export default function MoodChat() {
                 <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>{t('no_messages')}</p>
               ) : messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
                 <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`msg-${m.id}`}>
-                  <div className="aura-row" style={{ gap: 8 }}>
-                    <Avatar color={m.userColor} size={24} />
-                    <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
+                  <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                    <div className="aura-row" style={{ gap: 8 }}>
+                      <Avatar color={m.userColor} size={24} />
+                      <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
+                    </div>
+                    {m.userId !== userId && (
+                      <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="moodChat" contextId={mood} compact />
+                    )}
                   </div>
                   <div className="message__bubble">
                     {m.type === 'voice' && m.voiceUrl ? (

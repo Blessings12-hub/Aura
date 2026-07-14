@@ -13,6 +13,7 @@ import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 export default function EventChat() {
   const navigate = useNavigate();
@@ -60,9 +61,14 @@ export default function EventChat() {
           <div className="message-list" data-testid="event-messages">
             {messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
               <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
-                <div className="aura-row" style={{ gap: 8 }}>
-                  <Avatar color={m.userColor} size={20} />
-                  <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                  <div className="aura-row" style={{ gap: 8 }}>
+                    <Avatar color={m.userColor} size={20} />
+                    <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                  </div>
+                  {m.userId !== userId && (
+                    <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="eventChat" contextId={eventId} compact />
+                  )}
                 </div>
                 <div className="message__bubble">{m.text}</div>
               </div>

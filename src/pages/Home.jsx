@@ -1,9 +1,15 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Brush, ArrowRight } from 'lucide-react';
+import {
+  MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Brush, ArrowRight, ShieldCheck,
+} from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
+import OnboardingModal from '../components/OnboardingModal';
+
+const ONBOARDING_STORAGE_KEY = 'aura_onboarding_seen_v1';
 
 const ACTIVITY_ICONS = {
   'mood-chat': MessageCircle,
@@ -45,10 +51,54 @@ export default function Home() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, loading } = useCurrentUser();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (loading || !user) return;
+    try {
+      if (!window.localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // Private-browsing / storage-disabled — just skip onboarding rather
+      // than crash or show it every single visit.
+    }
+  }, [loading, user]);
+
+  const dismissOnboarding = () => {
+    setShowOnboarding(false);
+    try {
+      window.localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+    } catch {
+      // Nothing we can do if storage is unavailable — worst case the
+      // walkthrough shows again next visit, which is harmless.
+    }
+  };
 
   if (loading || !user) {
     return <PageSkeleton />;
   }
+
+  const onboardingSlides = [
+    {
+      icon: null,
+      color: 'var(--surface-3)',
+      title: t('onboarding_welcome_title'),
+      desc: t('onboarding_welcome_desc'),
+    },
+    ...ACTIVITY_KEYS.map((a) => ({
+      icon: ACTIVITY_ICONS[a.id],
+      color: ACTIVITY_COLORS[a.id],
+      title: t(a.titleKey),
+      desc: t(a.descKey),
+    })),
+    {
+      icon: ShieldCheck,
+      color: '#10b981',
+      title: t('onboarding_safety_title'),
+      desc: t('onboarding_safety_desc'),
+    },
+  ];
 
   return (
     <div className="aura-page">
@@ -89,6 +139,10 @@ export default function Home() {
 
         <div className="aura-banner fade-in">{t('privacy_footer')}</div>
       </div>
+
+      {showOnboarding && (
+        <OnboardingModal slides={onboardingSlides} onDismiss={dismissOnboarding} />
+      )}
     </div>
   );
 }
