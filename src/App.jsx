@@ -16,6 +16,7 @@ import SkillSwapCall from './pages/SkillSwapCall';
 import EventBuddy from './pages/EventBuddy';
 import EventChat from './pages/EventChat';
 import CollabStudio from './pages/CollabStudio';
+import AdminReports from './pages/AdminReports';
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
                 <Route path="/aura/event" element={<EventBuddy />} />
                 <Route path="/aura/event/chat/:eventId" element={<EventChat />} />
                 <Route path="/aura/collab" element={<CollabStudio />} />
+                <Route path="/aura/admin/reports" element={<AdminReports />} />
               </Routes>
             </BrowserRouter>
           </PresenceRoot>
