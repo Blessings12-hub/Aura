@@ -468,6 +468,7 @@ a { color: var(--primary); }
   animation: fade-up 200ms ease both;
 }
 .aura-modal {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 20px;
@@ -504,4 +505,24 @@ a { color: var(--primary); }
   font-size: 0.82rem;
   font-weight: 600;
   animation: fade-up 200ms ease both;
+}
+
+/* Compact inline safety-menu trigger, used next to messages in group rooms */
+.message__safety-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--muted, var(--text));
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+.message__safety-btn:hover {
+  opacity: 1;
+  background: var(--surface-3);
 }
