@@ -12,7 +12,9 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 
 export default function CollabStudio() {
@@ -20,6 +22,7 @@ export default function CollabStudio() {
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const drawingRef = useRef(false);
@@ -56,7 +59,8 @@ export default function CollabStudio() {
   }, []);
 
   const sendChat = async () => {
-    if (!chatText.trim() || !userId) return;
+    if (!chatText.trim() || !userId || !sendReady) return;
+    triggerCooldown();
     try {
       await addDoc(collection(db, 'collabChatMessages'), {
         text: chatText.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
@@ -232,7 +236,7 @@ export default function CollabStudio() {
     }
   };
 
-  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  if (loading || !user) return <PageSkeleton />;
 
   return (
     <div className="aura-page">
@@ -328,7 +332,7 @@ export default function CollabStudio() {
                   style={{ flex: '1 1 160px' }}
                   data-testid="collab-chat-input"
                 />
-                <button type="button" onClick={sendChat} disabled={!chatText.trim()} className="aura-btn aura-btn-primary" data-testid="collab-chat-send"><Send size={16} /></button>
+                <button type="button" onClick={sendChat} disabled={!chatText.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="collab-chat-send"><Send size={16} /></button>
               </div>
             </div>
           )}

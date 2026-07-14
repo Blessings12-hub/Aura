@@ -10,6 +10,7 @@ import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 
 const pairId = (a, b) => [a, b].sort().join('_');
@@ -166,7 +167,7 @@ export default function MatchFinder() {
     return { status: m.status === 'matched' ? 'matched' : (m.userAAccepted && m.userBAccepted ? 'matched' : 'pending'), id, ...m };
   };
 
-  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  if (loading || !user) return <PageSkeleton />;
 
   return (
     <div className="aura-page">

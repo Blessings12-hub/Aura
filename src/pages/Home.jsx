@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Brush, ArrowRight } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 
 const ACTIVITY_ICONS = {
   'mood-chat': MessageCircle,
@@ -46,13 +47,7 @@ export default function Home() {
   const { user, loading } = useCurrentUser();
 
   if (loading || !user) {
-    return (
-      <div className="aura-page">
-        <div className="aura-shell">
-          <div className="aura-card">{t('loading')}</div>
-        </div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (

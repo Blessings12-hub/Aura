@@ -9,7 +9,9 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 
 export default function SkillSwapChat() {
@@ -17,6 +19,7 @@ export default function SkillSwapChat() {
   const { swapId } = useParams();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const { t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -41,7 +44,8 @@ export default function SkillSwapChat() {
   }, [swapId]);
 
   const send = async () => {
-    if (!text.trim() || !userId) return;
+    if (!text.trim() || !userId || !sendReady) return;
+    triggerCooldown();
     try {
       await addDoc(collection(db, 'swapChats', swapId, 'messages'), {
         text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
@@ -74,7 +78,7 @@ export default function SkillSwapChat() {
   const theirUid = pair ? (pair.userA === userId ? pair.userB : pair.userA) : null;
   const isBlocked = theirUid && blockedUsers.has(theirUid);
 
-  if (loading) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="aura-page">
@@ -114,7 +118,7 @@ export default function SkillSwapChat() {
             {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="swap-chat-error">{chatError}</p>}
             <div className="aura-row">
               <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="swap-chat-input" />
-              <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="swap-chat-send"><Send size={16} /> {t('send')}</button>
+              <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="swap-chat-send"><Send size={16} /> {t('send')}</button>
             </div>
           </div>
         )}

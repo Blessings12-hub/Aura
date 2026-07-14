@@ -12,8 +12,10 @@ import {
 } from '../constants/dailyQuestions';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useSendCooldown } from '../hooks/useSendCooldown';
 import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 
@@ -27,6 +29,7 @@ export default function DailyQuestion() {
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const [answers, setAnswers] = useState([]);
   const [text, setText] = useState('');
   const [chatError, setChatError] = useState('');
@@ -60,7 +63,8 @@ export default function DailyQuestion() {
   }, [day, userId, t]);
 
   const submit = async () => {
-    if (!userId || !text.trim()) return;
+    if (!userId || !text.trim() || !sendReady) return;
+    triggerCooldown();
     try {
       await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
         text: text.trim(),
@@ -77,7 +81,7 @@ export default function DailyQuestion() {
   };
 
   if (loading || !user) {
-    return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+    return <PageSkeleton />;
   }
 
   return (
@@ -126,7 +130,7 @@ export default function DailyQuestion() {
             <button
               type="button"
               onClick={submit}
-              disabled={!text.trim()}
+              disabled={!text.trim() || !sendReady}
               className="aura-btn aura-btn-primary"
               data-testid="daily-submit-btn"
             >

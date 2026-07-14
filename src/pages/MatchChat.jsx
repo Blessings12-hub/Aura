@@ -9,7 +9,9 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 
@@ -19,6 +21,7 @@ export default function MatchChat() {
   const { matchId } = useParams();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [theirIdentity, setTheirIdentity] = useState(null);
@@ -51,7 +54,8 @@ export default function MatchChat() {
   }, [theirUid]);
 
   const send = async () => {
-    if (!text.trim() || !userId) return;
+    if (!text.trim() || !userId || !sendReady) return;
+    triggerCooldown();
     try {
       await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
         text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
@@ -62,7 +66,7 @@ export default function MatchChat() {
     }
   };
 
-  if (loading) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  if (loading) return <PageSkeleton />;
 
   const title = theirIdentity
     ? `${theirIdentity.displayName || 'Person ' + theirUid?.slice(0, 6)} • ${theirIdentity.age} • ${theirIdentity.gender}`
@@ -97,7 +101,7 @@ export default function MatchChat() {
             {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="match-chat-error">{chatError}</p>}
             <div className="aura-row">
               <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} style={{ flex: '1 1 240px' }} data-testid="match-input" />
-              <button type="button" onClick={send} disabled={!text.trim()} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>
+              <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="match-send"><Send size={16} /> {t('send')}</button>
             </div>
           </div>
         )}

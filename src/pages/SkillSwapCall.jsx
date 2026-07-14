@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -124,7 +125,7 @@ export default function SkillSwapCall() {
   // While consent is still being checked, or if it isn't there, never touch
   // the camera/mic — show a clear message instead of a blank/broken screen.
   if (loading || consented === null) {
-    return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+    return <PageSkeleton />;
   }
 
   if (consented === false) {

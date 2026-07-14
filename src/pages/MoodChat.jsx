@@ -11,8 +11,10 @@ import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useSendCooldown } from '../hooks/useSendCooldown';
 import { useRoomPresence } from '../hooks/useRoomPresence';
 import TopBar from '../components/TopBar';
+import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 
@@ -47,6 +49,7 @@ export default function MoodChat() {
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const [mood, setMood] = useState('');
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -88,7 +91,8 @@ export default function MoodChat() {
   }, [mood, userId, t]);
 
   const send = async () => {
-    if (!text.trim() || !mood || !userId) return;
+    if (!text.trim() || !mood || !userId || !sendReady) return;
+    triggerCooldown();
     try {
       await addDoc(collection(db, 'chats', mood, 'messages'), {
         type: 'text', text: text.trim(), userId,
@@ -159,7 +163,7 @@ export default function MoodChat() {
     setRecording(false);
   };
 
-  if (loading || !user) return <div className="aura-page"><div className="aura-shell"><div className="aura-card">{t('loading')}</div></div></div>;
+  if (loading || !user) return <PageSkeleton />;
 
   return (
     <div className="aura-page">
@@ -228,7 +232,7 @@ export default function MoodChat() {
               ) : (
                 <button type="button" className="aura-btn aura-btn-secondary" onClick={startRecording} aria-label={t('send_voice_note')} data-testid="record-btn"><Mic size={16} /></button>
               )}
-              <button type="button" className="aura-btn aura-btn-primary" onClick={send} disabled={!text.trim()} data-testid="send-btn"><Send size={16} /> {t('send')}</button>
+              <button type="button" className="aura-btn aura-btn-primary" onClick={send} disabled={!text.trim() || !sendReady} data-testid="send-btn"><Send size={16} /> {t('send')}</button>
             </div>
           </div>
         )}
