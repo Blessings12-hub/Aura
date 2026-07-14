@@ -5,9 +5,13 @@ import {
   MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Brush, ArrowRight, ShieldCheck,
 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useIncomingRequests } from '../hooks/useIncomingRequests';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import OnboardingModal from '../components/OnboardingModal';
+import NotificationOptInBanner from '../components/NotificationOptInBanner';
+import NotificationOptInBanner from '../components/NotificationOptInBanner';
+import NotificationOptInBanner from '../components/NotificationOptInBanner';
 
 const ONBOARDING_STORAGE_KEY = 'aura_onboarding_seen_v1';
 
@@ -50,7 +54,8 @@ const ACTIVITY_KEYS = [
 export default function Home() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { user, loading } = useCurrentUser();
+  const { user, userId, loading } = useCurrentUser();
+  const { matchRequests, swapRequests, eventRequests } = useIncomingRequests(userId);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
@@ -100,6 +105,12 @@ export default function Home() {
     },
   ];
 
+  const pendingCounts = {
+    'match-finder': matchRequests.length,
+    'skill-swap': swapRequests.length,
+    'event-buddy': eventRequests.length,
+  };
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -109,11 +120,14 @@ export default function Home() {
           showLogout
         />
 
+        <NotificationOptInBanner userId={userId} />
+
         <div className="aura-grid">
           {ACTIVITY_KEYS.map((a, i) => {
             const Icon = ACTIVITY_ICONS[a.id];
             const tint = ACTIVITY_TINTS[a.id];
             const color = ACTIVITY_COLORS[a.id];
+            const pending = pendingCounts[a.id] || 0;
             return (
               <button
                 key={a.id}
@@ -121,9 +135,12 @@ export default function Home() {
                 onClick={() => navigate(a.route)}
                 className={`activity-card fade-in delay-${Math.min(i, 3)}`}
                 data-testid={`activity-${a.id}`}
-                style={{ '--card-tint': tint }}
-                aria-label={`Open ${t(a.titleKey)}`}
+                style={{ '--card-tint': tint, position: 'relative' }}
+                aria-label={pending > 0 ? `Open ${t(a.titleKey)} — ${pending} ${t('pending_requests_badge')}` : `Open ${t(a.titleKey)}`}
               >
+                {pending > 0 && (
+                  <span className="activity-card__badge" data-testid={`badge-${a.id}`}>{pending}</span>
+                )}
                 <div className="activity-card__header">
                   <div className="activity-card__icon" style={{ background: color }} aria-hidden="true">
                     <Icon size={20} />
@@ -131,7 +148,9 @@ export default function Home() {
                   <h3 className="activity-card__title">{t(a.titleKey)}</h3>
                 </div>
                 <p className="activity-card__desc">{t(a.descKey)}</p>
-                <span className="activity-card__cta">{t('open')} <ArrowRight size={14} /></span>
+                <span className="activity-card__cta">
+                  {pending > 0 ? `${pending} ${t('pending_requests_badge')}` : t('open')} <ArrowRight size={14} />
+                </span>
               </button>
             );
           })}

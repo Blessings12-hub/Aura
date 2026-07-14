@@ -41,7 +41,7 @@ export default function DailyQuestion() {
   const question = questionForDate();
   const questionIndex = Math.max(DAILY_QUESTIONS.indexOf(question), 0);
 
-  const { count: onlineCount } = useRoomPresence(
+  const { count: onlineCount, error: presenceError } = useRoomPresence(
     `daily-${day}`,
     userId,
     { color: user?.avatarColor },
@@ -90,14 +90,14 @@ export default function DailyQuestion() {
       <div className="aura-shell">
         <TopBar
           title={t('daily_question')}
-          subtitle={`${question} • ${onlineCount} ${t('online_now')}`}
+          subtitle={`${question} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}`}
           onBack={() => navigate(-1)}
         />
 
         <div className="aura-card aura-section fade-in" data-testid="daily-question-room">
           <div className="aura-row" style={{ justifyContent: 'space-between' }}>
             <div className="chip"><span className="dot dot--live" /> Question #{questionIndex + 1} • {day}</div>
-            <div className="chip">{onlineCount} {t('online_now')}</div>
+            <div className="chip">{presenceError ? '—' : onlineCount} {t('online_now')}</div>
           </div>
 
           <div ref={listRef} className="message-list" data-testid="daily-message-list" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>

@@ -67,7 +67,7 @@ export default function MoodChat() {
   // (incorrect) display of messages.length as if it were an online count.
   // Server-enforced via RTDB onDisconnect, so it stays accurate even if
   // someone's tab crashes rather than closes cleanly.
-  const { count: onlineCount } = useRoomPresence(
+  const { count: onlineCount, error: presenceError } = useRoomPresence(
     mood ? `mood-${mood}` : null,
     userId,
     { color: user?.avatarColor },
@@ -169,7 +169,7 @@ export default function MoodChat() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${onlineCount} ${t('online_now')}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
+        <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
 
         {!mood ? (
           <div className="aura-card aura-section fade-in" data-testid="mood-picker">
@@ -190,7 +190,12 @@ export default function MoodChat() {
         ) : (
           <div className="aura-card aura-section fade-in" data-testid="mood-chat-room">
             <div className="aura-row" style={{ justifyContent: 'space-between' }}>
-              <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {onlineCount}</div>
+              <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {presenceError ? '—' : onlineCount}</div>
+              {presenceError && (
+                <p className="aura-muted" style={{ fontSize: '0.78rem', margin: '4px 0 0' }} data-testid="presence-error">
+                  {t('presence_unavailable')}
+                </p>
+              )}
               <button type="button" onClick={() => setMood('')} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="change-mood-btn">{t('change_mood')}</button>
             </div>
 
