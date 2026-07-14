@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { auth } from '../firebase';
+import PageSkeleton from '../components/PageSkeleton';
 
 export default function AuthGate({ children }) {
   const [ready, setReady] = useState(false);
@@ -31,13 +32,7 @@ export default function AuthGate({ children }) {
   }, []);
 
   if (!ready) {
-    return (
-      <div className="aura-page" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
-        <div className="aura-card" style={{ textAlign: 'center' }}>
-          <p className="aura-muted">Loading…</p>
-        </div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   if (fatalError) {
