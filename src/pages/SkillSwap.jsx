@@ -14,6 +14,7 @@ import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 const pairId = (a, b) => [a, b].sort().join('_');
 
@@ -259,9 +260,19 @@ export default function SkillSwap() {
               const pending = p && !matched;
               return (
                 <div key={item.id} className="aura-card-compact fade-in" data-testid={`swap-${item.id}`}>
-                  <div className="aura-row" style={{ marginBottom: 10 }}>
-                    <Avatar color={item.userColor} size={36} />
-                    <div><strong>Person {item.userId?.slice(0, 6)}</strong></div>
+                  <div className="aura-row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
+                    <div className="aura-row">
+                      <Avatar color={item.userColor} size={36} />
+                      <div><strong>Person {item.userId?.slice(0, 6)}</strong></div>
+                    </div>
+                    <ReportBlockMenu
+                      userId={userId}
+                      otherUserId={item.userId}
+                      blocked={blockedUsers.has(item.userId)}
+                      context="skillSwap"
+                      contextId={item.id}
+                      compact
+                    />
                   </div>
                   <p style={{ margin: '0 0 6px' }}><strong style={{ color: 'var(--warning)' }}>Teaches:</strong> {item.skill}</p>
                   <p style={{ margin: '0 0 12px' }}><strong style={{ color: 'var(--success)' }}>Wants:</strong> {item.want}</p>

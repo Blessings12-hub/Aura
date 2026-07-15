@@ -12,6 +12,7 @@ import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 const pairId = (a, b) => [a, b].sort().join('_');
 
@@ -158,9 +159,19 @@ export default function EventBuddy() {
 
               return (
                 <div key={ev.id} className="aura-card-compact fade-in" data-testid={`event-${ev.id}`}>
-                  <div className="aura-row" style={{ marginBottom: 10 }}>
-                    <Avatar color={ev.userColor} size={36} />
-                    <div><strong>Person {ev.userId?.slice(0, 6)}</strong></div>
+                  <div className="aura-row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
+                    <div className="aura-row">
+                      <Avatar color={ev.userColor} size={36} />
+                      <div><strong>Person {ev.userId?.slice(0, 6)}</strong></div>
+                    </div>
+                    <ReportBlockMenu
+                      userId={userId}
+                      otherUserId={ev.userId}
+                      blocked={blockedUsers.has(ev.userId)}
+                      context="eventBuddy"
+                      contextId={ev.id}
+                      compact
+                    />
                   </div>
                   <h3 style={{ color: 'var(--primary)', margin: '0 0 8px' }}>{ev.eventName}</h3>
                   <p style={{ margin: '4px 0' }}><strong>When:</strong> {ev.date} • {ev.time}</p>

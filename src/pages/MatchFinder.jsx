@@ -17,6 +17,7 @@ import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ProfileModal from '../components/ProfileModal';
+import ReportBlockMenu from '../components/ReportBlockMenu';
 
 const pairId = (a, b) => [a, b].sort().join('_');
 
@@ -488,22 +489,32 @@ export default function MatchFinder() {
             const identity = matched ? identities[p.userId] : null;
             return (
               <div key={p.id} className={`match-card fade-in delay-${Math.min(i, 3)} ${matched ? '' : 'match-locked'}`} data-testid={`match-card-${p.id}`}>
-                <div className="aura-row" style={{ gap: 14 }}>
-                  <Avatar color={p.avatarColor} photoURL={matched ? identity?.photoURL : null} size={56} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="aura-row" style={{ gap: 8 }}>
-                      <strong>
-                        {matched
-                          ? (identity ? `${identity.displayName || 'Person ' + p.userId?.slice(0, 6)} • ${p.age} • ${p.gender}` : t('loading'))
-                          : `${p.age} • ${p.gender}`}
-                      </strong>
-                      {!matched && <span className="chip"><Lock size={12} /> {t('name_photo_hidden')}</span>}
-                      {matched && <span className="chip" style={{ color: 'var(--success)' }}><Sparkles size={12} /> matched</span>}
+                <div className="aura-row" style={{ gap: 14, justifyContent: 'space-between' }}>
+                  <div className="aura-row" style={{ gap: 14, flex: 1, minWidth: 0 }}>
+                    <Avatar color={p.avatarColor} photoURL={matched ? identity?.photoURL : null} size={56} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="aura-row" style={{ gap: 8 }}>
+                        <strong>
+                          {matched
+                            ? (identity ? `${identity.displayName || 'Person ' + p.userId?.slice(0, 6)} • ${p.age} • ${p.gender}` : t('loading'))
+                            : `${p.age} • ${p.gender}`}
+                        </strong>
+                        {!matched && <span className="chip"><Lock size={12} /> {t('name_photo_hidden')}</span>}
+                        {matched && <span className="chip" style={{ color: 'var(--success)' }}><Sparkles size={12} /> matched</span>}
+                      </div>
+                      <p className="aura-muted" style={{ margin: '6px 0 0' }}>{p.bio}</p>
+                      <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('hobbies')}:</strong> {p.hobbies}</p>
+                      <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('looking_for')}:</strong> {p.lookingFor}</p>
                     </div>
-                    <p className="aura-muted" style={{ margin: '6px 0 0' }}>{p.bio}</p>
-                    <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('hobbies')}:</strong> {p.hobbies}</p>
-                    <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('looking_for')}:</strong> {p.lookingFor}</p>
                   </div>
+                  <ReportBlockMenu
+                    userId={userId}
+                    otherUserId={p.userId}
+                    blocked={blockedUsers.has(p.userId)}
+                    context="matchProfile"
+                    contextId={p.id}
+                    compact
+                  />
                 </div>
 
                 <div className="aura-row" style={{ marginTop: 8 }}>
