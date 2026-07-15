@@ -10,6 +10,7 @@ import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import OnboardingModal from '../components/OnboardingModal';
 import NotificationOptInBanner from '../components/NotificationOptInBanner';
+import DailyQuestionNudge from '../components/DailyQuestionNudge';
 
 const ONBOARDING_STORAGE_KEY = 'aura_onboarding_seen_v1';
 
@@ -119,6 +120,7 @@ export default function Home() {
         />
 
         <NotificationOptInBanner userId={userId} />
+        <DailyQuestionNudge user={user} />
 
         <div className="aura-grid">
           {ACTIVITY_KEYS.map((a, i) => {

@@ -19,6 +19,7 @@ import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
+import { recordDailyAnswerStreak } from '../lib/streak';
 
 // Same live-room pattern as Mood Chat, applied to the day's question: this
 // used to be a "post once, see a static grid of everyone's answers" page.
@@ -76,6 +77,12 @@ export default function DailyQuestion() {
         createdAt: Timestamp.now(),
       });
       setText('');
+      // Fire-and-forget: the streak write is a separate document from the
+      // answer itself, and shouldn't block the input from clearing or show
+      // an error banner over what was actually a successful send. Real
+      // failures here just mean the streak doesn't tick up this once,
+      // which self-corrects tomorrow rather than blocking anything.
+      recordDailyAnswerStreak(userId, day).catch((err) => console.error('streak update failed', err));
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
@@ -97,6 +104,11 @@ export default function DailyQuestion() {
         <div className="aura-card aura-section fade-in" data-testid="daily-question-room">
           <div className="aura-row" style={{ justifyContent: 'space-between' }}>
             <div className="chip"><span className="dot dot--live" /> Question #{questionIndex + 1} • {day}</div>
+            {user?.dailyStreak > 0 && (
+              <div className="chip" data-testid="daily-streak-chip" title={user.dailyStreakBest > user.dailyStreak ? `Best: ${user.dailyStreakBest} days` : undefined}>
+                🔥 {user.dailyStreak} {user.dailyStreak === 1 ? 'day' : 'days'}
+              </div>
+            )}
             <div className="chip">{presenceError ? '—' : onlineCount} {t('online_now')}</div>
           </div>
 
