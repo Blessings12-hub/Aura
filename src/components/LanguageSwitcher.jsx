@@ -33,7 +33,7 @@ export default function LanguageSwitcher({ compact = false }) {
         aria-expanded={open}
       >
         <Globe size={14} />
-        <span>{current.label}</span>
+        <span className="aura-lang-switcher-label">{current.label}</span>
       </button>
 
       {open && (
