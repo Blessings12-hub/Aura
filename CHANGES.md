@@ -1,52 +1,33 @@
-# Daily Question streak + return-visit nudge
+# Mood picker activity badges (the empty-room fix)
 
-## 1. Streak tracking (new: `src/lib/streak.js`)
-Answering today's question now updates a streak counter on your `users/{uid}`
-doc: `dailyStreak`, `dailyStreakBest`, `dailyStreakLastDate`. Logic:
-- Already answered today → no change (posting 5 messages in one sitting
-  doesn't inflate the streak)
-- Answered yesterday, not yet today → streak +1
-- Any bigger gap, or first time ever → streak resets to 1
+## What changed
+Mood Chat's picker screen now shows "X messages today" under each mood,
+pulled from a lightweight daily counter (`moodActivity/{day}`, one field
+per mood). It updates in real time as people post.
 
-No new Firestore rules needed — this writes to `users/{uid}`, which your
-existing rules already let the owner update freely.
+This is a deliberately different approach from "fix the empty room after
+you're in it" — the goal is steering people toward rooms that already have
+life in them *before* they commit to one, so fewer people ever land in a
+silent room and bounce. A mood with "12 messages today" next to it is a much
+stronger invitation than a bare, unlabeled button, even if nobody's online
+in that mood right this second.
 
-The streak shows as a 🔥 chip next to the question number in Daily Question
-itself once you have one going.
+## New Firestore rule needed
+`moodActivity/{day}` — deliberately simple and permissive (any signed-in
+user can read/write). It's not user data and not sensitive: worst case
+someone inflates a vanity counter, which isn't a real security concern.
+Needs publishing like the others: Firestore Database → Rules → paste →
+Publish.
 
-## 2. Return-visit nudge (new: `src/components/DailyQuestionNudge.jsx`)
-Shows on Home, above the activity grid, **only when you haven't answered
-today's question yet** — silent otherwise. Two states:
-- **Streak on the line** (amber, flame icon): "Your 5-day streak ends
-  today" — this is the strongest pull, so it's used whenever there's an
-  actual streak at risk
-- **No streak yet** (green, question icon): shows today's actual question
-  text as the hook, so it's not just a generic "come back" nag
+## Cost note
+This adds one extra write per message sent (the increment), and one extra
+document read per Mood Chat visit (the picker subscription). At friends-group
+scale this is nowhere near Firestore's free daily quota (50K reads / 20K
+writes) — not something to worry about yet, just flagging since it's a real
+(if tiny) addition to your Firestore usage.
 
-Tapping it goes straight into Daily Question.
-
-## 3. What I didn't build: an actual daily push notification
-A true "it's 9am, come answer today's question" push while the app is
-closed needs something to trigger it on a schedule — which normally means
-a Cloud Function + Cloud Scheduler. I didn't build that, because:
-- You're mobile-only with no way to `firebase deploy` functions right now
-- Cloud Scheduler typically needs Blaze billing enabled regardless of
-  actual usage, same pattern as the Storage issue
-
-**The realistic path that needs zero code deployment**, entirely from your
-phone's browser:
-1. Firebase Console → **Engage → Messaging**
-2. **New campaign → Notifications**
-3. Write something like "Today's question is up 🔥" with a link into
-   `/aura/question`
-4. Under the scheduling step, Firebase lets you send later or set up a
-   recurring send to an audience — I'd recommend testing this manually
-   (send-now) a few times first to confirm delivery actually works end to
-   end, before trusting a recurring schedule to run unattended. I'm not
-   fully certain of the exact recurring-frequency options in the current
-   console UI, so worth confirming what's actually available before
-   relying on it daily.
-
-This requires your existing FCM setup (already in the app) to be
-registering device tokens, which it already does via the notification
-opt-in banner on Home.
+## Natural next step, not built yet
+Same idea could extend to Skill Swap and Event Buddy's listing pages
+("X offers posted today" / "X events this week") — didn't want to build
+three more collections and rules blindly without confirming this pattern
+actually helps first. Say the word if you want it extended.

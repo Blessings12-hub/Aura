@@ -371,6 +371,21 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // MOOD ACTIVITY — a lightweight daily counter (moodActivity/{day},
+    // one field per mood holding a message count), used only to show
+    // "X messages today" on the mood PICKER before someone commits to a
+    // room, so an empty room doesn't look completely dead. Not user data,
+    // not sensitive — anyone signed in can read/increment it. Field-level
+    // validation isn't practical for arbitrary increment() calls, so this
+    // is intentionally permissive; worst case someone inflates a vanity
+    // counter, which isn't a security concern.
+    // ------------------------------------------------------------------
+    match /moodActivity/{day} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // ------------------------------------------------------------------
     // Default deny — anything not explicitly matched above is blocked.
     // ------------------------------------------------------------------
     match /{document=**} {
