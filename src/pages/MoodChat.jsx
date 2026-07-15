@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { collection, addDoc, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, Timestamp, doc, onSnapshot } from 'firebase/firestore';
 import { Send, Mic, Square } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
@@ -15,6 +15,8 @@ import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
+import { recordMoodActivity } from '../lib/moodActivity';
+import { todayKey } from '../constants/dailyQuestions';
 
 // MediaRecorder's actual output codec depends entirely on what the browser
 // supports — there is no universal default. The previous version hardcoded
@@ -58,6 +60,7 @@ export default function MoodChat() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [micError, setMicError] = useState('');
   const [chatError, setChatError] = useState('');
+  const [moodActivityToday, setMoodActivityToday] = useState({});
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const mimeRef = useRef('');
@@ -74,6 +77,15 @@ export default function MoodChat() {
     userId,
     { color: user?.avatarColor },
   );
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'moodActivity', todayKey()),
+      (snap) => setMoodActivityToday(snap.exists() ? snap.data() : {}),
+      (err) => console.error('moodActivity read failed', err),
+    );
+    return unsub;
+  }, []);
 
   useEffect(() => {
     if (!mood) { setMessages([]); lastSeenRef.current = 0; return undefined; }
@@ -105,6 +117,7 @@ export default function MoodChat() {
         createdAt: Timestamp.now(),
       });
       setText('');
+      recordMoodActivity(mood);
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
@@ -145,6 +158,7 @@ export default function MoodChat() {
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
           });
+          recordMoodActivity(mood);
         } catch (err) {
           setMicError(`Couldn't send that voice note. (${err?.code || 'unknown'}: ${err?.message || err})`);
         }
@@ -188,16 +202,26 @@ export default function MoodChat() {
           <div className="aura-card aura-section fade-in" data-testid="mood-picker">
             <h2 className="aura-title">{t('feeling_now')}</h2>
             <div className="aura-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-              {MOODS.map((m, i) => (
-                <button
-                  key={m.name}
-                  type="button"
-                  onClick={() => setMood(m.name)}
-                  className={`aura-btn aura-btn-primary fade-in delay-${Math.min(i, 3)}`}
-                  data-testid={`mood-${m.name.toLowerCase()}`}
-                  style={{ padding: '1.2rem', background: m.color, justifyContent: 'center' }}
-                >{m.name}</button>
-              ))}
+              {MOODS.map((m, i) => {
+                const count = moodActivityToday[m.name] || 0;
+                return (
+                  <button
+                    key={m.name}
+                    type="button"
+                    onClick={() => setMood(m.name)}
+                    className={`aura-btn aura-btn-primary fade-in delay-${Math.min(i, 3)}`}
+                    data-testid={`mood-${m.name.toLowerCase()}`}
+                    style={{ padding: '1.2rem', background: m.color, justifyContent: 'center', flexDirection: 'column', gap: 4 }}
+                  >
+                    <span>{m.name}</span>
+                    {count > 0 && (
+                      <span style={{ fontSize: '0.72rem', fontWeight: 500, opacity: 0.85 }} data-testid={`mood-activity-${m.name.toLowerCase()}`}>
+                        {count} {count === 1 ? 'message' : 'messages'} today
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : (
