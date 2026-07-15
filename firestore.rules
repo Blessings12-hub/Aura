@@ -114,18 +114,28 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // USER IDENTITIES — age/gender. Only the owner, or someone the owner
-    // has been MATCHED with in Match Finder, may read this. Nobody but
-    // the owner may write it. Split out of a single "write" rule so the
-    // age check only ever applies to create/update, never to delete (a
-    // delete has no request.resource.data to validate against).
+    // USER IDENTITIES — age/gender/photo. Only the owner, or someone the
+    // owner has been MATCHED with in Match Finder, may read this. Nobody
+    // but the owner may write it. Split out of a single "write" rule so
+    // the age check only ever applies to create/update, never to delete
+    // (a delete has no request.resource.data to validate against).
+    //
+    // photoURL is a client-resized base64 data URL (see
+    // src/lib/photoUpload.js) rather than a Storage file — there's no
+    // separate Storage bucket in play for it, so this field-length cap is
+    // the only backstop keeping a doc from ballooning towards Firestore's
+    // 1 MiB document limit. 220,000 chars is comfortably above what the
+    // client ever produces (a 320px-max-dimension JPEG) with headroom to
+    // spare.
     // ------------------------------------------------------------------
     match /userIdentities/{uid} {
       allow read: if isOwner(uid) || isMatchedWith(uid);
       allow create: if isOwner(uid) && validAge(request.resource.data)
-                    && validText(request.resource.data.get('displayName', ''), 100);
+                    && validText(request.resource.data.get('displayName', ''), 100)
+                    && validText(request.resource.data.get('photoURL', ''), 220000);
       allow update: if isOwner(uid) && validAge(request.resource.data)
-                    && validText(request.resource.data.get('displayName', ''), 100);
+                    && validText(request.resource.data.get('displayName', ''), 100)
+                    && validText(request.resource.data.get('photoURL', ''), 220000);
       allow delete: if isOwner(uid);
     }
 
