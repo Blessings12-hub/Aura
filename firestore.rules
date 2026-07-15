@@ -181,7 +181,12 @@ service cloud.firestore {
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
-      allow delete: if false;
+      // Reject (by the recipient) or cancel (by the requester) — either
+      // participant can delete the pair, but only while it's still
+      // pending. Once status is 'matched' this is deliberately blocked:
+      // unmatching a live match isn't the same action and isn't part of
+      // this flow, so a matched pair can't be unilaterally wiped out here.
+      allow delete: if isParticipantOfPairId(pairId) && resource.data.status != 'matched';
     }
 
     // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
@@ -212,7 +217,9 @@ service cloud.firestore {
       allow create: if isParticipantOfPairId(pairId)
                     && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
       allow update: if isParticipantOfPairId(pairId);
-      allow delete: if false;
+      // Same reasoning as matchPairs: reject/cancel while pending, never a
+      // live match.
+      allow delete: if isParticipantOfPairId(pairId) && resource.data.status != 'matched';
     }
 
     match /swapChats/{pairId}/messages/{messageId} {
@@ -256,7 +263,11 @@ service cloud.firestore {
       allow read: if signedIn() && (resource == null || request.auth.uid in resource.data.userIds);
       allow create: if signedIn() && request.auth.uid in request.resource.data.userIds;
       allow update: if signedIn() && request.auth.uid in resource.data.userIds;
-      allow delete: if false;
+      // The host can reject a pending join, or the guest can cancel their
+      // own pending request — same reasoning as matchPairs/swapPairs.
+      // 'accepted' joins aren't deletable here (that would be "kick this
+      // person from the event", a different action, not in scope).
+      allow delete: if signedIn() && request.auth.uid in resource.data.userIds && resource.data.status != 'accepted';
     }
 
     match /eventChats/{eventId}/messages/{messageId} {
