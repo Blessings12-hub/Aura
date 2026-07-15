@@ -11,6 +11,7 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { last24HoursTimestamp } from '../lib/rollingWindow';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -32,7 +33,11 @@ export default function SkillSwap() {
   const [actionError, setActionError] = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'skillSwaps'), orderBy('createdAt', 'desc'));
+    const q = query(
+      collection(db, 'skillSwaps'),
+      where('createdAt', '>=', last24HoursTimestamp()),
+      orderBy('createdAt', 'desc'),
+    );
     return subscribe(
       q,
       (snap) => setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
