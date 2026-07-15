@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 import {
   doc, getDoc, setDoc, updateDoc, onSnapshot, collection, addDoc, serverTimestamp, query, orderBy,
 } from 'firebase/firestore';
-import { PhoneOff, ShieldAlert } from 'lucide-react';
+import {
+  PhoneOff, ShieldAlert, Mic, MicOff, Video, VideoOff,
+} from 'lucide-react';
 import { db } from '../firebase';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -28,6 +30,8 @@ export default function SkillSwapCall() {
   const pcRef = useRef(null);
   const streamRef = useRef(null);
   const [status, setStatus] = useState('Connecting…');
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
   // Three-state consent gate: null = still checking, false = not consented
   // (blocks camera/mic access entirely), true = both parties accepted and
   // we're allowed to proceed. This is checked against swapPairs directly —
@@ -97,11 +101,11 @@ export default function SkillSwapCall() {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
           const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
           await updateDoc(callRef, { answer: { type: ans.type, sdp: ans.sdp }, status: 'answered' });
-          setStatus('Answered');
+          setStatus(t('connected'));
         }
         if (isInitiator && data.answer && !pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-          setStatus('Connected');
+          setStatus(t('connected'));
         }
       }, (err) => { console.error('call signaling subscription failed', err); setStatus('Connection lost — check your internet and try again'); });
 
@@ -109,7 +113,7 @@ export default function SkillSwapCall() {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await updateDoc(callRef, { offer: { type: offer.type, sdp: offer.sdp }, status: 'offered' });
-        setStatus('Calling…');
+        setStatus(t('calling'));
       }
     })().catch((e) => { console.error(e); setStatus('Could not start the call'); });
 
@@ -120,7 +124,24 @@ export default function SkillSwapCall() {
       if (pcRef.current) pcRef.current.close();
       if (streamRef.current) streamRef.current.getTracks().forEach((tr) => tr.stop());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapId, userId, loading, consented]);
+
+  const toggleMic = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const next = !micOn;
+    stream.getAudioTracks().forEach((tr) => { tr.enabled = next; });
+    setMicOn(next);
+  };
+
+  const toggleCamera = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const next = !camOn;
+    stream.getVideoTracks().forEach((tr) => { tr.enabled = next; });
+    setCamOn(next);
+  };
 
   // While consent is still being checked, or if it isn't there, never touch
   // the camera/mic — show a clear message instead of a blank/broken screen.
@@ -152,12 +173,18 @@ export default function SkillSwapCall() {
       <div className="aura-shell">
         <TopBar title="Skill Swap Call" subtitle={status} onBack={() => navigate(-1)} />
         <div className="aura-card aura-section fade-in">
-          <div className="video-grid">
-            <video ref={localVideoRef} autoPlay playsInline muted data-testid="local-video" />
-            <video ref={remoteVideoRef} autoPlay playsInline data-testid="remote-video" />
+          <div className="call-stage">
+            <video ref={remoteVideoRef} autoPlay playsInline className="call-stage__remote" data-testid="remote-video" />
+            <video ref={localVideoRef} autoPlay playsInline muted className="call-stage__local" data-testid="local-video" />
           </div>
-          <div className="aura-row" style={{ justifyContent: 'center', marginTop: 14 }}>
-            <button type="button" onClick={() => navigate(-1)} className="aura-btn aura-btn-danger" data-testid="end-call-btn"><PhoneOff size={16} /> {t('end_call')}</button>
+          <div className="call-controls">
+            <button type="button" onClick={toggleMic} className={`aura-btn aura-btn-secondary${!micOn ? ' is-muted' : ''}`} aria-label={micOn ? t('mute') : t('unmute')} data-testid="toggle-mic-btn">
+              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
+            </button>
+            <button type="button" onClick={() => navigate(-1)} className="aura-btn aura-btn-danger" aria-label={t('end_call')} data-testid="end-call-btn"><PhoneOff size={18} /></button>
+            <button type="button" onClick={toggleCamera} className={`aura-btn aura-btn-secondary${!camOn ? ' is-muted' : ''}`} aria-label={camOn ? t('camera_off') : t('camera_on')} data-testid="toggle-camera-btn">
+              {camOn ? <Video size={18} /> : <VideoOff size={18} />}
+            </button>
           </div>
         </div>
       </div>

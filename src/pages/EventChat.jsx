@@ -15,6 +15,12 @@ import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 
+const formatTime = (ts) => {
+  const d = ts?.toDate?.();
+  if (!d) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export default function EventChat() {
   const navigate = useNavigate();
   const { eventId } = useParams();
@@ -53,32 +59,35 @@ export default function EventChat() {
 
   if (loading) return <PageSkeleton />;
 
+  const visibleMessages = messages.filter((m) => !blockedUsers.has(m.userId));
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar title={ev?.eventName || t('event_buddy')} subtitle={ev ? `${ev.date} • ${ev.time} • ${ev.place}` : ''} onBack={() => navigate(-1)} />
-        <div className="aura-card aura-section fade-in">
+        <div className="aura-card chat-card fade-in">
           <div className="message-list" data-testid="event-messages">
-            {messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
+            {visibleMessages.length === 0 && <p className="chat-empty-state">{t('empty_no_messages')}</p>}
+            {visibleMessages.map((m) => (
               <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
-                <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
-                  <div className="aura-row" style={{ gap: 8 }}>
-                    <Avatar color={m.userColor} size={20} />
-                    <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
-                  </div>
-                  {m.userId !== userId && (
+                {m.userId !== userId && (
+                  <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                    <div className="aura-row" style={{ gap: 8 }}>
+                      <Avatar color={m.userColor} size={20} />
+                      <span className="message__meta">Person {m.userId?.slice(0, 6)}</span>
+                    </div>
                     <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="eventChat" contextId={eventId} compact />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div className="message__bubble">{m.text}</div>
+                <span className="message__time">{formatTime(m.createdAt)}</span>
               </div>
             ))}
-            {messages.filter((m) => !blockedUsers.has(m.userId)).length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
           </div>
-          {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="event-chat-error">{chatError}</p>}
-          <div className="aura-row">
-            <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: '1 1 240px' }} data-testid="event-chat-input" />
-            <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="event-chat-send"><Send size={16} /> {t('send')}</button>
+          {chatError && <p className="chat-card__error aura-login-error" data-testid="event-chat-error">{chatError}</p>}
+          <div className="chat-input-bar">
+            <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: 1 }} data-testid="event-chat-input" />
+            <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" aria-label={t('send')} data-testid="event-chat-send"><Send size={16} /></button>
           </div>
         </div>
       </div>

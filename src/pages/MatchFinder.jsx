@@ -1,19 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc,
+  collection, addDoc, doc, setDoc, updateDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, deleteDoc, deleteField,
 } from 'firebase/firestore';
-import { Heart, Lock, Sparkles, X } from 'lucide-react';
+import {
+  Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
+} from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
+import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { AVATAR_COLORS } from '../constants/moods';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
+import ProfileModal from '../components/ProfileModal';
 
 const pairId = (a, b) => [a, b].sort().join('_');
+
+const GENDER_OPTIONS = [
+  { value: 'Female', labelKey: 'female' },
+  { value: 'Male', labelKey: 'male' },
+  { value: 'Non-binary', labelKey: 'non_binary' },
+  { value: 'Prefer not to say', labelKey: 'prefer_not' },
+];
 
 export default function MatchFinder() {
   const navigate = useNavigate();
@@ -21,31 +33,55 @@ export default function MatchFinder() {
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
   const [displayName, setDisplayName] = useState('');
+  const [age, setAge] = useState('');
+  const [gender, setGender] = useState('');
+  const [avatarColor, setAvatarColor] = useState('');
+  const [photoDataUrl, setPhotoDataUrl] = useState('');
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const [bio, setBio] = useState('');
   const [hobbies, setHobbies] = useState('');
   const [lookingFor, setLookingFor] = useState('');
+  const [myCardId, setMyCardId] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState({}); // pairId -> {status, theirId, isInitiator}
   const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
   // Per-pairId "is this request in flight right now" so the button can
   // show real feedback (spinner/disabled) instead of doing nothing
   // visible while the write is in progress.
   const [pendingActions, setPendingActions] = useState({});
   const [actionError, setActionError] = useState('');
-  // Identity (age/gender) for people we've actually matched with, fetched
-  // separately from userIdentities/{uid} — never bundled into the public
-  // card, so it's never sent to a browser until a real match exists.
-  const [identities, setIdentities] = useState({}); // uid -> {age, gender}
+  // Identity (age/gender/photo) for people we've actually matched with,
+  // fetched separately from userIdentities/{uid} — never bundled into the
+  // public card, so it's never sent to a browser until a real match exists.
+  const [identities, setIdentities] = useState({}); // uid -> {age, gender, displayName, photoURL}
+  const [viewingProfile, setViewingProfile] = useState(null);
 
-  // Prefill the name field from any identity doc the person already has
-  // (e.g. they posted a card before), so re-posting doesn't force retyping.
+  // Prefill the profile editor (name/age/gender/photo) from whatever the
+  // person already has on file — their own userIdentities doc, and the
+  // account-level users/{uid} doc (age/gender/avatarColor originally set at
+  // Login). Guarded by a ref so it only ever runs once: without it, this
+  // effect re-firing on later snapshots would silently overwrite text the
+  // person is actively mid-edit on.
+  const prefilledIdentityRef = useRef(false);
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !user || prefilledIdentityRef.current) return;
+    prefilledIdentityRef.current = true;
+    setAge(user.age ? String(user.age) : '');
+    setGender(user.gender || '');
+    setAvatarColor(user.avatarColor || AVATAR_COLORS[0]);
     getDoc(doc(db, 'userIdentities', userId)).then((snap) => {
-      const name = snap.exists() ? snap.data()?.displayName : null;
-      if (name) setDisplayName(name);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data?.displayName) setDisplayName(data.displayName);
+      if (data?.age) setAge(String(data.age));
+      if (data?.gender) setGender(data.gender);
+      if (data?.photoURL) setPhotoDataUrl(data.photoURL);
     }).catch(() => {});
-  }, [userId]);
+  }, [userId, user]);
 
   useEffect(() => {
     const q = query(collection(db, 'matchProfiles'), orderBy('createdAt', 'desc'));
@@ -56,6 +92,21 @@ export default function MatchFinder() {
       'match profiles',
     );
   }, []);
+
+  // Once profiles have loaded, prefill the bio/hobbies/lookingFor fields
+  // from the person's own existing card, if they already posted one — same
+  // once-only guard as the identity prefill above.
+  const prefilledCardRef = useRef(false);
+  useEffect(() => {
+    if (!userId || prefilledCardRef.current || profiles.length === 0) return;
+    const mine = profiles.find((p) => p.userId === userId);
+    if (!mine) return;
+    prefilledCardRef.current = true;
+    setMyCardId(mine.id);
+    setBio(mine.bio || '');
+    setHobbies(mine.hobbies || '');
+    setLookingFor(mine.lookingFor || '');
+  }, [profiles, userId]);
 
   // listen to matches where I'm involved
   useEffect(() => {
@@ -87,6 +138,13 @@ export default function MatchFinder() {
   // Firestore rules only allow this read once matchPairs status === 'matched',
   // so this genuinely fails (silently, per onSnapshot's error handling) for
   // anyone who tries to fetch it before a real match — not just hidden by UI.
+  //
+  // IMPORTANT: this is keyed off `matches` directly (every pair I'm part of
+  // that's reached 'matched'), NOT off whichever cards happen to still be
+  // in the public `profiles` deck. A matched partner who never posted their
+  // own card (they only ever browsed and requested) would otherwise be
+  // invisible here forever — that mismatch was the root cause of "I
+  // accepted their request but I have no way to open the chat".
   useEffect(() => {
     if (!userId) return undefined;
     const unsubs = Object.values(matches)
@@ -104,23 +162,69 @@ export default function MatchFinder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches, userId]);
 
-  const post = async () => {
-    if (!userId || !displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()) return;
-    // Public card: NO age/gender/name here. This is enforced both here and
-    // by Firestore rules (matchProfiles create rule rejects age/gender
-    // fields) — the card that's browsable by everyone stays anonymous.
-    await addDoc(collection(db, 'matchProfiles'), {
-      userId, avatarColor: user?.avatarColor,
-      bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
-      createdAt: Timestamp.now(),
-    });
-    // Identity (name, age, gender) lives in its own doc, keyed by uid, only
-    // readable by the owner or a matched partner (see firestore.rules) —
-    // this is the "dating account" info that unlocks only after a match.
-    await setDoc(doc(db, 'userIdentities', userId), {
-      displayName: displayName.trim(), age: user?.age, gender: user?.gender,
-    }, { merge: true });
-    setBio(''); setHobbies(''); setLookingFor('');
+  const onPhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoError('');
+    try {
+      const dataUrl = await resizePhotoToDataUrl(file);
+      setPhotoDataUrl(dataUrl);
+      setRemovePhoto(false);
+    } catch (err) {
+      setPhotoError(err?.message || "Couldn't use that photo.");
+    }
+  };
+
+  const clearPhoto = () => {
+    setPhotoDataUrl('');
+    setRemovePhoto(true);
+  };
+
+  const canSaveProfile = displayName.trim() && bio.trim() && hobbies.trim() && lookingFor.trim() && age && gender && avatarColor && !saving;
+
+  const saveProfile = async () => {
+    if (!userId || !canSaveProfile) return;
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    try {
+      const numericAge = Number(age);
+      // Public card: NO age/gender/name here. This is enforced both here
+      // and by Firestore rules (matchProfiles create rule rejects age/
+      // gender fields) — the card that's browsable by everyone stays
+      // anonymous.
+      if (myCardId) {
+        await updateDoc(doc(db, 'matchProfiles', myCardId), {
+          bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(), avatarColor,
+        });
+      } else {
+        const ref = await addDoc(collection(db, 'matchProfiles'), {
+          userId, avatarColor,
+          bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
+          createdAt: Timestamp.now(),
+        });
+        setMyCardId(ref.id);
+      }
+      // Identity (name, age, gender, photo) lives in its own doc, keyed by
+      // uid, only readable by the owner or a matched partner (see
+      // firestore.rules) — this is the "dating account" info that unlocks
+      // only after a match.
+      const identityPayload = { displayName: displayName.trim(), age: numericAge, gender };
+      if (photoDataUrl) identityPayload.photoURL = photoDataUrl;
+      else if (removePhoto) identityPayload.photoURL = deleteField();
+      await setDoc(doc(db, 'userIdentities', userId), identityPayload, { merge: true });
+      // Keep the account-level profile in sync too, since it's the same
+      // age/gender/avatarColor originally set at Login and read elsewhere.
+      await setDoc(doc(db, 'users', userId), { age: numericAge, gender, avatarColor }, { merge: true });
+      setRemovePhoto(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setSaveError(`Couldn't save your profile. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const requestMatch = async (other) => {
@@ -135,7 +239,7 @@ export default function MatchFinder() {
       if (!snap.exists()) {
         await setDoc(ref, {
           userA: userId, userB: other.userId,
-          userAColor: user?.avatarColor, userBColor: other.avatarColor,
+          userAColor: avatarColor || user?.avatarColor, userBColor: other.avatarColor,
           userAAccepted: true, userBAccepted: false,
           status: 'pending',
           createdAt: Timestamp.now(),
@@ -151,17 +255,12 @@ export default function MatchFinder() {
         }
       }
     } catch (err) {
-      // This is the fix for "the button doesn't work" — previously any
-      // failure here (permission error, network blip, anything) failed
-      // completely silently. Now it's visible and the button re-enables.
       setActionError(`Couldn't send that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
     } finally {
       setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
-  // Same action either way — decline an incoming request, or cancel one
-  // you sent — since both just mean "this pending pair shouldn't exist".
   // Deliberately deletes rather than marking 'rejected': nothing tells the
   // other person they were declined (they just see the request quietly
   // stop being pending), which avoids creating a "who rejected me" signal
@@ -186,6 +285,21 @@ export default function MatchFinder() {
     return { status: m.status === 'matched' ? 'matched' : (m.userAAccepted && m.userBAccepted ? 'matched' : 'pending'), id, ...m };
   };
 
+  const openProfile = (uid, fallbackColor) => {
+    const identity = identities[uid];
+    const card = profiles.find((p) => p.userId === uid);
+    setViewingProfile({
+      photoURL: identity?.photoURL,
+      color: card?.avatarColor || fallbackColor,
+      name: identity?.displayName || `Person ${uid?.slice(0, 6)}`,
+      age: identity?.age,
+      gender: identity?.gender,
+      bio: card?.bio,
+      hobbies: card?.hobbies,
+      lookingFor: card?.lookingFor,
+    });
+  };
+
   // Someone else's card where THEY requested YOU — distinct from a card
   // where you're the one who sent the request and are waiting. Pulled into
   // their own section below (with their own uid so the Accept button can
@@ -197,6 +311,14 @@ export default function MatchFinder() {
     .map(([id, m]) => ({ id, ...m }));
   const incomingUids = new Set(incomingMatches.map((m) => m.theirId));
 
+  // Every pair that has actually reached 'matched' — a proper "conversations"
+  // list, built straight from matchPairs, that works whether or not the
+  // other person ever posted a browsable card themselves.
+  const myMatches = Object.entries(matches)
+    .filter(([, m]) => m.status === 'matched')
+    .map(([id, m]) => ({ id, ...m }))
+    .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
+
   if (loading || !user) return <PageSkeleton />;
 
   return (
@@ -205,13 +327,79 @@ export default function MatchFinder() {
         <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
 
         <div className="aura-card aura-section fade-in">
-          <h2 className="aura-title">{t('match_create_card')}</h2>
+          <h2 className="aura-title">{t('your_profile')}</h2>
+          <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '-6px 0 4px' }}>{t('your_profile_hint')}</p>
+
+          <div className="profile-editor__photo-row">
+            <Avatar color={avatarColor} photoURL={photoDataUrl} size={72} />
+            <div className="aura-row" style={{ gap: 8 }}>
+              <label className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="match-photo-upload">
+                <Camera size={14} /> {photoDataUrl ? t('change_photo') : t('upload_photo')}
+                <input type="file" accept="image/*" onChange={onPhotoChange} style={{ display: 'none' }} />
+              </label>
+              {photoDataUrl && (
+                <button type="button" onClick={clearPhoto} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="match-photo-remove">
+                  <Trash2 size={14} /> {t('remove_photo')}
+                </button>
+              )}
+            </div>
+          </div>
+          {photoError && <p className="aura-login-error" style={{ margin: '6px 0 0' }}>{photoError}</p>}
+
           <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
+
+          <div className="aura-row">
+            <input className="aura-input" style={{ flex: '1 1 120px' }} type="number" inputMode="numeric" min={16} value={age} onChange={(e) => setAge(e.target.value)} placeholder={t('age_placeholder')} data-testid="match-age" />
+          </div>
+          <div className="aura-field" style={{ marginBottom: 6 }}>
+            <div className="aura-segmented" role="radiogroup" aria-label={t('gender')}>
+              {GENDER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={gender === opt.value}
+                  onClick={() => setGender(opt.value)}
+                  className={`aura-segmented-option${gender === opt.value ? ' is-active' : ''}`}
+                  data-testid={`match-gender-${opt.value.replace(/\s+/g, '-').toLowerCase()}`}
+                >
+                  {t(opt.labelKey)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div role="radiogroup" aria-label={t('pick_color')} className="aura-color-row" style={{ marginBottom: 10 }}>
+            {AVATAR_COLORS.map((color) => {
+              const active = avatarColor === color;
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={`Colour ${color}`}
+                  onClick={() => setAvatarColor(color)}
+                  className={`aura-color-chip${active ? ' is-active' : ''}`}
+                  data-testid={`match-color-${color.replace('#', '')}`}
+                  style={{ background: color, outlineColor: active ? 'var(--primary)' : 'transparent' }}
+                >
+                  <span className="aura-color-chip__check" aria-hidden="true"><Check size={16} strokeWidth={3} /></span>
+                </button>
+              );
+            })}
+          </div>
+
           <input className="aura-input" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={t('bio')} maxLength={300} data-testid="match-bio" />
           <input className="aura-input" value={hobbies} onChange={(e) => setHobbies(e.target.value)} placeholder={t('hobbies')} maxLength={300} data-testid="match-hobbies" />
           <input className="aura-input" value={lookingFor} onChange={(e) => setLookingFor(e.target.value)} placeholder={t('looking_for')} maxLength={300} data-testid="match-looking" />
           <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 10px' }}>{t('match_identity_hint')}</p>
-          <button type="button" onClick={post} disabled={!displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
+          {saveError && <p className="aura-login-error" data-testid="match-save-error">{saveError}</p>}
+          <div className="aura-row" style={{ alignItems: 'center' }}>
+            <button type="button" onClick={saveProfile} disabled={!canSaveProfile} className="aura-btn aura-btn-primary" data-testid="match-post-btn">
+              {saving ? t('loading') : (myCardId ? t('save_profile') : t('post_card'))}
+            </button>
+            {saved && <span className="aura-muted" data-testid="match-saved-msg">{t('profile_saved')}</span>}
+          </div>
         </div>
 
         {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
@@ -255,6 +443,32 @@ export default function MatchFinder() {
           </>
         )}
 
+        <h2 className="aura-title">{t('your_matches')} ({myMatches.length})</h2>
+        {myMatches.length === 0 ? (
+          <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('no_matches_yet')}</p></div>
+        ) : (
+          <div className="chat-roster" style={{ marginBottom: 22 }} data-testid="my-matches-list">
+            {myMatches.map((m) => {
+              const identity = identities[m.theirId];
+              const theirColor = m.isInitiator ? m.userBColor : m.userAColor;
+              const label = identity
+                ? `${identity.displayName || 'Person ' + m.theirId?.slice(0, 6)}${identity.age ? ` • ${identity.age}` : ''}${identity.gender ? ` • ${identity.gender}` : ''}`
+                : t('loading');
+              return (
+                <div key={m.id} className="chat-roster__item fade-in" data-testid={`my-match-${m.id}`}>
+                  <button type="button" className="chat-roster__avatar-btn" onClick={() => openProfile(m.theirId, theirColor)} aria-label={t('view_profile')} data-testid={`view-profile-${m.id}`}>
+                    <Avatar color={theirColor} photoURL={identity?.photoURL} size={52} />
+                  </button>
+                  <button type="button" className="chat-roster__body" onClick={() => navigate(`/aura/match/chat/${m.id}`, { state: { profile: profiles.find((p) => p.userId === m.theirId) } })} data-testid={`open-match-${m.id}`}>
+                    <strong>{label}</strong>
+                    <span className="chat-roster__cta"><MessageCircle size={13} /> {t('open_chat')}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
         <div className="match-deck">
@@ -265,7 +479,7 @@ export default function MatchFinder() {
             return (
               <div key={p.id} className={`match-card fade-in delay-${Math.min(i, 3)} ${matched ? '' : 'match-locked'}`} data-testid={`match-card-${p.id}`}>
                 <div className="aura-row" style={{ gap: 14 }}>
-                  <Avatar color={p.avatarColor} size={56} />
+                  <Avatar color={p.avatarColor} photoURL={matched ? identity?.photoURL : null} size={56} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="aura-row" style={{ gap: 8 }}>
                       <strong>
@@ -289,7 +503,10 @@ export default function MatchFinder() {
 
                 <div className="aura-row" style={{ marginTop: 8 }}>
                   {matched ? (
-                    <button type="button" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className="aura-btn aura-btn-primary" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
+                    <>
+                      <button type="button" onClick={() => openProfile(p.userId, p.avatarColor)} className="aura-btn aura-btn-secondary" data-testid={`view-profile-deck-${p.id}`}>{t('view_profile')}</button>
+                      <button type="button" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className="aura-btn aura-btn-primary" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
+                    </>
                   ) : state.status === 'pending' ? (
                     // If we reach here it must be my own outgoing request —
                     // incoming ones are filtered into the section above —
@@ -310,6 +527,13 @@ export default function MatchFinder() {
           )}
         </div>
       </div>
+
+      {viewingProfile && (
+        <ProfileModal
+          {...viewingProfile}
+          onClose={() => setViewingProfile(null)}
+        />
+      )}
     </div>
   );
 }

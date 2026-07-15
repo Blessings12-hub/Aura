@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, onSnapshot, query, orderBy, updateDoc, Timestamp, getDoc, setDoc,
+  collection, addDoc, doc, onSnapshot, query, orderBy, updateDoc, Timestamp, getDoc,
 } from 'firebase/firestore';
-import { Send, Video, X } from 'lucide-react';
+import { Send, Video, X, PhoneIncoming } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -13,6 +13,12 @@ import { useSendCooldown } from '../hooks/useSendCooldown';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import ReportBlockMenu from '../components/ReportBlockMenu';
+
+const formatTime = (ts) => {
+  const d = ts?.toDate?.();
+  if (!d) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
 
 export default function SkillSwapChat() {
   const navigate = useNavigate();
@@ -77,6 +83,11 @@ export default function SkillSwapChat() {
   const theyAccepted = pair && (pair.userA === userId ? pair.videoB : pair.videoA);
   const theirUid = pair ? (pair.userA === userId ? pair.userB : pair.userA) : null;
   const isBlocked = theirUid && blockedUsers.has(theirUid);
+  // An active incoming invite: they've requested/accepted video and I
+  // haven't responded yet — this is the state that gets its own banner
+  // instead of a small button buried in the topbar, so a live call
+  // invitation actually reads as one.
+  const incomingInvite = theyAccepted && !iAccepted;
 
   if (loading) return <PageSkeleton />;
 
@@ -85,20 +96,9 @@ export default function SkillSwapChat() {
       <div className="aura-shell">
         <TopBar
           title={t('skill_swap')}
-          subtitle={videoBothAccepted ? 'Both accepted — start video' : (iAccepted ? 'Waiting for them to accept video' : (theyAccepted ? 'They want a video call' : 'Chat — request a video call anytime'))}
+          subtitle={t('anonymous_profile')}
           onBack={() => navigate(-1)}
-          right={
-            <div className="aura-row" style={{ gap: 8 }}>
-              {videoBothAccepted ? (
-                <button type="button" onClick={() => navigate(`/aura/swap/call/${swapId}`)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="start-video-btn"><Video size={14} /> {t('start_video')}</button>
-              ) : iAccepted ? (
-                <button type="button" onClick={() => toggleVideoRequest(false)} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="cancel-video-btn"><X size={14} /> Cancel</button>
-              ) : (
-                <button type="button" onClick={() => toggleVideoRequest(true)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="request-video-btn"><Video size={14} /> {theyAccepted ? t('accept') : t('request_video')}</button>
-              )}
-              <ReportBlockMenu userId={userId} otherUserId={theirUid} blocked={isBlocked} context="swapChat" contextId={swapId} />
-            </div>
-          }
+          right={<ReportBlockMenu userId={userId} otherUserId={theirUid} blocked={isBlocked} context="swapChat" contextId={swapId} />}
         />
 
         {isBlocked ? (
@@ -106,21 +106,57 @@ export default function SkillSwapChat() {
             <p className="aura-muted">{t('you_blocked_this_person')}</p>
           </div>
         ) : (
-          <div className="aura-card aura-section fade-in">
-            <div className="message-list" data-testid="swap-messages">
-              {messages.map((m) => (
-                <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
-                  <div className="message__bubble">{m.text}</div>
+          <>
+            {videoBothAccepted ? (
+              <div className="video-call-banner fade-in" data-testid="video-ready-banner">
+                <div className="video-call-banner__label">
+                  <span className="video-call-banner__icon"><Video size={16} /></span>
+                  {t('connected')}
                 </div>
-              ))}
-              {messages.length === 0 && <p className="aura-muted" style={{ textAlign: 'center', padding: '1.5rem' }}>{t('empty_no_messages')}</p>}
+                <button type="button" onClick={() => navigate(`/aura/swap/call/${swapId}`)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="start-video-btn"><Video size={14} /> {t('start_video')}</button>
+              </div>
+            ) : incomingInvite ? (
+              <div className="video-call-banner fade-in" data-testid="incoming-video-banner">
+                <div className="video-call-banner__label">
+                  <span className="video-call-banner__icon"><PhoneIncoming size={16} /></span>
+                  {t('incoming_video_call')}
+                </div>
+                <div className="aura-row" style={{ gap: 8 }}>
+                  <button type="button" onClick={() => toggleVideoRequest(true)} className="aura-btn aura-btn-primary aura-btn-pill" data-testid="accept-video-btn"><Video size={14} /> {t('accept')}</button>
+                  <button type="button" onClick={() => toggleVideoRequest(false)} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="decline-video-btn"><X size={14} /> {t('decline')}</button>
+                </div>
+              </div>
+            ) : iAccepted ? (
+              <div className="video-call-banner fade-in" data-testid="waiting-video-banner">
+                <div className="video-call-banner__label">
+                  <span className="video-call-banner__icon"><Video size={16} /></span>
+                  {t('video_pending')}
+                </div>
+                <button type="button" onClick={() => toggleVideoRequest(false)} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="cancel-video-btn"><X size={14} /> Cancel</button>
+              </div>
+            ) : (
+              <div className="aura-row" style={{ justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => toggleVideoRequest(true)} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="request-video-btn"><Video size={14} /> {t('request_video')}</button>
+              </div>
+            )}
+
+            <div className="aura-card chat-card fade-in">
+              <div className="message-list" data-testid="swap-messages">
+                {messages.length === 0 && <p className="chat-empty-state">{t('empty_no_messages')}</p>}
+                {messages.map((m) => (
+                  <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
+                    <div className="message__bubble">{m.text}</div>
+                    <span className="message__time">{formatTime(m.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+              {chatError && <p className="chat-card__error aura-login-error" data-testid="swap-chat-error">{chatError}</p>}
+              <div className="chat-input-bar">
+                <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: 1 }} data-testid="swap-chat-input" />
+                <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" aria-label={t('send')} data-testid="swap-chat-send"><Send size={16} /></button>
+              </div>
             </div>
-            {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="swap-chat-error">{chatError}</p>}
-            <div className="aura-row">
-              <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: '1 1 240px' }} data-testid="swap-chat-input" />
-              <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" data-testid="swap-chat-send"><Send size={16} /> {t('send')}</button>
-            </div>
-          </div>
+          </>
         )}
       </div>
     </div>
