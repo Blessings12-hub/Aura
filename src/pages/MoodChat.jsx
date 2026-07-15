@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, addDoc, query, orderBy, Timestamp,
-} from 'firebase/firestore';
-import { ref as sref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { Send, Mic, Square } from 'lucide-react';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -39,11 +36,14 @@ function pickSupportedMimeType() {
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
   return VOICE_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
-function extensionForMime(mime) {
-  if (mime.includes('mp4')) return 'm4a';
-  if (mime.includes('ogg')) return 'ogg';
-  return 'webm';
-}
+// Voice notes are stored directly inside the Firestore message document as
+// base64 (no Firebase Storage — Storage now requires the paid Blaze plan
+// even for free-tier usage as of Feb 2026, so it's off the table on Spark).
+// Firestore hard-caps a document at 1MB, and base64 inflates raw audio by
+// ~33%, so recording length needs a real ceiling rather than hoping it
+// stays small. 60s is generous for a chat voice note and stays comfortably
+// under the limit for every codec in VOICE_MIME_CANDIDATES.
+const MAX_RECORDING_SECONDS = 60;
 
 export default function MoodChat() {
   const navigate = useNavigate();
@@ -55,11 +55,13 @@ export default function MoodChat() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const [micError, setMicError] = useState('');
   const [chatError, setChatError] = useState('');
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const mimeRef = useRef('');
+  const recTimerRef = useRef(null);
   const listRef = useRef(null);
   const lastSeenRef = useRef(0);
 
@@ -91,6 +93,8 @@ export default function MoodChat() {
     }, () => setChatError('Messages could not be loaded. Check your connection and try reopening this mood.'), `mood chat (${mood})`);
   }, [mood, userId, t]);
 
+  useEffect(() => () => clearInterval(recTimerRef.current), []);
+
   const send = async () => {
     if (!text.trim() || !mood || !userId || !sendReady) return;
     triggerCooldown();
@@ -116,55 +120,48 @@ export default function MoodChat() {
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
       rec.onstop = async () => {
+        clearInterval(recTimerRef.current);
+        setRecordSeconds(0);
         const actualType = rec.mimeType || mimeType || 'audio/webm';
         const blob = new Blob(chunksRef.current, { type: actualType });
         stream.getTracks().forEach((tr) => tr.stop());
+
+        // Belt-and-suspenders: the 60s auto-stop should already keep this
+        // under the limit, but codecs/bitrates vary by browser, so check
+        // for real rather than assume the timer alone was enough.
+        if (blob.size > 700 * 1024) {
+          setMicError('That recording was too long to send — try one under a minute.');
+          return;
+        }
         try {
-          const ext = extensionForMime(actualType);
-          const path = `voice/${mood}/${userId}-${Date.now()}.${ext}`;
-          const r = sref(storage, path);
-          // Explicit contentType metadata matters: without it, Firebase
-          // Storage can serve the file as application/octet-stream, which
-          // most browsers refuse to play inline via <audio src>, even
-          // though the download itself "succeeds".
-          await uploadBytes(r, blob, { contentType: actualType });
-          const url = await getDownloadURL(r);
+          const reader = new FileReader();
+          const dataUrl = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
           await addDoc(collection(db, 'chats', mood, 'messages'), {
-            type: 'voice', voiceUrl: url, voiceMime: actualType, userId,
+            type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
           });
         } catch (err) {
-          console.error('voice upload failed, falling back to inline storage', err);
-          // Firestore documents have a hard 1MB limit, and base64 inflates
-          // raw bytes by ~33% — a long recording can blow past that here
-          // even though the upload path (10MB limit) would've handled it
-          // fine. Guard it explicitly instead of letting addDoc throw an
-          // opaque "document too large" error.
-          if (blob.size > 700 * 1024) {
-            setMicError("That recording was too long to send without a working upload — try a shorter voice note, or check Firebase Storage rules are published.");
-            return;
-          }
-          try {
-            const reader = new FileReader();
-            const dataUrl = await new Promise((resolve, reject) => {
-              reader.onload = () => resolve(reader.result);
-              reader.onerror = () => reject(reader.error);
-              reader.readAsDataURL(blob);
-            });
-            await addDoc(collection(db, 'chats', mood, 'messages'), {
-              type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
-              userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
-              createdAt: Timestamp.now(),
-            });
-          } catch (fallbackErr) {
-            setMicError(`Couldn't send that voice note. (${fallbackErr?.code || 'unknown'}: ${fallbackErr?.message || fallbackErr})`);
-          }
+          setMicError(`Couldn't send that voice note. (${err?.code || 'unknown'}: ${err?.message || err})`);
         }
       };
       rec.start();
       recRef.current = rec;
       setRecording(true);
+      setRecordSeconds(0);
+      recTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_RECORDING_SECONDS) {
+            stopRecording();
+            return MAX_RECORDING_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
     } catch (e) {
       console.error('mic permission failed', e);
       setMicError('Microphone access was blocked or unavailable. Check your browser/site permissions and try again.');
@@ -172,6 +169,7 @@ export default function MoodChat() {
   };
 
   const stopRecording = () => {
+    clearInterval(recTimerRef.current);
     if (recRef.current) {
       recRef.current.stop();
       recRef.current = null;
@@ -255,7 +253,7 @@ export default function MoodChat() {
                 data-testid="message-input"
               />
               {recording ? (
-                <button type="button" className="aura-btn aura-btn-danger" onClick={stopRecording} data-testid="stop-record-btn"><Square size={16} /> {t('recording')}</button>
+                <button type="button" className="aura-btn aura-btn-danger" onClick={stopRecording} data-testid="stop-record-btn"><Square size={16} /> {t('recording')} · {Math.max(0, MAX_RECORDING_SECONDS - recordSeconds)}s</button>
               ) : (
                 <button type="button" className="aura-btn aura-btn-secondary" onClick={startRecording} aria-label={t('send_voice_note')} data-testid="record-btn"><Mic size={16} /></button>
               )}
