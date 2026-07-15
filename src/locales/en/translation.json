@@ -108,7 +108,7 @@
     "empty_no_events": "No events yet. Create one.",
     "display_name": "Your name",
     "display_name_ph": "e.g. Alex — only shown once you match",
-    "match_identity_hint": "Your name and age stay hidden until you both match.",
+    "match_identity_hint": "Your name and photo stay hidden until you both match — everything else on this card is public.",
     "draw_and_chat": "Draw together, chat live — both update in real-time.",
     "toggle_chat": "Toggle chat",
     "hide_chat": "Hide chat",
@@ -152,7 +152,7 @@
     "onboarding_safety_title": "You're always in control",
     "onboarding_safety_desc": "You can block or report anyone, anywhere in the app, from the ⋮ menu next to their name. Blocking hides them everywhere instantly.",
     "your_profile": "Your profile",
-    "your_profile_hint": "Editable anytime — your name, age, gender, photo and card are only shown to people you've matched with.",
+    "your_profile_hint": "Your age, sex, hobbies, bio and what you're looking for are shown on your public card. Your name and photo stay hidden until you match with someone.",
     "display_name_ph_full": "Your display name",
     "upload_photo": "Upload photo",
     "change_photo": "Change photo",
@@ -178,5 +178,6 @@
     "calling": "Calling…",
     "connected": "Connected",
     "you": "You",
-    "today": "Today"
+    "today": "Today",
+    "name_photo_hidden": "Name & photo hidden until matched"
 }
