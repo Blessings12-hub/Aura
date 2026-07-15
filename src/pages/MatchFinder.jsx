@@ -13,6 +13,7 @@ import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { last24HoursTimestamp } from '../lib/rollingWindow';
+import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { AVATAR_COLORS } from '../constants/moods';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
@@ -191,6 +192,11 @@ export default function MatchFinder() {
 
   const saveProfile = async () => {
     if (!userId || !canSaveProfile) return;
+    const moderationReason = moderateText(`${bio} ${hobbies} ${lookingFor} ${displayName}`);
+    if (moderationReason) {
+      setSaveError(MODERATION_MESSAGES[moderationReason]);
+      return;
+    }
     setSaving(true);
     setSaveError('');
     setSaved(false);

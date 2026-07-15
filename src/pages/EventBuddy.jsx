@@ -10,6 +10,7 @@ import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { todayKey } from '../constants/dailyQuestions';
+import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -59,14 +60,23 @@ export default function EventBuddy() {
     setError('');
     if (!userId) return;
     if (!eventName.trim() || !date || !time || !place.trim()) { setError(t('fill_required')); return; }
-    // Anonymous by design (matches Aura's "just presence" model, and
-    // firestore.rules reject age/gender fields here) — no identity data
-    // on the public card.
-    await addDoc(collection(db, 'eventBuddy'), {
-      userId, userColor: user?.avatarColor,
-      eventName: eventName.trim(), date, time, place: place.trim(), createdAt: Timestamp.now(),
-    });
-    setEventName(''); setDate(''); setTime(''); setPlace('');
+    const moderationReason = moderateText(`${eventName} ${place}`);
+    if (moderationReason) {
+      setError(MODERATION_MESSAGES[moderationReason]);
+      return;
+    }
+    try {
+      // Anonymous by design (matches Aura's "just presence" model, and
+      // firestore.rules reject age/gender fields here) — no identity data
+      // on the public card.
+      await addDoc(collection(db, 'eventBuddy'), {
+        userId, userColor: user?.avatarColor,
+        eventName: eventName.trim(), date, time, place: place.trim(), createdAt: Timestamp.now(),
+      });
+      setEventName(''); setDate(''); setTime(''); setPlace('');
+    } catch (err) {
+      setError(`Couldn't post that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
   };
 
   const joinEvent = async (ev) => {
