@@ -435,6 +435,14 @@ a { color: var(--primary); }
    stacked on narrow ones so drawing stays usable on mobile. */
 .collab-layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 
+.daily-nudge {
+  font-family: inherit;
+  color: var(--text);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.daily-nudge:hover { transform: translateY(-1px); border-color: var(--accent); }
+.daily-nudge:active { transform: translateY(0); }
+
 /* Splash screen — shown once on app boot, while auth resolves. */
 .aura-splash {
   min-height: 100vh;
