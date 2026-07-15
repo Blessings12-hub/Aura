@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { auth } from '../firebase';
-import PageSkeleton from '../components/PageSkeleton';
+import SplashScreen from '../components/SplashScreen';
 
 export default function AuthGate({ children }) {
   const [ready, setReady] = useState(false);
@@ -32,7 +32,7 @@ export default function AuthGate({ children }) {
   }, []);
 
   if (!ready) {
-    return <PageSkeleton />;
+    return <SplashScreen />;
   }
 
   if (fatalError) {
