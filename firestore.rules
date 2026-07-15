@@ -9,10 +9,13 @@ rules_version = '2';
 //    keyed by that auth uid, so request.auth.uid is always trustworthy and
 //    matches the app's `userId` everywhere.
 //
-// 2. TRUE anonymity for Match Finder / Skill Swap / Event Buddy: identity
-//    fields (age, gender) are NEVER stored on the publicly-queried card
-//    documents. They live in `userIdentities/{uid}`, which only the owner
-//    or someone with a *matched* pairing can read. Hiding fields in the UI
+// 2. TRUE anonymity for Skill Swap / Event Buddy: no identity fields at
+//    all are stored on those publicly-queried card documents. Match
+//    Finder is intentionally different — its card shows age/gender to
+//    everyone, matched or not, and only NAME and PHOTO are gated behind a
+//    real match. Whichever fields are meant to stay gated for a given
+//    activity live in `userIdentities/{uid}`, which only the owner or
+//    someone with a *matched* pairing can read. Hiding fields in the UI
 //    is not security — anyone with devtools can read an open query. These
 //    rules enforce it server-side.
 //
@@ -114,11 +117,17 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // USER IDENTITIES — age/gender/photo. Only the owner, or someone the
+    // USER IDENTITIES — name and photo. Only the owner, or someone the
     // owner has been MATCHED with in Match Finder, may read this. Nobody
     // but the owner may write it. Split out of a single "write" rule so
     // the age check only ever applies to create/update, never to delete
     // (a delete has no request.resource.data to validate against).
+    //
+    // Age/gender are also mirrored here for the account-level
+    // users/{uid} doc to stay in sync, but they are NOT what this
+    // collection exists to protect — matchProfiles (see below) already
+    // shows age/gender to everyone. The two fields that only ever unlock
+    // via a real match are displayName and photoURL.
     //
     // photoURL is a client-resized base64 data URL (see
     // src/lib/photoUpload.js) rather than a Storage file — there's no
@@ -158,19 +167,35 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // MATCH FINDER — public card is bio/hobbies/lookingFor/avatarColor
-    // ONLY. No age/gender here (see userIdentities above). Anyone signed
-    // in can browse cards; only the author can edit/delete their own.
+    // MATCH FINDER — public card. Unlike Skill Swap/Event Buddy, Match
+    // Finder's card is DELIBERATELY not fully anonymous: age and gender
+    // are shown on the browsable card itself (validated the same way the
+    // account-level users/{uid} doc validates age, via validAge()). What
+    // stays gated behind a real match is identity that could make someone
+    // individually recognisable — name and photo — which live only in
+    // userIdentities (see above) and are never present here. This rule
+    // rejects a create/update that tries to add either of those fields to
+    // a matchProfiles doc, so that boundary is enforced server-side, not
+    // just by what the UI happens to send.
     // ------------------------------------------------------------------
     match /matchProfiles/{cardId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && !('age' in request.resource.data)
-                    && !('gender' in request.resource.data)
+                    && validAge(request.resource.data)
+                    && !('displayName' in request.resource.data)
+                    && !('photoURL' in request.resource.data)
+                    && validText(request.resource.data.get('gender', ''), 40)
                     && validText(request.resource.data.get('bio', ''), 300)
                     && validText(request.resource.data.get('hobbies', ''), 300)
                     && validText(request.resource.data.get('lookingFor', ''), 300);
-      allow update, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && validAge(request.resource.data)
+                    && !('displayName' in request.resource.data)
+                    && !('photoURL' in request.resource.data)
+                    && validText(request.resource.data.get('gender', ''), 40)
+                    && validText(request.resource.data.get('bio', ''), 300)
+                    && validText(request.resource.data.get('hobbies', ''), 300)
+                    && validText(request.resource.data.get('lookingFor', ''), 300);
+      allow delete: if isOwner(resource.data.userId);
     }
 
     // matchPairs/{uidA_uidB} — only the two participants may read/write.
