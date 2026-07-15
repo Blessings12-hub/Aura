@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc,
 } from 'firebase/firestore';
-import { Heart, Lock, Sparkles } from 'lucide-react';
+import { Heart, Lock, Sparkles, X } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -160,12 +160,42 @@ export default function MatchFinder() {
     }
   };
 
+  // Same action either way — decline an incoming request, or cancel one
+  // you sent — since both just mean "this pending pair shouldn't exist".
+  // Deliberately deletes rather than marking 'rejected': nothing tells the
+  // other person they were declined (they just see the request quietly
+  // stop being pending), which avoids creating a "who rejected me" signal
+  // that could be used to pester someone about it.
+  const rejectMatch = async (id) => {
+    if (pendingActions[id]) return;
+    setActionError('');
+    setPendingActions((prev) => ({ ...prev, [id]: true }));
+    try {
+      await deleteDoc(doc(db, 'matchPairs', id));
+    } catch (err) {
+      setActionError(`Couldn't do that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    }
+  };
+
   const getMatchState = (other) => {
     const id = pairId(userId, other.userId);
     const m = matches[id];
     if (!m) return { status: 'none', id };
     return { status: m.status === 'matched' ? 'matched' : (m.userAAccepted && m.userBAccepted ? 'matched' : 'pending'), id, ...m };
   };
+
+  // Someone else's card where THEY requested YOU — distinct from a card
+  // where you're the one who sent the request and are waiting. Pulled into
+  // their own section below (with their own uid so the Accept button can
+  // call requestMatch directly) so it's never rendered as just another
+  // "locked" card in the general browse deck — that ambiguity (a request
+  // to you looking identical to a request from you) was the actual bug.
+  const incomingMatches = Object.entries(matches)
+    .filter(([, m]) => !m.isInitiator && m.status !== 'matched')
+    .map(([id, m]) => ({ id, ...m }));
+  const incomingUids = new Set(incomingMatches.map((m) => m.theirId));
 
   if (loading || !user) return <PageSkeleton />;
 
@@ -184,11 +214,51 @@ export default function MatchFinder() {
           <button type="button" onClick={post} disabled={!displayName.trim() || !bio.trim() || !hobbies.trim() || !lookingFor.trim()} className="aura-btn aura-btn-primary" data-testid="match-post-btn">{t('post_card')}</button>
         </div>
 
+        {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
+
+        {incomingMatches.length > 0 && (
+          <>
+            <h2 className="aura-title">{t('requests_for_you')} ({incomingMatches.length})</h2>
+            <div className="match-deck" style={{ marginBottom: 22 }}>
+              {incomingMatches.map((m) => (
+                <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
+                  <div className="aura-row" style={{ gap: 14 }}>
+                    <Avatar color={m.userAColor} size={56} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <strong>{t('anonymous_profile')}</strong>
+                      <p className="aura-muted" style={{ margin: '6px 0 0' }}>{t('wants_to_match_you')}</p>
+                    </div>
+                  </div>
+                  <div className="aura-row" style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => requestMatch({ userId: m.theirId, avatarColor: m.userAColor })}
+                      disabled={!!pendingActions[m.id]}
+                      className="aura-btn aura-btn-primary"
+                      data-testid={`accept-incoming-${m.id}`}
+                    >
+                      <Heart size={14} /> {pendingActions[m.id] ? t('loading') : t('accept')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rejectMatch(m.id)}
+                      disabled={!!pendingActions[m.id]}
+                      className="aura-btn aura-btn-secondary"
+                      data-testid={`decline-incoming-${m.id}`}
+                    >
+                      <X size={14} /> {t('decline')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
-        {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
         <div className="match-deck">
-          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId)).map((p, i) => {
+          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId) && !incomingUids.has(p.userId)).map((p, i) => {
             const state = getMatchState(p);
             const matched = state.status === 'matched';
             const identity = matched ? identities[p.userId] : null;
@@ -221,7 +291,13 @@ export default function MatchFinder() {
                   {matched ? (
                     <button type="button" onClick={() => navigate(`/aura/match/chat/${pairId(userId, p.userId)}`, { state: { profile: p } })} className="aura-btn aura-btn-primary" data-testid={`open-chat-${p.id}`}><Heart size={14} /> {t('start_chat')}</button>
                   ) : state.status === 'pending' ? (
-                    <button type="button" onClick={() => requestMatch(p)} disabled={!!pendingActions[state.id]} className="aura-btn aura-btn-secondary" data-testid={`pending-${p.id}`}>{pendingActions[state.id] ? t('loading') : (state.isInitiator ? t('match_pending') : `${t('accept')} ${t('match_finder')}`)}</button>
+                    // If we reach here it must be my own outgoing request —
+                    // incoming ones are filtered into the section above —
+                    // so this is always the "waiting on them" state now.
+                    <>
+                      <button type="button" disabled className="aura-btn aura-btn-secondary" data-testid={`pending-${p.id}`}>{t('match_pending')}</button>
+                      <button type="button" onClick={() => rejectMatch(state.id)} disabled={!!pendingActions[state.id]} className="aura-btn aura-btn-secondary" data-testid={`cancel-${p.id}`}><X size={14} /> {t('cancel_request')}</button>
+                    </>
                   ) : (
                     <button type="button" onClick={() => requestMatch(p)} disabled={!!pendingActions[state.id]} className="aura-btn aura-btn-primary" data-testid={`request-${p.id}`}><Heart size={14} /> {pendingActions[state.id] ? t('loading') : t('request_match')}</button>
                   )}
@@ -229,7 +305,7 @@ export default function MatchFinder() {
               </div>
             );
           })}
-          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId)).length === 0 && (
+          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId) && !incomingUids.has(p.userId)).length === 0 && (
             <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_matches')}</p></div>
           )}
         </div>

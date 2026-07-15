@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc,
 } from 'firebase/firestore';
-import { Video, MessageCircle, Repeat } from 'lucide-react';
+import { Video, MessageCircle, Repeat, X } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -106,6 +106,22 @@ export default function SkillSwap() {
     }
   };
 
+  // Same reasoning as MatchFinder's rejectMatch: deletes rather than
+  // marking 'rejected', so declining/canceling stays silent rather than
+  // creating a "who rejected me" signal.
+  const rejectSwap = async (id) => {
+    if (pendingActions[id]) return;
+    setActionError('');
+    setPendingActions((prev) => ({ ...prev, [id]: true }));
+    try {
+      await deleteDoc(doc(db, 'swapPairs', id));
+    } catch (err) {
+      setActionError(`Couldn't do that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    }
+  };
+
   // Someone else's request TO you — distinct from a card where you're the
   // one who sent the request and are waiting. Pulled into its own section
   // (see MatchFinder.jsx for the same pattern) so it's never just another
@@ -144,15 +160,26 @@ export default function SkillSwap() {
                     <div><strong>{t('anonymous_profile')}</strong></div>
                   </div>
                   <p className="aura-muted" style={{ margin: '0 0 12px' }}>{t('wants_to_swap_you')}</p>
-                  <button
-                    type="button"
-                    onClick={() => requestSwap({ userId: p.theirId, userColor: p.userAColor })}
-                    disabled={!!pendingActions[p.id]}
-                    className="aura-btn aura-btn-primary"
-                    data-testid={`accept-incoming-swap-${p.id}`}
-                  >
-                    <Repeat size={14} /> {pendingActions[p.id] ? t('loading') : t('accept')}
-                  </button>
+                  <div className="aura-row">
+                    <button
+                      type="button"
+                      onClick={() => requestSwap({ userId: p.theirId, userColor: p.userAColor })}
+                      disabled={!!pendingActions[p.id]}
+                      className="aura-btn aura-btn-primary"
+                      data-testid={`accept-incoming-swap-${p.id}`}
+                    >
+                      <Repeat size={14} /> {pendingActions[p.id] ? t('loading') : t('accept')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rejectSwap(p.id)}
+                      disabled={!!pendingActions[p.id]}
+                      className="aura-btn aura-btn-secondary"
+                      data-testid={`decline-incoming-swap-${p.id}`}
+                    >
+                      <X size={14} /> {t('decline')}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -181,7 +208,14 @@ export default function SkillSwap() {
                   {matched ? (
                     <button type="button" onClick={() => navigate(`/aura/swap/chat/${id}`, { state: { otherUser: item } })} className="aura-btn aura-btn-primary" data-testid={`swap-chat-${item.id}`}><MessageCircle size={14} /> {t('open_chat')}</button>
                   ) : pending ? (
-                    <button type="button" onClick={() => requestSwap(item)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-secondary" data-testid={`swap-pending-${item.id}`}>{pendingActions[id] ? t('loading') : (p.isInitiator ? t('swap_pending') : t('accept'))}</button>
+                    p.isInitiator ? (
+                      <>
+                        <button type="button" disabled className="aura-btn aura-btn-secondary" data-testid={`swap-pending-${item.id}`}>{t('swap_pending')}</button>
+                        <button type="button" onClick={() => rejectSwap(id)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-secondary" data-testid={`swap-cancel-${item.id}`}><X size={14} /> {t('cancel_request')}</button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => requestSwap(item)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-primary" data-testid={`swap-pending-${item.id}`}>{pendingActions[id] ? t('loading') : t('accept')}</button>
+                    )
                   ) : (
                     <button type="button" onClick={() => requestSwap(item)} disabled={!!pendingActions[id]} className="aura-btn aura-btn-primary" data-testid={`swap-request-${item.id}`}>{pendingActions[id] ? t('loading') : t('request_swap')}</button>
                   )}

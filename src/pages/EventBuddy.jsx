@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc,
 } from 'firebase/firestore';
-import { CalendarHeart, MessageCircle, Check } from 'lucide-react';
+import { CalendarHeart, MessageCircle, Check, X } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -102,6 +102,24 @@ export default function EventBuddy() {
     }
   };
 
+  // Reject (host declining a guest) or cancel (guest withdrawing their own
+  // pending request) — same action either way, since both just mean "this
+  // pending join shouldn't exist". Deletes rather than marking 'rejected'
+  // for the same reason as matchPairs/swapPairs: no lingering "declined"
+  // signal visible to the other person.
+  const rejectJoin = async (joinId) => {
+    if (pendingActions[joinId]) return;
+    setError('');
+    setPendingActions((prev) => ({ ...prev, [joinId]: true }));
+    try {
+      await deleteDoc(doc(db, 'eventJoins', joinId));
+    } catch (err) {
+      setError(`Couldn't do that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    } finally {
+      setPendingActions((prev) => { const next = { ...prev }; delete next[joinId]; return next; });
+    }
+  };
+
   if (loading || !user) return <PageSkeleton />;
 
   return (
@@ -157,13 +175,17 @@ export default function EventBuddy() {
                         <div key={jid} className="aura-row" style={{ marginBottom: 6 }}>
                           <span className="chip">Guest {j.guestId.slice(0, 6)}</span>
                           <button type="button" onClick={() => acceptJoin(jid)} disabled={!!pendingActions[jid]} className="aura-btn aura-btn-primary aura-btn-pill" data-testid={`accept-${jid}`}><Check size={12} /> {pendingActions[jid] ? t('loading') : t('accept')}</button>
+                          <button type="button" onClick={() => rejectJoin(jid)} disabled={!!pendingActions[jid]} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid={`decline-${jid}`}><X size={12} /> {t('decline')}</button>
                         </div>
                       ))}
                     </>
                   ) : accepted ? (
                     <button type="button" onClick={() => navigate(`/aura/event/chat/${joinId}`, { state: { event: ev } })} className="aura-btn aura-btn-primary" data-testid={`event-chat-${ev.id}`}><MessageCircle size={14} /> {t('join_accepted')}</button>
                   ) : pending ? (
-                    <button type="button" disabled className="aura-btn aura-btn-secondary">{t('join_pending')}</button>
+                    <>
+                      <button type="button" disabled className="aura-btn aura-btn-secondary">{t('join_pending')}</button>
+                      <button type="button" onClick={() => rejectJoin(joinId)} disabled={!!pendingActions[joinId]} className="aura-btn aura-btn-secondary" data-testid={`event-cancel-${ev.id}`}><X size={14} /> {t('cancel_request')}</button>
+                    </>
                   ) : (
                     <button type="button" onClick={() => joinEvent(ev)} disabled={!!pendingActions[`${ev.id}_${userId}`]} className="aura-btn aura-btn-primary" data-testid={`event-join-${ev.id}`}><CalendarHeart size={14} /> {pendingActions[`${ev.id}_${userId}`] ? t('loading') : t('join_event')}</button>
                   )}
