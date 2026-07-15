@@ -9,8 +9,6 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
-import { todayKey } from '../constants/dailyQuestions';
-import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -60,23 +58,14 @@ export default function EventBuddy() {
     setError('');
     if (!userId) return;
     if (!eventName.trim() || !date || !time || !place.trim()) { setError(t('fill_required')); return; }
-    const moderationReason = moderateText(`${eventName} ${place}`);
-    if (moderationReason) {
-      setError(MODERATION_MESSAGES[moderationReason]);
-      return;
-    }
-    try {
-      // Anonymous by design (matches Aura's "just presence" model, and
-      // firestore.rules reject age/gender fields here) — no identity data
-      // on the public card.
-      await addDoc(collection(db, 'eventBuddy'), {
-        userId, userColor: user?.avatarColor,
-        eventName: eventName.trim(), date, time, place: place.trim(), createdAt: Timestamp.now(),
-      });
-      setEventName(''); setDate(''); setTime(''); setPlace('');
-    } catch (err) {
-      setError(`Couldn't post that. (${err?.code || 'unknown'}: ${err?.message || err})`);
-    }
+    // Anonymous by design (matches Aura's "just presence" model, and
+    // firestore.rules reject age/gender fields here) — no identity data
+    // on the public card.
+    await addDoc(collection(db, 'eventBuddy'), {
+      userId, userColor: user?.avatarColor,
+      eventName: eventName.trim(), date, time, place: place.trim(), createdAt: Timestamp.now(),
+    });
+    setEventName(''); setDate(''); setTime(''); setPlace('');
   };
 
   const joinEvent = async (ev) => {
@@ -134,13 +123,6 @@ export default function EventBuddy() {
 
   if (loading || !user) return <PageSkeleton />;
 
-  // "Resets every 24 hours" for Event Buddy means something different from
-  // a chat feed: an event 5 days out is still very much joinable the day
-  // after it's posted, so this hides by the event's own DATE having
-  // passed, not by how long ago it was posted (unlike Mood Chat/Match
-  // Finder/Skill Swap, which age out by post time).
-  const visibleEvents = events.filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()));
-
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -158,13 +140,13 @@ export default function EventBuddy() {
           <button type="button" onClick={post} className="aura-btn aura-btn-primary" data-testid="event-post-btn"><CalendarHeart size={16} /> {t('post_event')}</button>
         </div>
 
-        <h2 className="aura-title">{t('available_events')} ({visibleEvents.length})</h2>
+        <h2 className="aura-title">{t('available_events')} ({events.filter((ev) => !blockedUsers.has(ev.userId)).length})</h2>
         {loadError && <p className="aura-login-error" data-testid="event-load-error">{loadError}</p>}
-        {visibleEvents.length === 0 ? (
+        {events.filter((ev) => !blockedUsers.has(ev.userId)).length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_events')}</p></div>
         ) : (
           <div className="aura-grid">
-            {visibleEvents.map((ev) => {
+            {events.filter((ev) => !blockedUsers.has(ev.userId)).map((ev) => {
               const joinId = `${ev.id}_${userId}`;
               const join = joins[joinId];
               const accepted = join?.status === 'accepted';

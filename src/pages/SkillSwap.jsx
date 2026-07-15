@@ -11,8 +11,6 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
-import { last24HoursTimestamp } from '../lib/rollingWindow';
-import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -34,11 +32,7 @@ export default function SkillSwap() {
   const [actionError, setActionError] = useState('');
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'skillSwaps'),
-      where('createdAt', '>=', last24HoursTimestamp()),
-      orderBy('createdAt', 'desc'),
-    );
+    const q = query(collection(db, 'skillSwaps'), orderBy('createdAt', 'desc'));
     return subscribe(
       q,
       (snap) => setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
@@ -72,23 +66,14 @@ export default function SkillSwap() {
 
   const post = async () => {
     if (!userId || !skill.trim() || !want.trim()) return;
-    const moderationReason = moderateText(`${skill} ${want}`);
-    if (moderationReason) {
-      setLoadError(MODERATION_MESSAGES[moderationReason]);
-      return;
-    }
-    try {
-      // Anonymous by design (matches Aura's "just presence" model, and
-      // firestore.rules reject age/gender fields here) — no identity data
-      // on the public card.
-      await addDoc(collection(db, 'skillSwaps'), {
-        userId, userColor: user?.avatarColor,
-        skill: skill.trim(), want: want.trim(), createdAt: Timestamp.now(),
-      });
-      setSkill(''); setWant('');
-    } catch (err) {
-      setLoadError(`Couldn't post that. (${err?.code || 'unknown'}: ${err?.message || err})`);
-    }
+    // Anonymous by design (matches Aura's "just presence" model, and
+    // firestore.rules reject age/gender fields here) — no identity data
+    // on the public card.
+    await addDoc(collection(db, 'skillSwaps'), {
+      userId, userColor: user?.avatarColor,
+      skill: skill.trim(), want: want.trim(), createdAt: Timestamp.now(),
+    });
+    setSkill(''); setWant('');
   };
 
   const requestSwap = async (item) => {
