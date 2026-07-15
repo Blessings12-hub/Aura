@@ -306,6 +306,7 @@ a { color: var(--primary); }
 
 /* Avatar */
 .avatar { border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.avatar--photo { object-fit: cover; }
 
 /* Animated entrance */
 @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -585,4 +586,218 @@ a { color: var(--primary); }
 .message__safety-btn:hover {
   opacity: 1;
   background: var(--surface-3);
+}
+/* ============================================================================
+   Profile editor (Match Finder "Your profile" panel) — photo row.
+   ============================================================================ */
+.profile-editor__photo-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================================
+   Conversation roster — the "Your matches" / "Your swaps" list. Modeled on
+   a WhatsApp-style chat list: avatar on the left, name + a one-line
+   call-to-action on the right, the whole row tappable to open the chat.
+   ============================================================================ */
+.chat-roster { display: flex; flex-direction: column; gap: 2px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); }
+.chat-roster__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.chat-roster__item:last-child { border-bottom: none; }
+.chat-roster__avatar-btn {
+  border: none; background: transparent; padding: 0; cursor: pointer; border-radius: 50%;
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.chat-roster__avatar-btn:hover { transform: scale(1.05); }
+.chat-roster__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 0;
+  text-align: left;
+}
+.chat-roster__body strong { color: var(--text); font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.chat-roster__cta {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.82rem; color: var(--primary); font-weight: 600;
+}
+
+/* Tappable chat header (Match Chat) — avatar + name/age/gender acting as a
+   button that opens the read-only profile modal, the way tapping a
+   contact's name at the top of a chat app opens their contact card. */
+.chat-header-tap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  max-width: 100%;
+}
+.chat-header-tap span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   Profile modal — read-only "contact card" for a matched partner.
+   ============================================================================ */
+.profile-modal { max-width: 380px; padding-top: 44px; }
+.profile-modal__close { position: absolute; top: 14px; right: 14px; }
+.profile-modal__header { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 16px; }
+.profile-modal__section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* ============================================================================
+   WhatsApp-style chat rooms — shared by Match Chat, Skill Swap Chat and
+   Event Chat. The chat becomes its own bounded panel (header stays in the
+   sticky TopBar above it) with a soft wallpaper behind the messages and an
+   input bar pinned to the bottom of that panel, instead of a plain list
+   that just grows the page.
+   ============================================================================ */
+.chat-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  height: calc(100vh - 200px);
+  min-height: 380px;
+  max-height: 720px;
+}
+.chat-card .message-list {
+  flex: 1 1 auto;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--primary) 6%, transparent) 0, transparent 45%),
+    radial-gradient(circle at 80% 60%, color-mix(in srgb, var(--accent) 6%, transparent) 0, transparent 45%),
+    var(--bg-2);
+}
+.chat-card__error { margin: 0; padding: 8px 16px 0; }
+.chat-input-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.chat-input-bar .aura-input {
+  border-radius: 999px;
+  padding: 12px 18px;
+}
+.chat-input-bar .aura-btn {
+  border-radius: 999px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.message__time { font-size: 0.68rem; color: var(--muted-2); margin-top: 2px; }
+.message--mine .message__time { align-self: flex-end; }
+.chat-empty-state { text-align: center; padding: 2rem 1rem; color: var(--muted); }
+
+/* Incoming video-call banner — a distinct, attention-grabbing bar (not just
+   a small button tucked into the topbar) so a live call invite reads as an
+   actual event, the way a real calling app would show it. */
+.video-call-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(236,72,153,0.16));
+  border: 1px solid var(--border-strong);
+}
+.video-call-banner__label { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.video-call-banner__icon {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--primary);
+  color: #fff;
+  animation: pulse-ring 1.6s ease-in-out infinite;
+}
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45); }
+  50% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+}
+
+/* ============================================================================
+   Video call screen — remote video fills the frame, local video sits as a
+   small picture-in-picture in the corner (the layout used by every real
+   video-calling app), with a control bar for mute/camera instead of just
+   an end-call button.
+   ============================================================================ */
+.call-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 13;
+  max-height: 68vh;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #000;
+}
+.call-stage__remote { width: 100%; height: 100%; object-fit: cover; background: #000; }
+.call-stage__local {
+  position: absolute;
+  bottom: 14px; right: 14px;
+  width: 27%;
+  min-width: 84px;
+  aspect-ratio: 3 / 4;
+  border-radius: 14px;
+  object-fit: cover;
+  background: #000;
+  border: 2px solid rgba(255,255,255,0.35);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+.call-controls { display: flex; justify-content: center; gap: 14px; margin-top: 14px; }
+.call-controls .aura-btn { border-radius: 999px; width: 52px; height: 52px; padding: 0; }
+.call-controls .aura-btn.is-muted { background: var(--danger); color: #fff; }
+
+/* ============================================================================
+   TopBar — small screens / locked-portrait phones. Without this, four
+   pill buttons (language, notifications, theme, logout) plus the title
+   were all forced onto one unwrapped flex row, so on a narrow viewport the
+   row either overflowed the rounded "welcome" bar or squeezed everything
+   down unreadably. Below 520px the title takes its own full-width row and
+   the action buttons wrap onto a second row underneath, and the language
+   switcher collapses to just its globe icon to save more space.
+   ============================================================================ */
+@media (max-width: 520px) {
+  .aura-topbar {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    row-gap: 10px;
+  }
+  .aura-topbar-copy { flex-basis: 100%; }
+  .aura-topbar-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .aura-lang-switcher-label { display: none; }
 }
