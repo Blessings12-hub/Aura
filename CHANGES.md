@@ -1,32 +1,27 @@
-# Voice notes fix
+# Voice notes — no Firebase Storage needed
 
-## Root cause
-Firebase Storage has its own separate security rules, independent from
-both Firestore's and Realtime Database's. `storage.rules` exists in your
-repo already (with a comment predicting exactly this problem) but has
-never been published, so every voice note upload has been silently denied
-this whole time.
+You're right that Storage requires the Blaze plan now (Google changed this
+Feb 2026, even free-tier Storage usage needs a linked billing account).
+This rewrite drops Storage entirely — voice notes now save straight into
+the Firestore chat message itself as base64, no separate file/bucket
+involved. That means:
 
-## Publish it
-1. Firebase Console → **Storage** (separate section from Firestore and
-   Realtime Database)
-2. If you've never opened this before, you may need to click **Get
-   Started** first to actually create the Storage bucket
-3. Tab along the top → **Rules**
-4. Replace the contents with the attached `storage.rules`
-5. **Publish**
+- **`storage.rules` is no longer needed for this feature** — you can leave
+  it unpublished, this doesn't touch it at all anymore
+- Recording auto-stops at **60 seconds**, with a live countdown on the
+  record button, so it stays safely under Firestore's 1MB-per-document
+  limit (base64 inflates raw audio ~33%, so an unbounded recording could
+  have blown past that)
+- If a recording somehow still comes out oversized (codec/bitrate varies
+  by browser), it's rejected up front with a clear message asking for a
+  shorter one, instead of a cryptic Firestore error
 
-## Also fixed in code
-The app has a fallback for when upload fails (encodes the recording as
-base64 and stores it directly in the chat message instead) — but that
-fallback had no error handling of its own, so if it ALSO failed, nothing
-would show up at all. Now it:
-- Actually reports an error if it fails
-- Refuses upfront (with a message asking for a shorter recording) rather
-  than silently trying to save something too big — Firestore documents
-  have a hard 1MB limit, and base64 inflates the raw audio by about a
-  third, so a long recording could blow past that even on a good
-  connection
-
-Once `storage.rules` is published, voice notes should upload properly
-through the real path and this fallback shouldn't normally trigger at all.
+## Trade-off worth knowing
+Base64-in-Firestore counts against your Firestore read/write quota and
+storage quota (1 GiB free on Spark) a bit more heavily than plain text
+messages would, since audio is inherently bigger. For a small-friends-group
+test phase this won't matter. If Aura grows and voice notes get heavy
+use, upgrading to Blaze just for Storage (the free quota is still $0 until
+you exceed it — 5GB storage, 100GB egress/month) would be worth
+reconsidering then, since it's a one-time willingness-to-link-a-card
+decision, not an automatic cost.
