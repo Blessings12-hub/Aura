@@ -17,6 +17,7 @@ import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 import { recordMoodActivity } from '../lib/moodActivity';
 import { last24HoursTimestamp } from '../lib/rollingWindow';
+import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { todayKey } from '../constants/dailyQuestions';
 
 // MediaRecorder's actual output codec depends entirely on what the browser
@@ -114,6 +115,11 @@ export default function MoodChat() {
 
   const send = async () => {
     if (!text.trim() || !mood || !userId || !sendReady) return;
+    const moderationReason = moderateText(text);
+    if (moderationReason) {
+      setChatError(MODERATION_MESSAGES[moderationReason]);
+      return;
+    }
     triggerCooldown();
     try {
       await addDoc(collection(db, 'chats', mood, 'messages'), {

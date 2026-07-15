@@ -20,6 +20,7 @@ import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 import { recordDailyAnswerStreak } from '../lib/streak';
+import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 
 // Same live-room pattern as Mood Chat, applied to the day's question: this
 // used to be a "post once, see a static grid of everyone's answers" page.
@@ -66,6 +67,11 @@ export default function DailyQuestion() {
 
   const submit = async () => {
     if (!userId || !text.trim() || !sendReady) return;
+    const moderationReason = moderateText(text);
+    if (moderationReason) {
+      setChatError(MODERATION_MESSAGES[moderationReason]);
+      return;
+    }
     triggerCooldown();
     try {
       await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
