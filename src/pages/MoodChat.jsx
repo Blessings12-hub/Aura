@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { collection, addDoc, query, orderBy, Timestamp, doc, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, where, Timestamp, doc, onSnapshot } from 'firebase/firestore';
 import { Send, Mic, Square } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
@@ -16,6 +16,7 @@ import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 import { recordMoodActivity } from '../lib/moodActivity';
+import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { todayKey } from '../constants/dailyQuestions';
 
 // MediaRecorder's actual output codec depends entirely on what the browser
@@ -90,7 +91,11 @@ export default function MoodChat() {
   useEffect(() => {
     if (!mood) { setMessages([]); lastSeenRef.current = 0; return undefined; }
     setChatError('');
-    const q = query(collection(db, 'chats', mood, 'messages'), orderBy('createdAt', 'asc'));
+    const q = query(
+      collection(db, 'chats', mood, 'messages'),
+      where('createdAt', '>=', last24HoursTimestamp()),
+      orderBy('createdAt', 'asc'),
+    );
     return subscribe(q, (snap) => {
       const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const newOnes = all.slice(lastSeenRef.current);

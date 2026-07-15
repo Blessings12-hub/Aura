@@ -12,6 +12,7 @@ import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { AVATAR_COLORS } from '../constants/moods';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
@@ -85,7 +86,11 @@ export default function MatchFinder() {
   }, [userId, user]);
 
   useEffect(() => {
-    const q = query(collection(db, 'matchProfiles'), orderBy('createdAt', 'desc'));
+    const q = query(
+      collection(db, 'matchProfiles'),
+      where('createdAt', '>=', last24HoursTimestamp()),
+      orderBy('createdAt', 'desc'),
+    );
     return subscribe(
       q,
       (snap) => setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),

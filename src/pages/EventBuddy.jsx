@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { todayKey } from '../constants/dailyQuestions';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -123,6 +124,13 @@ export default function EventBuddy() {
 
   if (loading || !user) return <PageSkeleton />;
 
+  // "Resets every 24 hours" for Event Buddy means something different from
+  // a chat feed: an event 5 days out is still very much joinable the day
+  // after it's posted, so this hides by the event's own DATE having
+  // passed, not by how long ago it was posted (unlike Mood Chat/Match
+  // Finder/Skill Swap, which age out by post time).
+  const visibleEvents = events.filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()));
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -140,13 +148,13 @@ export default function EventBuddy() {
           <button type="button" onClick={post} className="aura-btn aura-btn-primary" data-testid="event-post-btn"><CalendarHeart size={16} /> {t('post_event')}</button>
         </div>
 
-        <h2 className="aura-title">{t('available_events')} ({events.filter((ev) => !blockedUsers.has(ev.userId)).length})</h2>
+        <h2 className="aura-title">{t('available_events')} ({visibleEvents.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="event-load-error">{loadError}</p>}
-        {events.filter((ev) => !blockedUsers.has(ev.userId)).length === 0 ? (
+        {visibleEvents.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_events')}</p></div>
         ) : (
           <div className="aura-grid">
-            {events.filter((ev) => !blockedUsers.has(ev.userId)).map((ev) => {
+            {visibleEvents.map((ev) => {
               const joinId = `${ev.id}_${userId}`;
               const join = joins[joinId];
               const accepted = join?.status === 'accepted';

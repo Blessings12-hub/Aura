@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, onSnapshot, Timestamp,
+  collection, addDoc, query, orderBy, where, onSnapshot, Timestamp,
   doc, setDoc, deleteDoc, getDocs, writeBatch,
 } from 'firebase/firestore';
 import {
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
+import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
@@ -45,7 +46,11 @@ export default function CollabStudio() {
   const chatListRef = useRef(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'collabChatMessages'), orderBy('createdAt', 'asc'));
+    const q = query(
+      collection(db, 'collabChatMessages'),
+      where('createdAt', '>=', last24HoursTimestamp()),
+      orderBy('createdAt', 'asc'),
+    );
     return subscribe(
       q,
       (snap) => {
@@ -124,7 +129,11 @@ export default function CollabStudio() {
 
   // Subscribe strokes
   useEffect(() => {
-    const q = query(collection(db, 'collabStudio'), orderBy('createdAt', 'asc'));
+    const q = query(
+      collection(db, 'collabStudio'),
+      where('createdAt', '>=', last24HoursTimestamp()),
+      orderBy('createdAt', 'asc'),
+    );
     return subscribe(
       q,
       (s) => setStrokes(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
