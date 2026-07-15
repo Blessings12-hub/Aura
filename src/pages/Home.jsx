@@ -10,8 +10,6 @@ import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import OnboardingModal from '../components/OnboardingModal';
 import NotificationOptInBanner from '../components/NotificationOptInBanner';
-import NotificationOptInBanner from '../components/NotificationOptInBanner';
-import NotificationOptInBanner from '../components/NotificationOptInBanner';
 
 const ONBOARDING_STORAGE_KEY = 'aura_onboarding_seen_v1';
 
