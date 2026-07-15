@@ -135,16 +135,31 @@ export default function MoodChat() {
             createdAt: Timestamp.now(),
           });
         } catch (err) {
-          console.error('voice upload failed', err);
-          const reader = new FileReader();
-          reader.onload = async () => {
+          console.error('voice upload failed, falling back to inline storage', err);
+          // Firestore documents have a hard 1MB limit, and base64 inflates
+          // raw bytes by ~33% — a long recording can blow past that here
+          // even though the upload path (10MB limit) would've handled it
+          // fine. Guard it explicitly instead of letting addDoc throw an
+          // opaque "document too large" error.
+          if (blob.size > 700 * 1024) {
+            setMicError("That recording was too long to send without a working upload — try a shorter voice note, or check Firebase Storage rules are published.");
+            return;
+          }
+          try {
+            const reader = new FileReader();
+            const dataUrl = await new Promise((resolve, reject) => {
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(reader.error);
+              reader.readAsDataURL(blob);
+            });
             await addDoc(collection(db, 'chats', mood, 'messages'), {
-              type: 'voice', voiceUrl: reader.result, voiceMime: actualType, userId,
+              type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
               userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
               createdAt: Timestamp.now(),
             });
-          };
-          reader.readAsDataURL(blob);
+          } catch (fallbackErr) {
+            setMicError(`Couldn't send that voice note. (${fallbackErr?.code || 'unknown'}: ${fallbackErr?.message || fallbackErr})`);
+          }
         }
       };
       rec.start();
