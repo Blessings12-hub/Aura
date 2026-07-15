@@ -43,7 +43,7 @@ export default function SkillSwap() {
     const unsubA = subscribe(
       query(collection(db, 'swapPairs'), where('userA', '==', userId)),
       (s) => {
-        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: true }; });
+        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: true, theirId: d.data().userB }; });
         setPairs((p) => ({ ...p, ...m }));
       },
       (err) => setLoadError(`Swap requests could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
@@ -52,7 +52,7 @@ export default function SkillSwap() {
     const unsubB = subscribe(
       query(collection(db, 'swapPairs'), where('userB', '==', userId)),
       (s) => {
-        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: false }; });
+        const m = {}; s.docs.forEach((d) => { m[d.id] = { ...d.data(), isInitiator: false, theirId: d.data().userA }; });
         setPairs((p) => ({ ...p, ...m }));
       },
       (err) => setLoadError(`Swap requests could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
@@ -106,6 +106,17 @@ export default function SkillSwap() {
     }
   };
 
+  // Someone else's request TO you — distinct from a card where you're the
+  // one who sent the request and are waiting. Pulled into its own section
+  // (see MatchFinder.jsx for the same pattern) so it's never just another
+  // card in the general browse grid with a differently-worded button —
+  // that ambiguity (a request to you looking identical to a request from
+  // you) was the actual bug.
+  const incomingSwaps = Object.entries(pairs)
+    .filter(([, p]) => !p.isInitiator && p.status !== 'matched')
+    .map(([id, p]) => ({ id, ...p }));
+  const incomingUids = new Set(incomingSwaps.map((p) => p.theirId));
+
   if (loading || !user) return <PageSkeleton />;
 
   return (
@@ -120,14 +131,41 @@ export default function SkillSwap() {
           <button type="button" onClick={post} disabled={!skill.trim() || !want.trim()} className="aura-btn aura-btn-primary" data-testid="swap-post-btn"><Repeat size={16} /> {t('post_swap')}</button>
         </div>
 
+        {actionError && <p className="aura-login-error" data-testid="swap-action-error">{actionError}</p>}
+
+        {incomingSwaps.length > 0 && (
+          <>
+            <h2 className="aura-title">{t('requests_for_you')} ({incomingSwaps.length})</h2>
+            <div className="aura-grid" style={{ marginBottom: 22 }}>
+              {incomingSwaps.map((p) => (
+                <div key={p.id} className="aura-card-compact fade-in" data-testid={`incoming-swap-${p.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
+                  <div className="aura-row" style={{ marginBottom: 10 }}>
+                    <Avatar color={p.userAColor} size={36} />
+                    <div><strong>{t('anonymous_profile')}</strong></div>
+                  </div>
+                  <p className="aura-muted" style={{ margin: '0 0 12px' }}>{t('wants_to_swap_you')}</p>
+                  <button
+                    type="button"
+                    onClick={() => requestSwap({ userId: p.theirId, userColor: p.userAColor })}
+                    disabled={!!pendingActions[p.id]}
+                    className="aura-btn aura-btn-primary"
+                    data-testid={`accept-incoming-swap-${p.id}`}
+                  >
+                    <Repeat size={14} /> {pendingActions[p.id] ? t('loading') : t('accept')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         <h2 className="aura-title">{t('available_swaps')} ({items.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="swap-load-error">{loadError}</p>}
-        {actionError && <p className="aura-login-error" data-testid="swap-action-error">{actionError}</p>}
         {items.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_swaps')}</p></div>
         ) : (
           <div className="aura-grid">
-            {items.filter((i) => i.userId !== userId && !blockedUsers.has(i.userId)).map((item) => {
+            {items.filter((i) => i.userId !== userId && !blockedUsers.has(i.userId) && !incomingUids.has(i.userId)).map((item) => {
               const id = pairId(userId, item.userId);
               const p = pairs[id];
               const matched = p?.userAAccepted && p?.userBAccepted;
