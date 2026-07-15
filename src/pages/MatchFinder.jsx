@@ -190,26 +190,30 @@ export default function MatchFinder() {
     setSaved(false);
     try {
       const numericAge = Number(age);
-      // Public card: NO age/gender/name here. This is enforced both here
-      // and by Firestore rules (matchProfiles create rule rejects age/
-      // gender fields) — the card that's browsable by everyone stays
-      // anonymous.
+      // Public card: sex, age, hobbies, bio, and what you're looking for
+      // are all visible to anyone browsing, matched or not — that's the
+      // whole point of a browsable deck. The only things that stay
+      // gated behind a real, mutual match are your NAME and PHOTO, which
+      // never go on this doc (enforced both here and by firestore.rules,
+      // which rejects a matchProfiles write containing either field).
+      const cardPayload = {
+        avatarColor, age: numericAge, gender,
+        bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
+      };
       if (myCardId) {
-        await updateDoc(doc(db, 'matchProfiles', myCardId), {
-          bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(), avatarColor,
-        });
+        await updateDoc(doc(db, 'matchProfiles', myCardId), cardPayload);
       } else {
         const ref = await addDoc(collection(db, 'matchProfiles'), {
-          userId, avatarColor,
-          bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
-          createdAt: Timestamp.now(),
+          userId, ...cardPayload, createdAt: Timestamp.now(),
         });
         setMyCardId(ref.id);
       }
-      // Identity (name, age, gender, photo) lives in its own doc, keyed by
-      // uid, only readable by the owner or a matched partner (see
-      // firestore.rules) — this is the "dating account" info that unlocks
-      // only after a match.
+      // Name and photo live in their own doc, keyed by uid, only readable
+      // by the owner or a matched partner (see firestore.rules) — this is
+      // the part of your profile that unlocks only after a match. Age and
+      // gender are mirrored here too, purely so the account-level record
+      // stays consistent — they're not gated, since matchProfiles above
+      // already shows them to everyone.
       const identityPayload = { displayName: displayName.trim(), age: numericAge, gender };
       if (photoDataUrl) identityPayload.photoURL = photoDataUrl;
       else if (removePhoto) identityPayload.photoURL = deleteField();
@@ -408,37 +412,43 @@ export default function MatchFinder() {
           <>
             <h2 className="aura-title">{t('requests_for_you')} ({incomingMatches.length})</h2>
             <div className="match-deck" style={{ marginBottom: 22 }}>
-              {incomingMatches.map((m) => (
-                <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
-                  <div className="aura-row" style={{ gap: 14 }}>
-                    <Avatar color={m.userAColor} size={56} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <strong>{t('anonymous_profile')}</strong>
-                      <p className="aura-muted" style={{ margin: '6px 0 0' }}>{t('wants_to_match_you')}</p>
+              {incomingMatches.map((m) => {
+                const theirCard = profiles.find((p) => p.userId === m.theirId);
+                return (
+                  <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
+                    <div className="aura-row" style={{ gap: 14 }}>
+                      <Avatar color={theirCard?.avatarColor || m.userAColor} size={56} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="aura-row" style={{ gap: 8 }}>
+                          <strong><Lock size={12} style={{ verticalAlign: -1 }} /> {theirCard ? `${theirCard.age} • ${theirCard.gender}` : t('anonymous_profile')}</strong>
+                        </div>
+                        {theirCard && <p className="aura-muted" style={{ margin: '6px 0 0' }}>{theirCard.bio}</p>}
+                        <p className="aura-muted" style={{ margin: '4px 0 0' }}>{t('wants_to_match_you')}</p>
+                      </div>
+                    </div>
+                    <div className="aura-row" style={{ marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => requestMatch({ userId: m.theirId, avatarColor: m.userAColor })}
+                        disabled={!!pendingActions[m.id]}
+                        className="aura-btn aura-btn-primary"
+                        data-testid={`accept-incoming-${m.id}`}
+                      >
+                        <Heart size={14} /> {pendingActions[m.id] ? t('loading') : t('accept')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rejectMatch(m.id)}
+                        disabled={!!pendingActions[m.id]}
+                        className="aura-btn aura-btn-secondary"
+                        data-testid={`decline-incoming-${m.id}`}
+                      >
+                        <X size={14} /> {t('decline')}
+                      </button>
                     </div>
                   </div>
-                  <div className="aura-row" style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => requestMatch({ userId: m.theirId, avatarColor: m.userAColor })}
-                      disabled={!!pendingActions[m.id]}
-                      className="aura-btn aura-btn-primary"
-                      data-testid={`accept-incoming-${m.id}`}
-                    >
-                      <Heart size={14} /> {pendingActions[m.id] ? t('loading') : t('accept')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => rejectMatch(m.id)}
-                      disabled={!!pendingActions[m.id]}
-                      className="aura-btn aura-btn-secondary"
-                      data-testid={`decline-incoming-${m.id}`}
-                    >
-                      <X size={14} /> {t('decline')}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -484,20 +494,15 @@ export default function MatchFinder() {
                     <div className="aura-row" style={{ gap: 8 }}>
                       <strong>
                         {matched
-                          ? (identity ? `${identity.displayName || 'Person ' + p.userId?.slice(0, 6)} • ${identity.age} • ${identity.gender}` : t('loading'))
-                          : t('anonymous_profile')}
+                          ? (identity ? `${identity.displayName || 'Person ' + p.userId?.slice(0, 6)} • ${p.age} • ${p.gender}` : t('loading'))
+                          : `${p.age} • ${p.gender}`}
                       </strong>
-                      {!matched && <span className="chip"><Lock size={12} /> locked</span>}
+                      {!matched && <span className="chip"><Lock size={12} /> {t('name_photo_hidden')}</span>}
                       {matched && <span className="chip" style={{ color: 'var(--success)' }}><Sparkles size={12} /> matched</span>}
                     </div>
-                    {matched ? (
-                      <>
-                        <p className="aura-muted" style={{ margin: '6px 0 0' }}><strong>Hobbies:</strong> {p.hobbies}</p>
-                        <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>Looking for:</strong> {p.lookingFor}</p>
-                      </>
-                    ) : (
-                      <p className="aura-muted" style={{ margin: '6px 0 0' }}>{p.bio?.slice(0, 70)}{p.bio?.length > 70 ? '…' : ''}</p>
-                    )}
+                    <p className="aura-muted" style={{ margin: '6px 0 0' }}>{p.bio}</p>
+                    <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('hobbies')}:</strong> {p.hobbies}</p>
+                    <p className="aura-muted" style={{ margin: '4px 0 0' }}><strong>{t('looking_for')}:</strong> {p.lookingFor}</p>
                   </div>
                 </div>
 
