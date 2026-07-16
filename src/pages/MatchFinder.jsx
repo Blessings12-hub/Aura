@@ -71,6 +71,13 @@ export default function MatchFinder() {
   // public card, so it's never sent to a browser until a real match exists.
   const [identities, setIdentities] = useState({}); // uid -> {age, gender, displayName, photoURL}
   const [viewingProfile, setViewingProfile] = useState(null);
+  // Whether MY OWN userIdentities doc actually exists in Firestore (name +
+  // photo genuinely saved), as opposed to just having those fields typed
+  // into the form below. Requesting or accepting a match is gated on this
+  // — see requestMatch — so the other person is never left staring at a
+  // match with no identity to show for it.
+  const [hasSavedIdentity, setHasSavedIdentity] = useState(false);
+  const profileEditorRef = useRef(null);
 
   // Prefill the profile editor (name/age/gender/photo) from whatever the
   // person already has on file — their own userIdentities doc, and the
@@ -92,6 +99,7 @@ export default function MatchFinder() {
       if (data?.age) setAge(String(data.age));
       if (data?.gender) setGender(data.gender);
       if (data?.photoURL) setPhotoDataUrl(data.photoURL);
+      if (data?.displayName) setHasSavedIdentity(true);
     }).catch(() => {});
   }, [userId, user]);
 
@@ -258,6 +266,7 @@ export default function MatchFinder() {
       if (photoDataUrl) identityPayload.photoURL = photoDataUrl;
       else if (removePhoto) identityPayload.photoURL = deleteField();
       await setDoc(doc(db, 'userIdentities', userId), identityPayload, { merge: true });
+      setHasSavedIdentity(true);
       // Keep the account-level profile in sync too, since it's the same
       // age/gender/avatarColor originally set at Login and read elsewhere.
       await setDoc(doc(db, 'users', userId), { age: numericAge, gender, avatarColor }, { merge: true });
@@ -271,8 +280,23 @@ export default function MatchFinder() {
     }
   };
 
+  // A card alone isn't enough — myCardId only proves the public bio/hobbies
+  // card was posted, not that name/photo were ever actually saved to
+  // userIdentities (e.g. someone could in theory have an old card from
+  // before that was required). Both are needed before this person can be
+  // matched with anyone, so their partner always has a real profile to see.
+  const hasCompletedProfile = !!myCardId && hasSavedIdentity;
+
   const requestMatch = async (other) => {
     if (!userId || !other?.userId || other.userId === userId) return;
+    // Requesting AND accepting both funnel through here — gating it in one
+    // place means neither side of a match can ever end up without a saved
+    // profile for the other person to see.
+    if (!hasCompletedProfile) {
+      setActionError(t('save_profile_before_matching'));
+      profileEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const id = pairId(userId, other.userId);
     if (pendingActions[id]) return; // already in flight — ignore double-taps
     setActionError('');
@@ -389,9 +413,14 @@ export default function MatchFinder() {
       <div className="aura-shell">
         <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
 
-        <div className="aura-card aura-section fade-in">
+        <div className="aura-card aura-section fade-in" ref={profileEditorRef}>
           <h2 className="aura-title">{t('your_profile')}</h2>
           <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '-6px 0 4px' }}>{t('your_profile_hint')}</p>
+          {!hasCompletedProfile && (
+            <p className="aura-login-error" style={{ margin: '0 0 10px' }} data-testid="match-profile-required-hint">
+              {t('save_profile_before_matching')}
+            </p>
+          )}
 
           <div className="profile-editor__photo-row">
             <Avatar color={avatarColor} photoURL={photoDataUrl} size={72} />
