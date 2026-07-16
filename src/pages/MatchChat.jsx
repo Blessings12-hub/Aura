@@ -4,13 +4,14 @@ import {
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
+  collection, addDoc, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Image as ImageIcon, Paperclip, Download, FileText,
-  Check, CheckCheck,
+  Check, CheckCheck, Reply, Pin, Trash2, Type as TranscribeIcon,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -48,6 +49,22 @@ const formatDayTime = (d) => {
 const formatDayTimeFromTimestamp = (ts) => formatDayTime(ts?.toDate?.());
 const formatDayTimeFromMillis = (ms) => formatDayTime(ms ? new Date(ms) : null);
 
+// Short one-line preview used for reply quotes and the pinned-message
+// banner — same shape as the server's messagePreview() in functions/index.js.
+const buildPreview = (m) => {
+  if (!m) return '';
+  switch (m.type) {
+    case 'voice': return '🎤 Voice note';
+    case 'image': return '📷 Photo';
+    case 'audio': return '🎵 Audio file';
+    case 'file': return `📎 ${m.fileName || 'File'}`;
+    default: {
+      const text = (m.text || '').trim();
+      return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+    }
+  }
+};
+
 export default function MatchChat() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -73,12 +90,21 @@ export default function MatchChat() {
   const [sendingImage, setSendingImage] = useState(false);
   const [sendingFile, setSendingFile] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState('');
+
+  // Long-press message actions: which message the action sheet is open
+  // for, which one (if any) I'm composing a reply to, and which voice
+  // note (by id) is currently mid-transcription.
+  const [actionsFor, setActionsFor] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [transcribingId, setTranscribingId] = useState('');
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const recTimerRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+  const messageElsRef = useRef({});
 
   // matchId is "<uidA>_<uidB>" (sorted). The other participant is whichever
   // half isn't me.
@@ -147,7 +173,7 @@ export default function MatchChat() {
     );
   }, [matchId]);
 
-  useEffect(() => () => clearInterval(recTimerRef.current), []);
+  useEffect(() => () => { clearInterval(recTimerRef.current); clearTimeout(longPressTimerRef.current); }, []);
 
   // Genuine RTDB presence for the other participant — see hooks/usePresence.js.
   const [theirStatus, setTheirStatus] = useState(null);
@@ -184,6 +210,65 @@ export default function MatchChat() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [markReceipts]);
+
+  // --- Long-press message actions (pin, delete, transcribe, reply) -----
+  const LONG_PRESS_MS = 450;
+  const startLongPress = (m) => {
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(10);
+      setActionsFor(m);
+    }, LONG_PRESS_MS);
+  };
+  const cancelLongPress = () => clearTimeout(longPressTimerRef.current);
+  const openActionsViaContextMenu = (e, m) => { e.preventDefault(); setActionsFor(m); };
+
+  const scrollToMessage = (id) => {
+    const el = messageElsRef.current[id];
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('message--flash');
+    setTimeout(() => el.classList.remove('message--flash'), 1200);
+  };
+
+  const handleReply = (m) => { setReplyingTo(m); setActionsFor(null); };
+
+  const handleTogglePin = async (m) => {
+    setActionsFor(null);
+    try {
+      await updateDoc(doc(db, 'matchChats', matchId, 'messages', m.id), {
+        pinned: !m.pinned,
+        pinnedAt: !m.pinned ? Timestamp.now() : null,
+      });
+    } catch (err) {
+      setChatError(`Couldn't update the pin. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
+  };
+
+  const handleDelete = async (m) => {
+    setActionsFor(null);
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(t('delete_message_confirm'))) return;
+    try {
+      await deleteDoc(doc(db, 'matchChats', matchId, 'messages', m.id));
+    } catch (err) {
+      setChatError(`Couldn't delete that message. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
+  };
+
+  const handleTranscribe = async (m) => {
+    setActionsFor(null);
+    setMediaError('');
+    setTranscribingId(m.id);
+    try {
+      const transcribe = httpsCallable(functions, 'transcribeVoiceNote');
+      await transcribe({ matchId, messageId: m.id });
+    } catch (err) {
+      setMediaError(err?.message || "Couldn't transcribe that voice note.");
+    } finally {
+      setTranscribingId('');
+    }
+  };
 
   // `kind` is 'video' or 'audio' — toggles the A/B consent flag for that
   // call type. Requesting and accepting are the same action (set my flag
@@ -230,14 +315,24 @@ export default function MatchChat() {
   const videoState = callState('video');
   const audioState = callState('audio');
 
+  // Denormalized reply-quote metadata attached to a new message when I'm
+  // replying to one — kept as a small preview snapshot (not a live
+  // reference) so the quote still renders correctly even if the original
+  // message is later deleted.
+  const replyToField = () => (replyingTo
+    ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo) } }
+    : {});
+
   const send = async () => {
     if (!text.trim() || !userId || !sendReady) return;
     triggerCooldown();
     try {
       await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
         type: 'text', text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+        ...replyToField(),
       });
       setText('');
+      setReplyingTo(null);
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
@@ -282,7 +377,9 @@ export default function MatchChat() {
           }
           await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
             type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+            ...replyToField(),
           });
+          setReplyingTo(null);
         } catch (err) {
           setMediaError(`Couldn't send that voice note. (${err?.code || 'unknown'}: ${err?.message || err})`);
         }
@@ -326,7 +423,9 @@ export default function MatchChat() {
       const dataUrl = await resizeChatImageToDataUrl(file);
       await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
         type: 'image', fileUrl: dataUrl, fileMime: 'image/jpeg', fileName: file.name || 'photo.jpg', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+        ...replyToField(),
       });
+      setReplyingTo(null);
     } catch (err) {
       setMediaError(err?.message || "Couldn't send that photo.");
     } finally {
@@ -357,7 +456,9 @@ export default function MatchChat() {
         userId,
         userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
+        ...replyToField(),
       });
+      setReplyingTo(null);
     } catch (err) {
       setMediaError(err?.message || "Couldn't send that file.");
     } finally {
@@ -378,6 +479,10 @@ export default function MatchChat() {
   // with a status line under every single bubble.
   const lastMineId = [...messages].reverse().find((m) => m.userId === userId)?.id;
   const isOnline = theirStatus?.state === 'online';
+  const pinnedMessages = messages.filter((m) => m.pinned);
+  const topPinned = pinnedMessages.length
+    ? pinnedMessages.reduce((a, b) => ((b.pinnedAt?.toMillis?.() || 0) > (a.pinnedAt?.toMillis?.() || 0) ? b : a))
+    : null;
   const presenceLabel = isOnline
     ? t('online')
     : theirStatus?.lastChanged
@@ -453,17 +558,64 @@ export default function MatchChat() {
               );
             })}
 
+            {topPinned && (
+              <div className="pinned-banner fade-in" data-testid="pinned-message-banner" onClick={() => scrollToMessage(topPinned.id)}>
+                <span className="pinned-banner__icon"><Pin size={14} /></span>
+                <span className="pinned-banner__text">
+                  {pinnedMessages.length > 1 ? `${t('pinned_message')} (${pinnedMessages.length})` : t('pinned_message')} · {buildPreview(topPinned)}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleTogglePin(topPinned); }}
+                  className="aura-btn aura-btn-secondary aura-btn-pill"
+                  aria-label={t('unpin_message')}
+                  data-testid="unpin-btn"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div className="aura-card chat-card fade-in">
               <div className="message-list" ref={listRef} data-testid="match-message-list">
                 {messages.length === 0 && <p className="chat-empty-state">{t('no_messages')}</p>}
                 {messages.map((m) => (
-                  <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
+                  <div
+                    key={m.id}
+                    ref={(el) => { messageElsRef.current[m.id] = el; }}
+                    className={`message${m.userId === userId ? ' message--mine' : ''}`}
+                    onPointerDown={() => startLongPress(m)}
+                    onPointerUp={cancelLongPress}
+                    onPointerLeave={cancelLongPress}
+                    onPointerCancel={cancelLongPress}
+                    onContextMenu={(e) => openActionsViaContextMenu(e, m)}
+                    data-testid={`message-row-${m.id}`}
+                  >
                     {m.userId !== userId && (
                       <div className="aura-row" style={{ gap: 8 }}><Avatar color={m.userColor} size={20} /><span className="message__meta">{displayName}</span></div>
                     )}
                     <div className="message__bubble">
+                      {m.replyTo && (
+                        <button
+                          type="button"
+                          className="message__reply-quote"
+                          onClick={(e) => { e.stopPropagation(); scrollToMessage(m.replyTo.id); }}
+                          data-testid={`reply-quote-${m.id}`}
+                        >
+                          <span className="message__reply-quote__name">{m.replyTo.userId === userId ? t('you') : displayName}</span>
+                          <span className="message__reply-quote__text">{m.replyTo.preview}</span>
+                        </button>
+                      )}
                       {m.type === 'voice' && m.voiceUrl && (
-                        <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
+                        <div className="message__voice">
+                          <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
+                          {transcribingId === m.id && (
+                            <span className="message__transcript message__transcript--loading" data-testid={`transcribing-${m.id}`}>{t('transcribing')}</span>
+                          )}
+                          {m.transcript && (
+                            <span className="message__transcript" data-testid={`transcript-${m.id}`}>{m.transcript}</span>
+                          )}
+                        </div>
                       )}
                       {m.type === 'image' && m.fileUrl && (
                         <button
@@ -523,6 +675,23 @@ export default function MatchChat() {
               </div>
               {chatError && <p className="chat-card__error aura-login-error" data-testid="match-chat-error">{chatError}</p>}
               {mediaError && <p className="chat-card__error aura-login-error" data-testid="match-media-error">{mediaError}</p>}
+              {replyingTo && (
+                <div className="reply-preview" data-testid="reply-preview-bar">
+                  <div className="reply-preview__body">
+                    <span className="reply-preview__name">{replyingTo.userId === userId ? t('you') : displayName}</span>
+                    <span className="reply-preview__text">{buildPreview(replyingTo)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="aura-btn aura-btn-secondary aura-btn-pill"
+                    aria-label={t('cancel_reply')}
+                    data-testid="cancel-reply-btn"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               <div className="chat-input-bar">
                 <input
                   type="file"
@@ -603,6 +772,38 @@ export default function MatchChat() {
             <X size={16} />
           </button>
           <img src={lightboxUrl} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {actionsFor && (
+        <div className="aura-modal-backdrop message-actions-backdrop" onClick={() => setActionsFor(null)} data-testid="message-actions-sheet">
+          <div className="message-actions-sheet" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="message-actions-sheet__item" onClick={() => handleReply(actionsFor)} data-testid="action-reply">
+              <Reply size={16} /> {t('reply')}
+            </button>
+            <button type="button" className="message-actions-sheet__item" onClick={() => handleTogglePin(actionsFor)} data-testid="action-pin">
+              <Pin size={16} /> {actionsFor.pinned ? t('unpin_message') : t('pin_message')}
+            </button>
+            {actionsFor.type === 'voice' && !actionsFor.transcript && (
+              <button
+                type="button"
+                className="message-actions-sheet__item"
+                onClick={() => handleTranscribe(actionsFor)}
+                disabled={transcribingId === actionsFor.id}
+                data-testid="action-transcribe"
+              >
+                <TranscribeIcon size={16} /> {transcribingId === actionsFor.id ? t('transcribing') : t('transcribe_voice_note')}
+              </button>
+            )}
+            {actionsFor.userId === userId && (
+              <button type="button" className="message-actions-sheet__item message-actions-sheet__item--danger" onClick={() => handleDelete(actionsFor)} data-testid="action-delete">
+                <Trash2 size={16} /> {t('delete_message')}
+              </button>
+            )}
+            <button type="button" className="message-actions-sheet__item message-actions-sheet__item--cancel" onClick={() => setActionsFor(null)} data-testid="action-cancel">
+              {t('cancel')}
+            </button>
+          </div>
         </div>
       )}
     </div>
