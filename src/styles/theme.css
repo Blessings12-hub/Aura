@@ -740,6 +740,67 @@ a { color: var(--primary); }
 /* Header presence line ("Online" / "Last seen …") on Match Chat. */
 .chat-presence-online { color: #2ecc71; font-weight: 600; }
 
+/* Match Chat — long-press message actions (pin, reply, delete, transcribe). */
+.message__bubble { -webkit-touch-callout: none; user-select: none; }
+.message--flash { animation: message-flash 1.2s ease; }
+@keyframes message-flash {
+  0% { background: transparent; }
+  15% { background: rgba(79, 168, 255, 0.18); border-radius: 12px; }
+  100% { background: transparent; }
+}
+
+.pinned-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; margin-bottom: 8px;
+  border-radius: 12px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.pinned-banner__icon { display: inline-flex; color: var(--accent, #4fa8ff); flex-shrink: 0; }
+.pinned-banner__text { flex: 1; min-width: 0; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.message__reply-quote {
+  display: flex; flex-direction: column; gap: 1px;
+  text-align: left; width: 100%;
+  padding: 6px 8px; margin-bottom: 6px;
+  border-left: 3px solid rgba(79, 168, 255, 0.7);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 6px; border-top: none; border-right: none; border-bottom: none;
+  cursor: pointer;
+}
+.message--mine .message__reply-quote { background: rgba(255, 255, 255, 0.14); border-left-color: rgba(255, 255, 255, 0.7); }
+.message__reply-quote__name { font-size: 0.7rem; font-weight: 600; opacity: 0.85; }
+.message__reply-quote__text { font-size: 0.76rem; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.message__voice { display: flex; flex-direction: column; gap: 4px; }
+.message__transcript { font-size: 0.78rem; opacity: 0.85; font-style: italic; max-width: 240px; }
+.message__transcript--loading { opacity: 0.6; }
+
+.reply-preview {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; margin: 0 0 8px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border);
+}
+.reply-preview__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; border-left: 3px solid rgba(79, 168, 255, 0.7); padding-left: 8px; }
+.reply-preview__name { font-size: 0.72rem; font-weight: 600; opacity: 0.85; }
+.reply-preview__text { font-size: 0.78rem; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.message-actions-backdrop { align-items: flex-end; }
+.message-actions-sheet {
+  width: 100%; max-width: 480px; margin: 0 auto;
+  background: var(--surface); border-radius: 16px 16px 0 0;
+  padding: 8px; display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.2);
+}
+.message-actions-sheet__item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 12px; border: none; background: none;
+  border-radius: 10px; font-size: 0.95rem; text-align: left;
+  color: inherit; cursor: pointer;
+}
+.message-actions-sheet__item:hover { background: var(--surface-2); }
+.message-actions-sheet__item--danger { color: #e05252; }
+.message-actions-sheet__item--cancel { justify-content: center; font-weight: 600; margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 14px; }
+
 /* Chat attachments — photos, audio files, and general files (Match Chat's
    voice/image/audio/file message types, see chatMedia.js). */
 .message__image-btn {
