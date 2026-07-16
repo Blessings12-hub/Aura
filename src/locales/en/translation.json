@@ -180,5 +180,9 @@
     "you": "You",
     "today": "Today",
     "name_photo_hidden": "Name & photo hidden until matched",
-    "save_profile_before_matching": "Save your profile above (name, age, sex and photo) before requesting or accepting a match — so the other person has your profile to see too."
+    "save_profile_before_matching": "Save your profile above (name, age, sex and photo) before requesting or accepting a match — so the other person has your profile to see too.",
+    "request_audio": "Request voice call",
+    "audio_pending": "Voice call requested — waiting for them",
+    "start_audio": "Start voice call",
+    "incoming_audio_call": "Incoming voice call request"
 }
