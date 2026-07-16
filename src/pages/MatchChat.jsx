@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Paperclip, Download, FileText,
-  Check, CheckCheck, Reply, Pin, Trash2,
+  Check, CheckCheck, Reply, Pin, Trash2, Sticker as StickerIcon,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
@@ -25,6 +25,7 @@ import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 import ProfileModal from '../components/ProfileModal';
+import StickerPicker from '../components/StickerPicker';
 
 const formatTime = (ts) => {
   const d = ts?.toDate?.();
@@ -55,6 +56,7 @@ const buildPreview = (m) => {
   switch (m.type) {
     case 'voice': return '🎤 Voice note';
     case 'image': return '📷 Photo';
+    case 'sticker': return '🖼️ Sticker';
     case 'audio': return '🎵 Audio file';
     case 'file': return `📎 ${m.fileName || 'File'}`;
     default: {
@@ -88,6 +90,7 @@ export default function MatchChat() {
   const [mediaError, setMediaError] = useState('');
   const [sendingAttachment, setSendingAttachment] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState('');
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
 
   // Long-press message actions: which message the action sheet is open
   // for, and which one (if any) I'm composing a reply to.
@@ -472,6 +475,25 @@ export default function MatchChat() {
     }
   };
 
+  // --- Stickers -----------------------------------------------------------
+  // Sent inline on the message doc exactly like an image (fileUrl/fileMime),
+  // just tagged with its own type so it renders without bubble chrome. The
+  // sticker itself is picked from the sender's personal pack — see
+  // StickerPicker.jsx / lib/stickers.js.
+  const handleSendSticker = async (dataUrl) => {
+    setShowStickerPicker(false);
+    setMediaError('');
+    try {
+      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        type: 'sticker', fileUrl: dataUrl, fileMime: 'image/png', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+        ...replyToField(),
+      });
+      setReplyingTo(null);
+    } catch (err) {
+      setMediaError(err?.message || "Couldn't send that sticker.");
+    }
+  };
+
   if (loading) return <PageSkeleton />;
 
   const displayName = theirIdentity?.displayName || `Person ${theirUid?.slice(0, 6)}`;
@@ -589,7 +611,7 @@ export default function MatchChat() {
                   <div
                     key={m.id}
                     ref={(el) => { messageElsRef.current[m.id] = el; }}
-                    className={`message${m.userId === userId ? ' message--mine' : ''}`}
+                    className={`message${m.userId === userId ? ' message--mine' : ''}${m.type === 'sticker' ? ' message--sticker' : ''}`}
                     onPointerDown={(e) => startLongPress(m, e)}
                     onPointerMove={moveLongPress}
                     onPointerUp={cancelLongPress}
@@ -625,6 +647,16 @@ export default function MatchChat() {
                           data-testid={`image-msg-${m.id}`}
                         >
                           <img src={m.fileUrl} alt={m.fileName || 'Photo'} className="message__image" />
+                        </button>
+                      )}
+                      {m.type === 'sticker' && m.fileUrl && (
+                        <button
+                          type="button"
+                          className="message__sticker-btn"
+                          onClick={() => setLightboxUrl(m.fileUrl)}
+                          data-testid={`sticker-msg-${m.id}`}
+                        >
+                          <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
                         </button>
                       )}
                       {m.type === 'audio' && m.fileUrl && (
@@ -710,6 +742,16 @@ export default function MatchChat() {
                 >
                   <Paperclip size={16} />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowStickerPicker(true)}
+                  disabled={recording}
+                  className="aura-btn aura-btn-secondary"
+                  aria-label={t('send_sticker')}
+                  data-testid="match-sticker-btn"
+                >
+                  <StickerIcon size={16} />
+                </button>
                 <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: 1 }} data-testid="match-input" />
                 {recording ? (
                   <button type="button" onClick={stopRecording} className="aura-btn aura-btn-danger" aria-label={t('recording')} data-testid="match-stop-record-btn">
@@ -755,6 +797,14 @@ export default function MatchChat() {
           </button>
           <img src={lightboxUrl} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
         </div>
+      )}
+
+      {showStickerPicker && (
+        <StickerPicker
+          userId={userId}
+          onSelect={handleSendSticker}
+          onClose={() => setShowStickerPicker(false)}
+        />
       )}
 
       {actionsFor && (
