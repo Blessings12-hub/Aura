@@ -142,8 +142,6 @@ export default {
   cancel_reply: 'Cancel reply',
   delete_message: 'Delete message',
   delete_message_confirm: 'Delete this message? This can\'t be undone.',
-  transcribe_voice_note: 'Transcribe voice note',
-  transcribing: 'Transcribing…',
 
   // Errors / empty
   empty_no_messages: 'No messages yet. Say hi to get started.',
