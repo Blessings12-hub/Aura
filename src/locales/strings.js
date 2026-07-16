@@ -143,6 +143,17 @@ export default {
   delete_message: 'Delete message',
   delete_message_confirm: 'Delete this message? This can\'t be undone.',
 
+  // Match Chat — stickers
+  stickers: 'Stickers',
+  send_sticker: 'Send a sticker',
+  add_sticker: 'Add sticker',
+  make_sticker_from_photo: 'Make a sticker from a photo',
+  import_from_whatsapp_hint: 'Tip: to reuse a WhatsApp sticker, share/save it from WhatsApp as an image first, then pick it here.',
+  no_stickers_yet: 'No stickers yet — add one from a photo or an exported WhatsApp sticker.',
+  creating_sticker: 'Creating sticker…',
+  delete_sticker: 'Delete sticker',
+  delete_sticker_confirm: 'Delete this sticker from your pack?',
+
   // Errors / empty
   empty_no_messages: 'No messages yet. Say hi to get started.',
   empty_no_matches: 'No one’s here yet — post a card to be first.',
