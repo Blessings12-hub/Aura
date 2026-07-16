@@ -777,6 +777,13 @@ a { color: var(--primary); }
 .call-controls { display: flex; justify-content: center; gap: 14px; margin-top: 14px; }
 .call-controls .aura-btn { border-radius: 999px; width: 52px; height: 52px; padding: 0; }
 .call-controls .aura-btn.is-muted { background: var(--danger); color: #fff; }
+.call-stage--audio { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.call-audio-avatar {
+  width: 96px; height: 96px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-soft, var(--muted));
+  color: var(--primary);
+}
 
 /* ============================================================================
    TopBar — small screens / locked-portrait phones. Without this, four
