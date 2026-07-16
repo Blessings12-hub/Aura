@@ -195,7 +195,5 @@
     "pinned_message": "Pinned message",
     "cancel_reply": "Cancel reply",
     "delete_message": "Delete message",
-    "delete_message_confirm": "Delete this message? This can't be undone.",
-    "transcribe_voice_note": "Transcribe voice note",
-    "transcribing": "Transcribing…"
+    "delete_message_confirm": "Delete this message? This can't be undone."
 }
