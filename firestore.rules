@@ -280,9 +280,36 @@ service cloud.firestore {
     // two matched participants can read or write it, and BOTH must have
     // accepted (enforced in-app before an offer is written; rule limits
     // who can touch the doc at all).
+    //
+    // IMPORTANT: the subcollections here MUST match the names the client
+    // actually writes to (offerCandidates / answerCandidates). This used to
+    // say `candidates` instead, which doesn't exist anywhere in the code —
+    // every single ICE candidate write/read was silently permission-denied.
+    // The offer/answer handshake on the parent doc still worked (different
+    // path, correctly covered by the rule above), which is exactly why this
+    // could look like a call was "connecting" while audio/video never came
+    // through for anyone not on the same local network.
     match /skillSwapCalls/{pairId} {
       allow read, write: if isParticipantOfPairId(pairId);
-      match /candidates/{candidateId} {
+      match /offerCandidates/{candidateId} {
+        allow read, write: if isParticipantOfPairId(pairId);
+      }
+      match /answerCandidates/{candidateId} {
+        allow read, write: if isParticipantOfPairId(pairId);
+      }
+    }
+
+    // Match Finder video/audio call signaling — same shape and same
+    // reasoning as skillSwapCalls above. pairId here is
+    // `${sortedUidA}_${sortedUidB}_${sessionId}` (a fresh id per call
+    // attempt); isParticipantOfPairId still works correctly because it only
+    // ever looks at the first two underscore-separated segments.
+    match /matchCalls/{pairId} {
+      allow read, write: if isParticipantOfPairId(pairId);
+      match /offerCandidates/{candidateId} {
+        allow read, write: if isParticipantOfPairId(pairId);
+      }
+      match /answerCandidates/{candidateId} {
         allow read, write: if isParticipantOfPairId(pairId);
       }
     }
