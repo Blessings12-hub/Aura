@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect, useMemo, useRef, useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -47,7 +49,14 @@ export default function MatchFinder() {
   const [lookingFor, setLookingFor] = useState('');
   const [myCardId, setMyCardId] = useState(null);
   const [profiles, setProfiles] = useState([]);
-  const [matches, setMatches] = useState({}); // pairId -> {status, theirId, isInitiator}
+  // Split into two slices (one per `where` query) that each get FULLY
+  // replaced on every snapshot, then merged below. The old approach kept a
+  // single map and only ever merged new data in — a pair that disappeared
+  // from Firestore (a cancelled/rejected pending request) would never be
+  // removed from local state, leaving stale "ghost" entries behind.
+  const [matchesA, setMatchesA] = useState({});
+  const [matchesB, setMatchesB] = useState({});
+  const matches = useMemo(() => ({ ...matchesA, ...matchesB }), [matchesA, matchesB]); // pairId -> {status, theirId, isInitiator}
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -123,7 +132,7 @@ export default function MatchFinder() {
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
-        setMatches((prev) => ({ ...prev, ...map }));
+        setMatchesA(map);
       },
       (err) => setLoadError(`Matches could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match pairs (as userA)',
@@ -133,7 +142,7 @@ export default function MatchFinder() {
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
-        setMatches((prev) => ({ ...prev, ...map }));
+        setMatchesB(map);
       },
       (err) => setLoadError(`Matches could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match pairs (as userB)',
@@ -152,22 +161,41 @@ export default function MatchFinder() {
   // own card (they only ever browsed and requested) would otherwise be
   // invisible here forever — that mismatch was the root cause of "I
   // accepted their request but I have no way to open the chat".
+  // Stable, order-independent key for "who am I currently matched with" —
+  // only changes when the actual SET of matched uids changes, not on every
+  // Firestore snapshot (which recreates the `matches` object reference even
+  // when nothing meaningful changed). Depending on this instead of `matches`
+  // directly stops the listeners below from being torn down and recreated
+  // on every unrelated update.
+  const matchedTheirIdsKey = useMemo(
+    () => Object.values(matches)
+      .filter((m) => m.status === 'matched' && m.theirId)
+      .map((m) => m.theirId)
+      .sort()
+      .join(','),
+    [matches],
+  );
+
   useEffect(() => {
-    if (!userId) return undefined;
-    const unsubs = Object.values(matches)
-      .filter((m) => m.status === 'matched' && m.theirId && !identities[m.theirId])
-      .map((m) => onSnapshot(
-        doc(db, 'userIdentities', m.theirId),
-        (snap) => {
-          if (snap.exists()) {
-            setIdentities((prev) => ({ ...prev, [m.theirId]: snap.data() }));
-          }
-        },
-        () => { /* not matched yet or no permission — expected, ignore */ },
-      ));
+    if (!userId || !matchedTheirIdsKey) return undefined;
+    const ids = matchedTheirIdsKey.split(',').filter(Boolean);
+    const unsubs = ids.map((uid) => onSnapshot(
+      doc(db, 'userIdentities', uid),
+      (snap) => {
+        setIdentities((prev) => ({ ...prev, [uid]: snap.exists() ? snap.data() : prev[uid] }));
+      },
+      (err) => {
+        console.error(`Could not load identity for ${uid}:`, err);
+        // Realtime listener hit an error (e.g. a transient permission race
+        // right after the match write commits) — fall back to a one-off
+        // read so the name/photo doesn't get stuck showing "loading".
+        getDoc(doc(db, 'userIdentities', uid))
+          .then((s) => { if (s.exists()) setIdentities((prev) => ({ ...prev, [uid]: s.data() })); })
+          .catch((e) => console.error(`Fallback identity fetch failed for ${uid}:`, e));
+      },
+    ));
     return () => unsubs.forEach((u) => u());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matches, userId]);
+  }, [matchedTheirIdsKey, userId]);
 
   const onPhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -314,6 +342,25 @@ export default function MatchFinder() {
       hobbies: card?.hobbies,
       lookingFor: card?.lookingFor,
     });
+    // If we don't already have their identity cached, go fetch it directly
+    // rather than waiting on the background listener — this is the one
+    // moment the person is actively looking at this profile, so it should
+    // never be left showing a placeholder name if the data is actually
+    // available to us.
+    if (!identity && uid) {
+      getDoc(doc(db, 'userIdentities', uid)).then((snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        setIdentities((prev) => ({ ...prev, [uid]: data }));
+        setViewingProfile((prev) => (prev && prev.name?.startsWith('Person ') ? {
+          ...prev,
+          photoURL: data.photoURL,
+          name: data.displayName || prev.name,
+          age: data.age,
+          gender: data.gender,
+        } : prev));
+      }).catch((err) => console.error(`Could not load profile for ${uid}:`, err));
+    }
   };
 
   // Someone else's card where THEY requested YOU — distinct from a card

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, onSnapshot, query, orderBy, where, limit, Timestamp,
+  collection, addDoc, doc, getDoc, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
 import { Send } from 'lucide-react';
 import { db } from '../firebase';
@@ -60,7 +60,15 @@ export default function MatchChat() {
     return onSnapshot(
       doc(db, 'userIdentities', theirUid),
       (snap) => setTheirIdentity(snap.exists() ? snap.data() : null),
-      () => setTheirIdentity(null),
+      (err) => {
+        console.error(`Could not load identity for ${theirUid}:`, err);
+        // Realtime listener errored (e.g. a brief permission race right
+        // after the match write commits) — fall back to a one-off read
+        // instead of leaving the header stuck on the placeholder name.
+        getDoc(doc(db, 'userIdentities', theirUid))
+          .then((snap) => setTheirIdentity(snap.exists() ? snap.data() : null))
+          .catch((e) => console.error(`Fallback identity fetch failed for ${theirUid}:`, e));
+      },
     );
   }, [theirUid]);
 
