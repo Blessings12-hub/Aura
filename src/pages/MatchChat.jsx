@@ -7,7 +7,7 @@ import {
   collection, addDoc, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
 import {
-  Send, Video, Phone, X, PhoneIncoming, Mic, Square, Image as ImageIcon, Paperclip, Download, FileText,
+  Send, Video, Phone, X, PhoneIncoming, Mic, Square, Paperclip, Download, FileText,
   Check, CheckCheck, Reply, Pin, Trash2,
 } from 'lucide-react';
 import { db } from '../firebase';
@@ -80,14 +80,13 @@ export default function MatchChat() {
   const [showProfile, setShowProfile] = useState(false);
   const [pair, setPair] = useState(null);
 
-  // Attachment sending state: voice-note recording, and busy flags for the
-  // photo/file pickers (so the attach buttons can show they're working
-  // through a resize/read/upload instead of appearing to do nothing).
+  // Attachment sending state: voice-note recording, and a busy flag for
+  // the attach button (so it can show it's working through a
+  // resize/read/upload instead of appearing to do nothing).
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [mediaError, setMediaError] = useState('');
-  const [sendingImage, setSendingImage] = useState(false);
-  const [sendingFile, setSendingFile] = useState(false);
+  const [sendingAttachment, setSendingAttachment] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState('');
 
   // Long-press message actions: which message the action sheet is open
@@ -97,7 +96,6 @@ export default function MatchChat() {
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const recTimerRef = useRef(null);
-  const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const listRef = useRef(null);
   const longPressTimerRef = useRef(null);
@@ -431,57 +429,46 @@ export default function MatchChat() {
     setRecording(false);
   };
 
-  // --- Pictures (gallery / camera roll) ---------------------------------
-  const handleImagePick = async (e) => {
+  // --- Attachments: pictures, audio files, and everything else ----------
+  // One picker now covers all of it. Images still get the same
+  // resize/compress pass as before (so photo quality and size stay
+  // sensible); audio picked from the file manager keeps its own type so
+  // it renders with an inline player like a voice note; anything else
+  // falls back to a generic file card with a download link.
+  const handleAttachmentPick = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow picking the exact same file again later
     if (!file) return;
     setMediaError('');
-    setSendingImage(true);
+    setSendingAttachment(true);
     try {
-      const dataUrl = await resizeChatImageToDataUrl(file);
-      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
-        type: 'image', fileUrl: dataUrl, fileMime: 'image/jpeg', fileName: file.name || 'photo.jpg', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
-        ...replyToField(),
-      });
-      setReplyingTo(null);
-    } catch (err) {
-      setMediaError(err?.message || "Couldn't send that photo.");
-    } finally {
-      setSendingImage(false);
-    }
-  };
-
-  // --- Audio files and general files (file manager) ---------------------
-  const handleFilePick = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setMediaError('');
-    setSendingFile(true);
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      // Audio files picked from the file manager (not live-recorded) get
-      // their own type so they render with an inline player, same as a
-      // voice note — everything else falls back to a generic file card
-      // with a download link.
+      const isImage = file.type?.startsWith('image/');
       const isAudio = file.type?.startsWith('audio/');
-      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
-        type: isAudio ? 'audio' : 'file',
-        fileUrl: dataUrl,
-        fileMime: file.type || 'application/octet-stream',
-        fileName: file.name || (isAudio ? 'audio' : 'file'),
-        fileSize: file.size,
-        userId,
-        userColor: user?.avatarColor,
-        createdAt: Timestamp.now(),
-        ...replyToField(),
-      });
+      if (isImage) {
+        const dataUrl = await resizeChatImageToDataUrl(file);
+        await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+          type: 'image', fileUrl: dataUrl, fileMime: 'image/jpeg', fileName: file.name || 'photo.jpg', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+          ...replyToField(),
+        });
+      } else {
+        const dataUrl = await readFileAsDataUrl(file);
+        await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+          type: isAudio ? 'audio' : 'file',
+          fileUrl: dataUrl,
+          fileMime: file.type || 'application/octet-stream',
+          fileName: file.name || (isAudio ? 'audio' : 'file'),
+          fileSize: file.size,
+          userId,
+          userColor: user?.avatarColor,
+          createdAt: Timestamp.now(),
+          ...replyToField(),
+        });
+      }
       setReplyingTo(null);
     } catch (err) {
-      setMediaError(err?.message || "Couldn't send that file.");
+      setMediaError(err?.message || "Couldn't send that attachment.");
     } finally {
-      setSendingFile(false);
+      setSendingAttachment(false);
     }
   };
 
@@ -708,33 +695,15 @@ export default function MatchChat() {
               <div className="chat-input-bar">
                 <input
                   type="file"
-                  accept="image/*"
-                  ref={imageInputRef}
-                  onChange={handleImagePick}
-                  style={{ display: 'none' }}
-                  data-testid="match-image-input"
-                />
-                <input
-                  type="file"
                   ref={fileInputRef}
-                  onChange={handleFilePick}
+                  onChange={handleAttachmentPick}
                   style={{ display: 'none' }}
                   data-testid="match-file-input"
                 />
                 <button
                   type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={sendingImage || recording}
-                  className="aura-btn aura-btn-secondary"
-                  aria-label={t('send_photo')}
-                  data-testid="match-image-btn"
-                >
-                  <ImageIcon size={16} />
-                </button>
-                <button
-                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={sendingFile || recording}
+                  disabled={sendingAttachment || recording}
                   className="aura-btn aura-btn-secondary"
                   aria-label={t('attach_file')}
                   data-testid="match-file-btn"
