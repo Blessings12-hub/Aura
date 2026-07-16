@@ -236,10 +236,20 @@ service cloud.firestore {
     }
 
     // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
+    // No Storage bucket is in play for attachments (see photoUpload.js /
+    // chatMedia.js) — voice notes, photos, audio files, and general files
+    // all ship as base64 data URLs embedded directly on the message doc,
+    // so each of those fields gets the same 900,000-char cap already used
+    // for Mood Chat's voiceUrl, keeping every doc well under Firestore's
+    // 1 MiB limit regardless of which attachment type was sent.
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
-                    && validText(request.resource.data.get('text', ''), 3000);
+                    && validText(request.resource.data.get('text', ''), 3000)
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
+                    && validText(request.resource.data.get('fileUrl', ''), 900000)
+                    && validText(request.resource.data.get('fileName', ''), 200)
+                    && validText(request.resource.data.get('fileMime', ''), 100);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
     }

@@ -1,3 +1,50 @@
+# Match Chat: send photos, audio files, and general files (plus voice notes)
+
+## What's new
+Match Chat's input bar now has three ways to send something other than
+text, alongside the existing call-request banners:
+- **Mic button** — record a voice note (same press-to-record flow as Mood
+  Chat), sent as a playable inline clip.
+- **Image button** — pick a photo from the gallery/camera roll; it's
+  resized client-side and sent as an inline photo bubble. Tapping it opens
+  a full-size lightbox.
+- **Paperclip button** — pick anything from the file manager. Audio files
+  get an inline player (same as a voice note); everything else becomes a
+  file card with the name, size, and a tap-to-download link.
+
+## Why everything is a base64 data URL, not a Storage upload
+This project has no Firebase Storage bucket wired up (Storage now needs
+the paid Blaze plan even for free-tier usage as of Feb 2026 — see the
+existing comment in `firebase.js`). Mood Chat already worked around this
+for voice notes by embedding the recording directly on the Firestore
+message doc as base64; this extends the same approach to photos, audio
+files, and general files rather than introducing a Storage dependency
+that isn't available on this plan.
+
+New shared helper: `src/lib/chatMedia.js`
+- Photos are resized (max 1280px, JPEG) before sending — this keeps a
+  normal phone photo well under the size ceiling and still legible full-
+  size in the conversation. If a busy/high-res image is still too big
+  after resizing, quality steps down automatically before giving up.
+- Audio files and general files can't be compressed, so they're checked
+  against a hard 650KB raw-size ceiling *before* being read, so an
+  oversized pick fails fast with a clear message instead of stalling.
+- Every attachment field is also capped server-side in `firestore.rules`
+  (`voiceUrl`/`fileUrl` at 900,000 chars — the same cap Mood Chat's
+  voiceUrl already used), so a doc can never blow past Firestore's 1 MiB
+  limit regardless of what the client sends.
+
+## Known limit worth knowing about
+There's no way around the ~650KB-per-attachment ceiling without a real
+Storage bucket — it's a hard tradeoff of storing attachments inline on
+Spark's free tier. If large-file sharing becomes important, upgrading to
+Blaze and switching these to real Storage uploads (with just a download
+URL on the message doc, not the bytes themselves) is the natural next
+step and wouldn't require reworking the message schema — just swapping
+what fileUrl points to.
+
+---
+
 # Content filtering for public surfaces
 
 ## Where it's applied, and why only there
