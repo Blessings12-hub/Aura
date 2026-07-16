@@ -6,12 +6,11 @@ import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Image as ImageIcon, Paperclip, Download, FileText,
-  Check, CheckCheck, Reply, Pin, Trash2, Type as TranscribeIcon,
+  Check, CheckCheck, Reply, Pin, Trash2,
 } from 'lucide-react';
-import { db, functions } from '../firebase';
+import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -92,11 +91,9 @@ export default function MatchChat() {
   const [lightboxUrl, setLightboxUrl] = useState('');
 
   // Long-press message actions: which message the action sheet is open
-  // for, which one (if any) I'm composing a reply to, and which voice
-  // note (by id) is currently mid-transcription.
+  // for, and which one (if any) I'm composing a reply to.
   const [actionsFor, setActionsFor] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [transcribingId, setTranscribingId] = useState('');
   const recRef = useRef(null);
   const chunksRef = useRef([]);
   const recTimerRef = useRef(null);
@@ -211,17 +208,53 @@ export default function MatchChat() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [markReceipts]);
 
-  // --- Long-press message actions (pin, delete, transcribe, reply) -----
+  // --- Long-press message actions (pin, delete, reply) ------------------
+  // Two real-world bugs made this unreliable before:
+  //  1. `onPointerLeave` was cancelling the press on the tiniest finger
+  //     jitter, which happens constantly on touchscreens even when the
+  //     person isn't trying to scroll — so the timer almost never survived
+  //     long enough to fire. We now only cancel on genuine movement (more
+  //     than a few px), same threshold browsers use to distinguish a tap
+  //     from a scroll/drag.
+  //  2. When the sheet DID open, the same touch's synthetic "click" (fired
+  //     on release) landed on the backdrop that had just appeared under
+  //     the finger and instantly closed it — so it looked like long-press
+  //     "didn't work" when it actually opened-then-closed in one frame.
+  //     `openedAtRef` makes the backdrop ignore any close-click that
+  //     arrives within that same gesture.
   const LONG_PRESS_MS = 450;
-  const startLongPress = (m) => {
+  const MOVE_CANCEL_PX = 12;
+  const pressOriginRef = useRef({ x: 0, y: 0 });
+  const openedAtRef = useRef(0);
+
+  const startLongPress = (m, e) => {
     clearTimeout(longPressTimerRef.current);
+    pressOriginRef.current = { x: e.clientX, y: e.clientY };
     longPressTimerRef.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(10);
+      openedAtRef.current = Date.now();
       setActionsFor(m);
     }, LONG_PRESS_MS);
   };
   const cancelLongPress = () => clearTimeout(longPressTimerRef.current);
-  const openActionsViaContextMenu = (e, m) => { e.preventDefault(); setActionsFor(m); };
+  const moveLongPress = (e) => {
+    const { x, y } = pressOriginRef.current;
+    if (Math.abs(e.clientX - x) > MOVE_CANCEL_PX || Math.abs(e.clientY - y) > MOVE_CANCEL_PX) {
+      cancelLongPress();
+    }
+  };
+  const openActionsViaContextMenu = (e, m) => {
+    e.preventDefault();
+    openedAtRef.current = Date.now();
+    setActionsFor(m);
+  };
+  // Swallows the trailing click from the gesture that just opened the
+  // sheet; any later tap (a real "tap outside to dismiss") closes it as
+  // normal.
+  const closeActions = () => {
+    if (Date.now() - openedAtRef.current < 400) return;
+    setActionsFor(null);
+  };
 
   const scrollToMessage = (id) => {
     const el = messageElsRef.current[id];
@@ -253,20 +286,6 @@ export default function MatchChat() {
       await deleteDoc(doc(db, 'matchChats', matchId, 'messages', m.id));
     } catch (err) {
       setChatError(`Couldn't delete that message. (${err?.code || 'unknown'}: ${err?.message || err})`);
-    }
-  };
-
-  const handleTranscribe = async (m) => {
-    setActionsFor(null);
-    setMediaError('');
-    setTranscribingId(m.id);
-    try {
-      const transcribe = httpsCallable(functions, 'transcribeVoiceNote');
-      await transcribe({ matchId, messageId: m.id });
-    } catch (err) {
-      setMediaError(err?.message || "Couldn't transcribe that voice note.");
-    } finally {
-      setTranscribingId('');
     }
   };
 
@@ -584,9 +603,9 @@ export default function MatchChat() {
                     key={m.id}
                     ref={(el) => { messageElsRef.current[m.id] = el; }}
                     className={`message${m.userId === userId ? ' message--mine' : ''}`}
-                    onPointerDown={() => startLongPress(m)}
+                    onPointerDown={(e) => startLongPress(m, e)}
+                    onPointerMove={moveLongPress}
                     onPointerUp={cancelLongPress}
-                    onPointerLeave={cancelLongPress}
                     onPointerCancel={cancelLongPress}
                     onContextMenu={(e) => openActionsViaContextMenu(e, m)}
                     data-testid={`message-row-${m.id}`}
@@ -609,12 +628,6 @@ export default function MatchChat() {
                       {m.type === 'voice' && m.voiceUrl && (
                         <div className="message__voice">
                           <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
-                          {transcribingId === m.id && (
-                            <span className="message__transcript message__transcript--loading" data-testid={`transcribing-${m.id}`}>{t('transcribing')}</span>
-                          )}
-                          {m.transcript && (
-                            <span className="message__transcript" data-testid={`transcript-${m.id}`}>{m.transcript}</span>
-                          )}
                         </div>
                       )}
                       {m.type === 'image' && m.fileUrl && (
@@ -776,7 +789,7 @@ export default function MatchChat() {
       )}
 
       {actionsFor && (
-        <div className="aura-modal-backdrop message-actions-backdrop" onClick={() => setActionsFor(null)} data-testid="message-actions-sheet">
+        <div className="aura-modal-backdrop message-actions-backdrop" onClick={closeActions} data-testid="message-actions-sheet">
           <div className="message-actions-sheet" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="message-actions-sheet__item" onClick={() => handleReply(actionsFor)} data-testid="action-reply">
               <Reply size={16} /> {t('reply')}
@@ -784,17 +797,6 @@ export default function MatchChat() {
             <button type="button" className="message-actions-sheet__item" onClick={() => handleTogglePin(actionsFor)} data-testid="action-pin">
               <Pin size={16} /> {actionsFor.pinned ? t('unpin_message') : t('pin_message')}
             </button>
-            {actionsFor.type === 'voice' && !actionsFor.transcript && (
-              <button
-                type="button"
-                className="message-actions-sheet__item"
-                onClick={() => handleTranscribe(actionsFor)}
-                disabled={transcribingId === actionsFor.id}
-                data-testid="action-transcribe"
-              >
-                <TranscribeIcon size={16} /> {transcribingId === actionsFor.id ? t('transcribing') : t('transcribe_voice_note')}
-              </button>
-            )}
             {actionsFor.userId === userId && (
               <button type="button" className="message-actions-sheet__item message-actions-sheet__item--danger" onClick={() => handleDelete(actionsFor)} data-testid="action-delete">
                 <Trash2 size={16} /> {t('delete_message')}
