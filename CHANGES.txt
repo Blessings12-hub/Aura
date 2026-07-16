@@ -1,0 +1,1 @@
+removed: src/firestore.rules (duplicate, unused)
