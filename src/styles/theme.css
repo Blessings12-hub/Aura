@@ -825,6 +825,44 @@ a { color: var(--primary); }
 .image-lightbox__img { max-width: min(90vw, 640px); max-height: 85vh; border-radius: 12px; object-fit: contain; }
 .image-lightbox__close { position: fixed; top: 20px; right: 20px; z-index: 101; }
 
+/* Stickers — a personal pack (userStickers/{uid}/items, see
+   StickerPicker.jsx) plus how a sent sticker renders inside the chat
+   thread: no bubble chrome, just the (usually transparent) image sitting
+   directly on the page, the way WhatsApp/Telegram render stickers. */
+.sticker-picker { max-width: 380px; }
+.sticker-picker__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sticker-picker__hint { font-size: 0.78rem; margin: 8px 0 0; }
+.sticker-picker__grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin-top: 14px; max-height: 50vh; overflow-y: auto;
+}
+.sticker-picker__add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  aspect-ratio: 1; border-radius: 14px; border: 1px dashed var(--border-strong);
+  background: var(--surface-2); color: inherit; cursor: pointer;
+  font-size: 0.68rem; text-align: center; padding: 6px;
+}
+.sticker-picker__add:disabled { opacity: 0.6; cursor: default; }
+.sticker-picker__tile { position: relative; aspect-ratio: 1; }
+.sticker-picker__pick {
+  width: 100%; height: 100%; padding: 4px; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--surface-2); cursor: pointer;
+  display: grid; place-items: center;
+}
+.sticker-picker__img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sticker-picker__delete {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
+  border-radius: 50%; border: none; background: var(--danger); color: #fff;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+}
+.sticker-picker__empty { grid-column: 1 / -1; font-size: 0.8rem; text-align: center; padding: 12px 4px; }
+
+.message__sticker-btn { display: block; padding: 0; border: 0; background: none; cursor: pointer; }
+.message__sticker { display: block; width: 132px; height: 132px; object-fit: contain; }
+.message--sticker .message__bubble {
+  background: none; border: none; padding: 0; box-shadow: none;
+}
+
 /* Incoming video-call banner — a distinct, attention-grabbing bar (not just
    a small button tucked into the topbar) so a live call invite reads as an
    actual event, the way a real calling app would show it. */
