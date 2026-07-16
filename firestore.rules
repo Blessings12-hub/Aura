@@ -149,6 +149,21 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // USER STICKERS — a person's personal sticker pack (Match Chat's
+    // sticker picker, see StickerPicker.jsx). Own subcollection per user;
+    // only the owner may read/add/remove their own stickers. A sent
+    // sticker is copied inline onto the chat message itself (same as a
+    // photo), so the recipient never needs access to this collection —
+    // it's purely the sender's private, reusable pack.
+    // ------------------------------------------------------------------
+    match /userStickers/{uid}/items/{stickerId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && validText(request.resource.data.get('dataUrl', ''), 260000);
+      allow update: if false;
+      allow delete: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------------
     // MOOD CHAT — anonymous group rooms, keyed by mood name.
     // Anyone signed in (anonymously) can read/post. You can only send a
     // message as yourself, and can only delete your own message.
