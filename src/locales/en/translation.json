@@ -184,5 +184,9 @@
     "request_audio": "Request voice call",
     "audio_pending": "Voice call requested — waiting for them",
     "start_audio": "Start voice call",
-    "incoming_audio_call": "Incoming voice call request"
+    "incoming_audio_call": "Incoming voice call request",
+    "online": "Online",
+    "last_seen_at": "Last seen {{time}}",
+    "delivered": "Delivered",
+    "seen_at": "Seen {{time}}"
 }
