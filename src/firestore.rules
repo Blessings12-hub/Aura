@@ -255,10 +255,7 @@ service cloud.firestore {
       // other field on the message doc stays immutable after creation.
       // Pinning is the one exception: EITHER participant may pin/unpin
       // ANY message in the thread (their own or the other person's),
-      // touching only pinned/pinnedAt. `transcript` is deliberately not
-      // listed here — it's written by the transcribeVoiceNote Cloud
-      // Function via the Admin SDK, which bypasses these rules entirely,
-      // so no client-side write path for it is needed or allowed.
+      // touching only pinned/pinnedAt.
       allow update: if isParticipantOfPairId(pairId) && (
                       (request.auth.uid != resource.data.userId
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt', 'seenAt']))
