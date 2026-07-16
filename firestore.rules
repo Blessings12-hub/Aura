@@ -250,7 +250,12 @@ service cloud.firestore {
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
                     && validText(request.resource.data.get('fileName', ''), 200)
                     && validText(request.resource.data.get('fileMime', ''), 100);
-      allow update: if false;
+      // Read receipts: only the RECIPIENT (never the sender) may stamp
+      // deliveredAt/seenAt on a message, and only those two fields — every
+      // other field on the message doc stays immutable after creation.
+      allow update: if isParticipantOfPairId(pairId)
+                    && request.auth.uid != resource.data.userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt', 'seenAt']);
       allow delete: if isOwner(resource.data.userId);
     }
 
