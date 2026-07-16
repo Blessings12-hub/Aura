@@ -24,10 +24,20 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 
 initializeApp();
 const db = getFirestore();
+
+// Voice-note transcription (Match Chat's long-press "Transcribe" action)
+// calls OpenAI's Whisper API. Set this once with:
+//   firebase functions:secrets:set OPENAI_API_KEY
+// (paste your own OpenAI API key when prompted). Until that's set, the
+// transcribe action will fail with a clear "not configured yet" error
+// instead of silently doing nothing.
+const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
 
 async function sendToUser(uid, notification) {
   if (!uid) return;
@@ -121,6 +131,77 @@ exports.onMatchMessageCreated = onDocumentCreated('matchChats/{pairId}/messages/
     title: senderName ? `${senderName} • Aura` : 'Aura • Match Finder',
     body: messagePreview(data),
   });
+});
+
+// Long-press "Transcribe" on a voice note (MatchChat.jsx). Runs server-side
+// (not client-side Web Speech API) because Web Speech only ever recognizes
+// LIVE microphone audio — it has no way to transcribe an already-recorded
+// clip, which is exactly what a voice note is. Writes the result straight
+// onto the message doc via the Admin SDK (bypasses Firestore rules — no
+// client-side write path for `transcript` exists or is needed).
+exports.transcribeVoiceNote = onCall({ secrets: [OPENAI_API_KEY] }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
+
+  const { matchId, messageId } = request.data || {};
+  if (!matchId || !messageId) throw new HttpsError('invalid-argument', 'matchId and messageId are required.');
+
+  // matchId is "<uidA>_<uidB>" — only a participant of that pair may
+  // transcribe a voice note inside it.
+  const [uidA, uidB] = matchId.split('_');
+  if (uid !== uidA && uid !== uidB) {
+    throw new HttpsError('permission-denied', 'You are not a participant of this match.');
+  }
+
+  const msgRef = db.doc(`matchChats/${matchId}/messages/${messageId}`);
+  const msgSnap = await msgRef.get();
+  if (!msgSnap.exists) throw new HttpsError('not-found', 'Message not found.');
+  const msg = msgSnap.data();
+  if (msg.type !== 'voice' || !msg.voiceUrl) {
+    throw new HttpsError('failed-precondition', 'This message is not a voice note.');
+  }
+  // Already transcribed — return the cached result instead of re-billing
+  // the API for a repeat tap.
+  if (msg.transcript) return { transcript: msg.transcript };
+
+  const apiKey = OPENAI_API_KEY.value();
+  if (!apiKey) {
+    throw new HttpsError('failed-precondition', 'Transcription is not configured yet. Run: firebase functions:secrets:set OPENAI_API_KEY');
+  }
+
+  // voiceUrl is a base64 data URL (see src/lib/chatMedia.js) — decode
+  // straight to a Buffer, no Storage bucket involved.
+  const parsed = /^data:([^;]+);base64,(.*)$/s.exec(msg.voiceUrl);
+  if (!parsed) throw new HttpsError('internal', 'Voice note could not be read.');
+  const [, mime, base64] = parsed;
+  const buffer = Buffer.from(base64, 'base64');
+  const ext = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
+
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mime }), `voice.${ext}`);
+  form.append('model', 'whisper-1');
+
+  let resp;
+  try {
+    resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+  } catch (err) {
+    logger.error('transcribeVoiceNote: network error', { err: err?.message || String(err) });
+    throw new HttpsError('unavailable', 'Could not reach the transcription service. Try again.');
+  }
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    logger.error('transcribeVoiceNote: API error', { status: resp.status, errText });
+    throw new HttpsError('internal', 'Transcription failed. Please try again.');
+  }
+  const json = await resp.json();
+  const transcript = (json.text || '').trim() || '(No speech detected)';
+
+  await msgRef.update({ transcript });
+  return { transcript };
 });
 
 // ---------------------------------------------------------------------
