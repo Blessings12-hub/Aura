@@ -69,9 +69,19 @@ export default function SkillSwapChat() {
       const snap = await getDoc(ref);
       const data = snap.data() || {};
       const isA = data.userA === userId;
+      const otherAlreadyAccepted = isA ? data.videoB : data.videoA;
       const upd = isA
         ? { videoA: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() }
         : { videoB: accept, videoRequestedAt: data.videoRequestedAt || Timestamp.now() };
+      if (accept && otherAlreadyAccepted) {
+        // Both sides have now agreed — mint a brand-new call session so the
+        // call page never reuses a previous attempt's stale offer/answer.
+        upd.callSessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      } else if (!accept) {
+        // Declining/cancelling clears the session too, so a stale id can
+        // never accidentally be reused by a future call.
+        upd.callSessionId = null;
+      }
       await updateDoc(ref, upd);
     } catch (err) {
       setChatError(`Couldn't update the video call request. (${err?.code || 'unknown'}: ${err?.message || err})`);
