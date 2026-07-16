@@ -50,6 +50,53 @@ const describeMediaError = (err) => {
   return "Couldn't access your camera/microphone. Check permissions and try again.";
 };
 
+// A bare `video: true` / `audio: true` request leaves every browser to
+// pick its own (low, inconsistent) default — often well under 480p and
+// with no echo cancellation guaranteed. These are the actual levers for
+// call quality: what resolution/framerate we ask the camera for, and what
+// audio processing we ask for. `ideal` (never `min`) everywhere, so a
+// device that can't hit these numbers still connects at whatever it *can*
+// do instead of getUserMedia throwing an OverconstrainedError.
+const VIDEO_CONSTRAINTS = {
+  width: { ideal: 1280, max: 1920 },
+  height: { ideal: 720, max: 1080 },
+  frameRate: { ideal: 30, max: 30 },
+  facingMode: 'user',
+};
+const AUDIO_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  sampleRate: { ideal: 48000 },
+  channelCount: { ideal: 1 },
+};
+
+// The other half of the story: even with a sharp local capture, WebRTC's
+// per-track sender still needs headroom to actually *send* that much data.
+// These raise the ceiling each sender is allowed to encode up to — real
+// congestion control (bandwidth estimation) still adapts DOWN from here
+// automatically on a bad connection, this just stops every browser's own
+// much lower implicit starting cap from quietly holding a good connection
+// back from ever reaching HD.
+const MAX_VIDEO_BITRATE_BPS = 2_500_000; // ~2.5 Mbps — comfortably 720p/1080p
+const MAX_AUDIO_BITRATE_BPS = 64_000; // 64 kbps Opus — "HD voice", well above the typical ~32 kbps default
+
+// Raises one RTCRtpSender's encoding bitrate ceiling. Safe to call right
+// after addTrack — doesn't need to wait for negotiation to complete.
+async function applyBitrateCeiling(sender, maxBitrate) {
+  if (!sender) return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = maxBitrate;
+    await sender.setParameters(params);
+  } catch (e) {
+    // Non-fatal — the call still works at whatever bitrate the browser's
+    // own default ceiling allows, just without the HD+ headroom.
+    console.error('Could not raise call bitrate ceiling', e);
+  }
+}
+
 /**
  * Shared WebRTC 1:1 call engine used by both Skill Swap and Match Finder
  * video/audio calls.
@@ -117,7 +164,10 @@ export function useVideoCall({
     (async () => {
       let stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: withVideo ? VIDEO_CONSTRAINTS : false,
+          audio: AUDIO_CONSTRAINTS,
+        });
       } catch (err) {
         if (!cancelled) { setStatus(describeMediaError(err)); setCallFailed(true); }
         return;
@@ -128,7 +178,10 @@ export function useVideoCall({
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
       pcRef.current = pc;
-      stream.getTracks().forEach((tr) => pc.addTrack(tr, stream));
+      stream.getTracks().forEach((tr) => {
+        const sender = pc.addTrack(tr, stream);
+        applyBitrateCeiling(sender, tr.kind === 'video' ? MAX_VIDEO_BITRATE_BPS : MAX_AUDIO_BITRATE_BPS);
+      });
       pc.ontrack = (e) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
 
       pc.oniceconnectionstatechange = () => {
