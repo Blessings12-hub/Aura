@@ -9,6 +9,7 @@ import Home from './pages/Home';
 import MoodChat from './pages/MoodChat';
 import MatchFinder from './pages/MatchFinder';
 import MatchChat from './pages/MatchChat';
+import MatchCall from './pages/MatchCall';
 import DailyQuestion from './pages/DailyQuestion';
 import SkillSwap from './pages/SkillSwap';
 import SkillSwapChat from './pages/SkillSwapChat';
@@ -32,6 +33,7 @@ export default function App() {
                 <Route path="/aura/chat" element={<MoodChat />} />
                 <Route path="/aura/match" element={<MatchFinder />} />
                 <Route path="/aura/match/chat/:matchId" element={<MatchChat />} />
+                <Route path="/aura/match/call/:matchId" element={<MatchCall />} />
                 <Route path="/aura/question" element={<DailyQuestion />} />
                 <Route path="/aura/swap" element={<SkillSwap />} />
                 <Route path="/aura/swap/chat/:swapId" element={<SkillSwapChat />} />
