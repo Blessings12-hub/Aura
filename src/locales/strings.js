@@ -73,6 +73,8 @@ export default {
   recording: 'Recording…',
   voice_note: 'Voice note',
   send_voice_note: 'Send voice note',
+  send_photo: 'Send photo',
+  attach_file: 'Attach file',
 
   // Match Finder
   match_create_card: 'Create your card',
