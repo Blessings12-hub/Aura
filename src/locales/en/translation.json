@@ -188,5 +188,14 @@
     "online": "Online",
     "last_seen_at": "Last seen {{time}}",
     "delivered": "Delivered",
-    "seen_at": "Seen {{time}}"
+    "seen_at": "Seen {{time}}",
+    "reply": "Reply",
+    "pin_message": "Pin message",
+    "unpin_message": "Unpin message",
+    "pinned_message": "Pinned message",
+    "cancel_reply": "Cancel reply",
+    "delete_message": "Delete message",
+    "delete_message_confirm": "Delete this message? This can't be undone.",
+    "transcribe_voice_note": "Transcribe voice note",
+    "transcribing": "Transcribing…"
 }
