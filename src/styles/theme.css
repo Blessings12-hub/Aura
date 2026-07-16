@@ -740,8 +740,8 @@ a { color: var(--primary); }
 /* Header presence line ("Online" / "Last seen …") on Match Chat. */
 .chat-presence-online { color: #2ecc71; font-weight: 600; }
 
-/* Match Chat — long-press message actions (pin, reply, delete, transcribe). */
-.message__bubble { -webkit-touch-callout: none; user-select: none; }
+/* Match Chat — long-press message actions (pin, reply, delete). */
+.message__bubble { -webkit-touch-callout: none; user-select: none; touch-action: manipulation; }
 .message--flash { animation: message-flash 1.2s ease; }
 @keyframes message-flash {
   0% { background: transparent; }
@@ -772,8 +772,6 @@ a { color: var(--primary); }
 .message__reply-quote__text { font-size: 0.76rem; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .message__voice { display: flex; flex-direction: column; gap: 4px; }
-.message__transcript { font-size: 0.78rem; opacity: 0.85; font-style: italic; max-width: 240px; }
-.message__transcript--loading { opacity: 0.6; }
 
 .reply-preview {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
