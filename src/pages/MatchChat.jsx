@@ -1,19 +1,21 @@
 import {
-  useEffect, useRef, useState,
+  useCallback, useEffect, useRef, useState,
 } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, getDoc, updateDoc, onSnapshot, query, orderBy, where, limit, Timestamp,
+  collection, addDoc, doc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Image as ImageIcon, Paperclip, Download, FileText,
+  Check, CheckCheck,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
+import { useUserStatus } from '../hooks/usePresence';
 import {
   pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, MAX_DATA_URL_CHARS,
   formatFileSize, readFileAsDataUrl, resizeChatImageToDataUrl,
@@ -29,6 +31,22 @@ const formatTime = (ts) => {
   if (!d) return '';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
+
+// Shared "today at 2:34 PM" / "yesterday at 2:34 PM" / "Mon, 14 Jul at
+// 2:34 PM" formatter — used for both the header's "Last seen" line and
+// each message's "Seen …" receipt label, so both read the same way.
+const formatDayTime = (d) => {
+  if (!d) return '';
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return `today at ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `yesterday at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} at ${time}`;
+};
+const formatDayTimeFromTimestamp = (ts) => formatDayTime(ts?.toDate?.());
+const formatDayTimeFromMillis = (ms) => formatDayTime(ms ? new Date(ms) : null);
 
 export default function MatchChat() {
   const navigate = useNavigate();
@@ -130,6 +148,42 @@ export default function MatchChat() {
   }, [matchId]);
 
   useEffect(() => () => clearInterval(recTimerRef.current), []);
+
+  // Genuine RTDB presence for the other participant — see hooks/usePresence.js.
+  const [theirStatus, setTheirStatus] = useState(null);
+  useUserStatus(theirUid, useCallback((s) => setTheirStatus(s), []));
+
+  // Delivered/seen receipts. "Delivered" is stamped as soon as an incoming
+  // message reaches me (this snapshot fired at all). "Seen" is stamped only
+  // while this chat is the visible, focused tab — so switching away or
+  // backgrounding the app correctly leaves a message as delivered-but-unseen
+  // until I actually come back to look at it.
+  const markReceipts = useCallback(() => {
+    if (!matchId || !userId) return;
+    const pending = messages.filter((m) => m.userId && m.userId !== userId && !m.seenAt);
+    if (!pending.length) return;
+    const isVisible = typeof document !== 'undefined' && document.visibilityState === 'visible';
+    const batch = writeBatch(db);
+    let dirty = false;
+    pending.forEach((m) => {
+      const patch = {};
+      if (!m.deliveredAt) patch.deliveredAt = Timestamp.now();
+      if (isVisible) patch.seenAt = Timestamp.now();
+      if (Object.keys(patch).length) {
+        batch.update(doc(db, 'matchChats', matchId, 'messages', m.id), patch);
+        dirty = true;
+      }
+    });
+    if (dirty) batch.commit().catch((err) => console.error('Could not update read receipts:', err));
+  }, [messages, matchId, userId]);
+
+  useEffect(() => { markReceipts(); }, [markReceipts]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') markReceipts(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [markReceipts]);
 
   // `kind` is 'video' or 'audio' — toggles the A/B consent flag for that
   // call type. Requesting and accepting are the same action (set my flag
@@ -319,6 +373,16 @@ export default function MatchChat() {
     : t('match_finder');
 
   const isBlocked = theirUid && blockedUsers.has(theirUid);
+  // WhatsApp-style: only the very last message I sent shows a "Delivered" /
+  // "Seen …" caption underneath it, so the thread doesn't get cluttered
+  // with a status line under every single bubble.
+  const lastMineId = [...messages].reverse().find((m) => m.userId === userId)?.id;
+  const isOnline = theirStatus?.state === 'online';
+  const presenceLabel = isOnline
+    ? t('online')
+    : theirStatus?.lastChanged
+      ? t('last_seen_at', { time: formatDayTimeFromMillis(theirStatus.lastChanged) })
+      : t('start_chat');
 
   return (
     <div className="aura-page">
@@ -326,11 +390,11 @@ export default function MatchChat() {
         <TopBar
           title={(
             <button type="button" className="chat-header-tap" onClick={() => setShowProfile(true)} data-testid="open-their-profile">
-              <Avatar color={theirCard?.avatarColor} photoURL={theirIdentity?.photoURL} size={30} />
+              <Avatar color={theirCard?.avatarColor} photoURL={theirIdentity?.photoURL} size={30} online={isOnline} />
               <span>{title}</span>
             </button>
           )}
-          subtitle={t('start_chat')}
+          subtitle={<span className={isOnline ? 'chat-presence-online' : ''} data-testid="chat-presence">{presenceLabel}</span>}
           onBack={() => navigate(-1)}
           right={<ReportBlockMenu userId={userId} otherUserId={theirUid} blocked={isBlocked} context="matchChat" contextId={matchId} />}
         />
@@ -434,7 +498,26 @@ export default function MatchChat() {
                       )}
                       {(!m.type || m.type === 'text') && <span>{m.text}</span>}
                     </div>
-                    <span className="message__time">{formatTime(m.createdAt)}</span>
+                    <span className="message__time-row">
+                      <span className="message__time">{formatTime(m.createdAt)}</span>
+                      {m.userId === userId && (
+                        <span
+                          className={`message__receipt${m.seenAt ? ' message__receipt--seen' : ''}`}
+                          data-testid={`receipt-${m.id}`}
+                          title={m.seenAt ? t('seen_at', { time: formatDayTimeFromTimestamp(m.seenAt) }) : m.deliveredAt ? t('delivered') : ''}
+                        >
+                          {m.seenAt || m.deliveredAt ? <CheckCheck size={13} /> : <Check size={13} />}
+                        </span>
+                      )}
+                    </span>
+                    {m.userId === userId && m.id === lastMineId && (m.seenAt || m.deliveredAt) && (
+                      <span
+                        className={`message__receipt-label${m.seenAt ? ' message__receipt-label--seen' : ''}`}
+                        data-testid="last-message-receipt-label"
+                      >
+                        {m.seenAt ? t('seen_at', { time: formatDayTimeFromTimestamp(m.seenAt) }) : t('delivered')}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
