@@ -128,6 +128,12 @@ export default {
   canvas_invite: 'Invite a friend to draw',
   canvas_strokes: '{{n}} strokes on the board',
 
+  // Match Chat — presence & read receipts
+  online: 'Online',
+  last_seen_at: 'Last seen {{time}}',
+  delivered: 'Delivered',
+  seen_at: 'Seen {{time}}',
+
   // Errors / empty
   empty_no_messages: 'No messages yet. Say hi to get started.',
   empty_no_matches: 'No one’s here yet — post a card to be first.',
