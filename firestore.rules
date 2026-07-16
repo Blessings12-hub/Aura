@@ -213,9 +213,20 @@ service cloud.firestore {
       // trying to read resource.data off nothing — that used to deny with
       // permission-denied on every very first request between two people.
       allow read: if signedIn() && (resource == null || resource.data.userA == request.auth.uid || resource.data.userB == request.auth.uid);
+      // Requesting a match requires the requester to already have a saved
+      // userIdentities doc (name/photo) — enforced here, not just in the
+      // UI, so a match can never exist where one side has nothing for the
+      // other person to see.
       allow create: if isParticipantOfPairId(pairId)
-                    && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid);
-      allow update: if isParticipantOfPairId(pairId);
+                    && (request.resource.data.userA == request.auth.uid || request.resource.data.userB == request.auth.uid)
+                    && exists(/databases/$(database)/documents/userIdentities/$(request.auth.uid));
+      // Same requirement applies to the accept step: a pair can only ever
+      // transition to 'matched' once BOTH participants have a saved
+      // identity doc.
+      allow update: if isParticipantOfPairId(pairId)
+                    && (request.resource.data.status != 'matched'
+                        || (exists(/databases/$(database)/documents/userIdentities/$(request.resource.data.userA))
+                            && exists(/databases/$(database)/documents/userIdentities/$(request.resource.data.userB))));
       // Reject (by the recipient) or cancel (by the requester) — either
       // participant can delete the pair, but only while it's still
       // pending. Once status is 'matched' this is deliberately blocked:
