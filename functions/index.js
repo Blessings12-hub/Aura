@@ -84,6 +84,46 @@ exports.onMatchRequestUpdated = onDocumentUpdated('matchPairs/{pairId}', async (
 });
 
 // ---------------------------------------------------------------------
+// Match Chat — one push per new message. Titled with the SENDER'S NAME,
+// not a generic "someone sent you a message": by the time two people can
+// message each other at all they've already matched, so their name is no
+// longer hidden from one another (see userIdentities rules) and there's
+// no reason the notification shouldn't say who it's from.
+// ---------------------------------------------------------------------
+function messagePreview(data) {
+  switch (data.type) {
+    case 'voice': return '🎤 Voice note';
+    case 'image': return '📷 Photo';
+    case 'audio': return '🎵 Audio file';
+    case 'file': return `📎 ${data.fileName || 'File'}`;
+    default: {
+      const text = (data.text || '').trim();
+      if (!text) return 'New message';
+      return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+    }
+  }
+}
+
+exports.onMatchMessageCreated = onDocumentCreated('matchChats/{pairId}/messages/{messageId}', async (event) => {
+  const data = event.data?.data();
+  const { pairId } = event.params;
+  if (!data?.userId) return;
+
+  // pairId is "<uidA>_<uidB>" (sorted) — the recipient is whichever half
+  // isn't the sender.
+  const recipientId = pairId.split('_').find((id) => id !== data.userId);
+  if (!recipientId) return;
+
+  const identitySnap = await db.doc(`userIdentities/${data.userId}`).get();
+  const senderName = identitySnap.exists ? identitySnap.data()?.displayName : null;
+
+  await sendToUser(recipientId, {
+    title: senderName ? `${senderName} • Aura` : 'Aura • Match Finder',
+    body: messagePreview(data),
+  });
+});
+
+// ---------------------------------------------------------------------
 // Skill Swap
 // ---------------------------------------------------------------------
 exports.onSwapRequestCreated = onDocumentCreated('swapPairs/{pairId}', async (event) => {
