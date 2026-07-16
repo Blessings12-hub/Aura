@@ -126,9 +126,7 @@ export default function Login() {
 
         <div className="aura-card aura-login-card fade-in" data-testid="login-card">
           <div className="aura-login-hero">
-            <div className="aura-login-mark" aria-hidden="true">
-              <img src="/icon-512.png" alt="" className="aura-login-mark__img" />
-            </div>
+            <div className="aura-login-mark" aria-hidden="true">A</div>
             <h1 className="aura-login-title" data-testid="login-title">{t('app_name')}</h1>
             <p className="aura-login-copy" data-testid="login-copy">{t('app_tagline')}</p>
           </div>
