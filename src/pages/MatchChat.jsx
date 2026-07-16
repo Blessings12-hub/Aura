@@ -1,17 +1,23 @@
-import { useEffect, useState } from 'react';
+import {
+  useEffect, useRef, useState,
+} from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, getDoc, updateDoc, onSnapshot, query, orderBy, where, limit, Timestamp,
 } from 'firebase/firestore';
 import {
-  Send, Video, Phone, X, PhoneIncoming,
+  Send, Video, Phone, X, PhoneIncoming, Mic, Square, Image as ImageIcon, Paperclip, Download, FileText,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
+import {
+  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, MAX_DATA_URL_CHARS,
+  formatFileSize, readFileAsDataUrl, resizeChatImageToDataUrl,
+} from '../lib/chatMedia';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -40,6 +46,22 @@ export default function MatchChat() {
   const [showProfile, setShowProfile] = useState(false);
   const [pair, setPair] = useState(null);
 
+  // Attachment sending state: voice-note recording, and busy flags for the
+  // photo/file pickers (so the attach buttons can show they're working
+  // through a resize/read/upload instead of appearing to do nothing).
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [mediaError, setMediaError] = useState('');
+  const [sendingImage, setSendingImage] = useState(false);
+  const [sendingFile, setSendingFile] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState('');
+  const recRef = useRef(null);
+  const chunksRef = useRef([]);
+  const recTimerRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const listRef = useRef(null);
+
   // matchId is "<uidA>_<uidB>" (sorted). The other participant is whichever
   // half isn't me.
   const theirUid = matchId?.split('_').find((id) => id !== userId);
@@ -49,7 +71,10 @@ export default function MatchChat() {
     const q = query(collection(db, 'matchChats', matchId, 'messages'), orderBy('createdAt', 'asc'));
     return subscribe(
       q,
-      (snap) => setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => {
+        setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
+      },
       () => setChatError('Messages could not be loaded. Check your connection and try again.'),
       `match chat (${matchId})`,
     );
@@ -104,6 +129,8 @@ export default function MatchChat() {
     );
   }, [matchId]);
 
+  useEffect(() => () => clearInterval(recTimerRef.current), []);
+
   // `kind` is 'video' or 'audio' — toggles the A/B consent flag for that
   // call type. Requesting and accepting are the same action (set my flag
   // true); declining/cancelling sets it back to false.
@@ -154,11 +181,133 @@ export default function MatchChat() {
     triggerCooldown();
     try {
       await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
-        text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+        type: 'text', text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
       });
       setText('');
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
+  };
+
+  // --- Voice notes -----------------------------------------------------
+  // Same base64-in-Firestore-doc pattern as MoodChat.jsx (see chatMedia.js
+  // for the shared reasoning): no Storage bucket, so the recording is
+  // capped and embedded directly.
+  const startRecording = async () => {
+    setMediaError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickSupportedVoiceMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        clearInterval(recTimerRef.current);
+        setRecordSeconds(0);
+        const actualType = rec.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: actualType });
+        stream.getTracks().forEach((tr) => tr.stop());
+
+        // Belt-and-suspenders: the 60s auto-stop should already keep this
+        // under budget, but codecs/bitrates vary by browser, so verify for
+        // real rather than assume the timer alone was enough.
+        if (blob.size > 700 * 1024) {
+          setMediaError('That recording was too long to send — try one under a minute.');
+          return;
+        }
+        try {
+          const reader = new FileReader();
+          const dataUrl = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+          if (dataUrl.length > MAX_DATA_URL_CHARS) {
+            setMediaError('That recording was too long to send — try one under a minute.');
+            return;
+          }
+          await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+            type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+          });
+        } catch (err) {
+          setMediaError(`Couldn't send that voice note. (${err?.code || 'unknown'}: ${err?.message || err})`);
+        }
+      };
+      rec.start();
+      recRef.current = rec;
+      setRecording(true);
+      setRecordSeconds(0);
+      recTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_RECORDING_SECONDS) {
+            stopRecording();
+            return MAX_RECORDING_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (e) {
+      console.error('mic permission failed', e);
+      setMediaError('Microphone access was blocked or unavailable. Check your browser/site permissions and try again.');
+    }
+  };
+
+  const stopRecording = () => {
+    clearInterval(recTimerRef.current);
+    if (recRef.current) {
+      recRef.current.stop();
+      recRef.current = null;
+    }
+    setRecording(false);
+  };
+
+  // --- Pictures (gallery / camera roll) ---------------------------------
+  const handleImagePick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the exact same file again later
+    if (!file) return;
+    setMediaError('');
+    setSendingImage(true);
+    try {
+      const dataUrl = await resizeChatImageToDataUrl(file);
+      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        type: 'image', fileUrl: dataUrl, fileMime: 'image/jpeg', fileName: file.name || 'photo.jpg', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+      });
+    } catch (err) {
+      setMediaError(err?.message || "Couldn't send that photo.");
+    } finally {
+      setSendingImage(false);
+    }
+  };
+
+  // --- Audio files and general files (file manager) ---------------------
+  const handleFilePick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setMediaError('');
+    setSendingFile(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      // Audio files picked from the file manager (not live-recorded) get
+      // their own type so they render with an inline player, same as a
+      // voice note — everything else falls back to a generic file card
+      // with a download link.
+      const isAudio = file.type?.startsWith('audio/');
+      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        type: isAudio ? 'audio' : 'file',
+        fileUrl: dataUrl,
+        fileMime: file.type || 'application/octet-stream',
+        fileName: file.name || (isAudio ? 'audio' : 'file'),
+        fileSize: file.size,
+        userId,
+        userColor: user?.avatarColor,
+        createdAt: Timestamp.now(),
+      });
+    } catch (err) {
+      setMediaError(err?.message || "Couldn't send that file.");
+    } finally {
+      setSendingFile(false);
     }
   };
 
@@ -241,21 +390,109 @@ export default function MatchChat() {
             })}
 
             <div className="aura-card chat-card fade-in">
-              <div className="message-list" data-testid="match-message-list">
+              <div className="message-list" ref={listRef} data-testid="match-message-list">
                 {messages.length === 0 && <p className="chat-empty-state">{t('no_messages')}</p>}
                 {messages.map((m) => (
                   <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`}>
                     {m.userId !== userId && (
                       <div className="aura-row" style={{ gap: 8 }}><Avatar color={m.userColor} size={20} /><span className="message__meta">{displayName}</span></div>
                     )}
-                    <div className="message__bubble">{m.text}</div>
+                    <div className="message__bubble">
+                      {m.type === 'voice' && m.voiceUrl && (
+                        <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
+                      )}
+                      {m.type === 'image' && m.fileUrl && (
+                        <button
+                          type="button"
+                          className="message__image-btn"
+                          onClick={() => setLightboxUrl(m.fileUrl)}
+                          data-testid={`image-msg-${m.id}`}
+                        >
+                          <img src={m.fileUrl} alt={m.fileName || 'Photo'} className="message__image" />
+                        </button>
+                      )}
+                      {m.type === 'audio' && m.fileUrl && (
+                        <div className="message__file-audio">
+                          <audio controls src={m.fileUrl} style={{ maxWidth: 240 }} data-testid={`audio-msg-${m.id}`} />
+                          {m.fileName && <span className="message__file-name">{m.fileName}</span>}
+                        </div>
+                      )}
+                      {m.type === 'file' && m.fileUrl && (
+                        <a
+                          href={m.fileUrl}
+                          download={m.fileName || 'file'}
+                          className="message__file-card"
+                          data-testid={`file-msg-${m.id}`}
+                        >
+                          <span className="message__file-icon"><FileText size={20} /></span>
+                          <span className="message__file-info">
+                            <span className="message__file-name">{m.fileName || 'File'}</span>
+                            {!!m.fileSize && <span className="message__file-size">{formatFileSize(m.fileSize)}</span>}
+                          </span>
+                          <Download size={16} />
+                        </a>
+                      )}
+                      {(!m.type || m.type === 'text') && <span>{m.text}</span>}
+                    </div>
                     <span className="message__time">{formatTime(m.createdAt)}</span>
                   </div>
                 ))}
               </div>
               {chatError && <p className="chat-card__error aura-login-error" data-testid="match-chat-error">{chatError}</p>}
+              {mediaError && <p className="chat-card__error aura-login-error" data-testid="match-media-error">{mediaError}</p>}
               <div className="chat-input-bar">
+                <input
+                  type="file"
+                  accept="image/*"
+                  ref={imageInputRef}
+                  onChange={handleImagePick}
+                  style={{ display: 'none' }}
+                  data-testid="match-image-input"
+                />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFilePick}
+                  style={{ display: 'none' }}
+                  data-testid="match-file-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={sendingImage || recording}
+                  className="aura-btn aura-btn-secondary"
+                  aria-label={t('send_photo')}
+                  data-testid="match-image-btn"
+                >
+                  <ImageIcon size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sendingFile || recording}
+                  className="aura-btn aura-btn-secondary"
+                  aria-label={t('attach_file')}
+                  data-testid="match-file-btn"
+                >
+                  <Paperclip size={16} />
+                </button>
                 <input className="aura-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={t('type_message')} maxLength={3000} style={{ flex: 1 }} data-testid="match-input" />
+                {recording ? (
+                  <button type="button" onClick={stopRecording} className="aura-btn aura-btn-danger" aria-label={t('recording')} data-testid="match-stop-record-btn">
+                    <Square size={16} /> {Math.max(0, MAX_RECORDING_SECONDS - recordSeconds)}s
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={!!text.trim()}
+                    className="aura-btn aura-btn-secondary"
+                    aria-label={t('send_voice_note')}
+                    data-testid="match-record-btn"
+                  >
+                    <Mic size={16} />
+                  </button>
+                )}
                 <button type="button" onClick={send} disabled={!text.trim() || !sendReady} className="aura-btn aura-btn-primary" aria-label={t('send')} data-testid="match-send"><Send size={16} /></button>
               </div>
             </div>
@@ -275,6 +512,15 @@ export default function MatchChat() {
           lookingFor={theirCard?.lookingFor}
           onClose={() => setShowProfile(false)}
         />
+      )}
+
+      {lightboxUrl && (
+        <div className="aura-modal-backdrop" onClick={() => setLightboxUrl('')} data-testid="image-lightbox">
+          <button type="button" className="aura-btn aura-btn-secondary aura-btn-pill image-lightbox__close" onClick={() => setLightboxUrl('')} aria-label={t('close')}>
+            <X size={16} />
+          </button>
+          <img src={lightboxUrl} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
+        </div>
       )}
     </div>
   );
