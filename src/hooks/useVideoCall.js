@@ -11,31 +11,44 @@ import { db } from '../firebase';
 // silently never connect even though signaling looked fine. A TURN relay
 // is what actually makes it work in those cases, so it's included here too.
 //
-// The credentials below are Open Relay Project's free public TURN service,
-// meant for exactly this kind of development/moderate-traffic use. For a
-// production app at scale, swap these for your own TURN provider (Twilio,
-// Cloudflare Calls, Xirsys, etc.) — the shape of ICE_SERVERS below is all
-// that would need to change.
+// TURN credentials now come from env vars (VITE_TURN_URLS / _USERNAME /
+// _CREDENTIAL — see .env.example) so a real paid provider can be dropped
+// in from Vercel's Environment Variables screen without touching code.
+// Until those are set, this falls back to Open Relay Project's free
+// public TURN service — fine for testing/low traffic, but it's rate
+// limited with no uptime guarantee, so calls can fail unpredictably once
+// there's real concurrent usage. Swapping in a paid provider (Twilio,
+// Cloudflare Calls, Metered.ca's paid tier, Xirsys, etc.) is the fix —
+// sign up on their site, grab the static TURN username/credential and
+// server URL(s) they give you, and set the three env vars below. No code
+// change needed after that.
+const customTurnUrls = import.meta.env.VITE_TURN_URLS;
+const customTurnUsername = import.meta.env.VITE_TURN_USERNAME;
+const customTurnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
+const hasCustomTurn = customTurnUrls && customTurnUsername && customTurnCredential;
+
 const ICE_SERVERS = {
   iceServers: [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
+    ...(hasCustomTurn
+      ? [{
+          urls: customTurnUrls.split(',').map((u) => u.trim()),
+          username: customTurnUsername,
+          credential: customTurnCredential,
+        }]
+      : [
+          { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+        ]),
   ],
 };
+
+// Surfaced in the UI so you (and anyone helping you test) can tell at a
+// glance which TURN service a call actually used, without digging into
+// devtools — useful while you're transitioning from the free fallback to
+// a real provider.
+export const usingFallbackTurn = !hasCustomTurn;
 
 const describeMediaError = (err) => {
   if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
