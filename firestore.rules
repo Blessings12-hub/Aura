@@ -156,9 +156,17 @@ service cloud.firestore {
     // photo), so the recipient never needs access to this collection —
     // it's purely the sender's private, reusable pack.
     // ------------------------------------------------------------------
+    // A personal sticker pack: still-image stickers (cropped from a photo),
+    // imported animated GIF/WebP stickers, and short looping "live" video
+    // stickers (recorded in-app or imported) — see lib/stickers.js. The cap
+    // is sized for the largest of the three (an unresizable video/gif),
+    // with `type`/`mime` small enough to be effectively unbounded in
+    // practice while still guarding against abuse.
     match /userStickers/{uid}/items/{stickerId} {
       allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && validText(request.resource.data.get('dataUrl', ''), 260000);
+      allow create: if isOwner(uid) && validText(request.resource.data.get('dataUrl', ''), 900000)
+                    && validText(request.resource.data.get('type', ''), 20)
+                    && validText(request.resource.data.get('mime', ''), 100);
       allow update: if false;
       allow delete: if isOwner(uid);
     }

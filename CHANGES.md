@@ -1,3 +1,40 @@
+# Stickers: custom shapes + live (looping video/GIF) stickers, for Mood Chat and Daily Question
+
+## What's new
+The sticker picker (shared by Mood Chat, Daily Question, and Match Chat)
+now has two tabs:
+
+- **Stickers** — making a sticker from a photo now offers a shape choice
+  first: keep the original crop, or cut it to a square or circle, the way
+  a real sticker maker would, instead of always just resizing the whole
+  photo.
+- **Live** (new) — short looping "live" stickers, TikTok-style:
+  - **Record one** right here with your camera (up to 5 seconds, no
+    audio, muted auto-looping playback everywhere it's used).
+  - **Import** an animated GIF, animated WebP, or a short video file.
+    Animated WhatsApp stickers exported via WhatsApp's own share/save
+    sheet now stay animated when imported — the previous version routed
+    every sticker through a canvas resize, which only ever captures one
+    frame and silently flattened animation.
+  - A live sticker renders as a small looping video wherever a sticker
+    can go: the picker grid, the message bubble, and (in Mood Chat/Daily
+    Question) the sticker lightbox.
+
+**On "pulling directly from WhatsApp/TikTok":** neither app exposes a
+public API for a third-party site to reach into someone's sticker pack
+and pull content out directly — there's no legitimate way around that
+from a web app, and this app doesn't try to fake it. What's built instead
+is what actually works: export the sticker/clip from WhatsApp or TikTok's
+own share/save sheet, then import that file here in a couple of taps —
+now with animation intact.
+
+Firestore rules for `userStickers/{uid}/items` updated to allow the new
+`type`/`mime` fields and a larger size cap for the unresizable
+animated/video sticker types (still well under Firestore's 1 MiB
+document limit).
+
+---
+
 # Daily Question: now exactly like Mood Chat (voice notes, stickers, replies, receipts)
 
 ## What's new
