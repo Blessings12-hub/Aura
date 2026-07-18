@@ -29,7 +29,12 @@ const { logger } = require('firebase-functions');
 initializeApp();
 const db = getFirestore();
 
-async function sendToUser(uid, notification) {
+// Base URL for building deep links below — same origin as the deployed
+// app. If you ever move off this Vercel URL (custom domain, etc.), this
+// is the one place to update it.
+const BASE_URL = 'https://aura-blush-zeta.vercel.app';
+
+async function sendToUser(uid, notification, path = '/') {
   if (!uid) return;
   const tokenSnap = await db.doc(`pushTokens/${uid}`).get();
   const token = tokenSnap.exists ? tokenSnap.data()?.token : null;
@@ -40,7 +45,11 @@ async function sendToUser(uid, notification) {
       token,
       notification,
       webpush: {
-        fcmOptions: { link: 'https://aura-blush-zeta.vercel.app/' },
+        // This is what actually controls where tapping the notification
+        // lands — previously always the bare app root, so a match/swap
+        // message notification opened Home instead of the conversation
+        // that triggered it, and the person had to navigate there manually.
+        fcmOptions: { link: `${BASE_URL}${path}` },
         notification: { icon: '/icon-192.png' },
       },
     });
@@ -67,7 +76,7 @@ exports.onMatchRequestCreated = onDocumentCreated('matchPairs/{pairId}', async (
   await sendToUser(data.userB, {
     title: 'Aura • Match Finder',
     body: 'Someone wants to match with you.',
-  });
+  }, '/aura/match');
 });
 
 exports.onMatchRequestUpdated = onDocumentUpdated('matchPairs/{pairId}', async (event) => {
@@ -79,7 +88,7 @@ exports.onMatchRequestUpdated = onDocumentUpdated('matchPairs/{pairId}', async (
     await sendToUser(after.userA, {
       title: 'Aura • Match Finder',
       body: 'Your match request was accepted!',
-    });
+    }, `/aura/match/chat/${event.params.pairId}`);
   }
 });
 
@@ -120,7 +129,7 @@ exports.onMatchMessageCreated = onDocumentCreated('matchChats/{pairId}/messages/
   await sendToUser(recipientId, {
     title: senderName ? `${senderName} • Aura` : 'Aura • Match Finder',
     body: messagePreview(data),
-  });
+  }, `/aura/match/chat/${pairId}`);
 });
 
 // ---------------------------------------------------------------------
@@ -132,7 +141,7 @@ exports.onSwapRequestCreated = onDocumentCreated('swapPairs/{pairId}', async (ev
   await sendToUser(data.userB, {
     title: 'Aura • Skill Swap',
     body: 'Someone wants to swap skills with you.',
-  });
+  }, '/aura/swap');
 });
 
 exports.onSwapRequestUpdated = onDocumentUpdated('swapPairs/{pairId}', async (event) => {
@@ -143,7 +152,7 @@ exports.onSwapRequestUpdated = onDocumentUpdated('swapPairs/{pairId}', async (ev
     await sendToUser(after.userA, {
       title: 'Aura • Skill Swap',
       body: 'Your swap request was accepted!',
-    });
+    }, `/aura/swap/chat/${event.params.pairId}`);
   }
 });
 
@@ -156,7 +165,7 @@ exports.onEventJoinCreated = onDocumentCreated('eventJoins/{joinId}', async (eve
   await sendToUser(data.hostId, {
     title: 'Aura • Event Buddy',
     body: 'Someone wants to join your event.',
-  });
+  }, '/aura/event');
 });
 
 exports.onEventJoinUpdated = onDocumentUpdated('eventJoins/{joinId}', async (event) => {
@@ -167,6 +176,6 @@ exports.onEventJoinUpdated = onDocumentUpdated('eventJoins/{joinId}', async (eve
     await sendToUser(after.guestId, {
       title: 'Aura • Event Buddy',
       body: 'Your join request was accepted!',
-    });
+    }, `/aura/event/chat/${event.params.joinId}`);
   }
 });
