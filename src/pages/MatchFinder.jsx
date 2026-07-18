@@ -25,6 +25,14 @@ import ReportBlockMenu from '../components/ReportBlockMenu';
 
 const pairId = (a, b) => [a, b].sort().join('_');
 
+// Match Finder is the one activity where two people who've never met are
+// matched based on age/gender/photo — meaningfully different from an
+// anonymous group chat. The account-wide minimum age (set at Login) stays
+// 16, but this activity specifically requires 18, enforced both here and
+// (more importantly, since client checks are never real security) in
+// firestore.rules on matchProfiles and userIdentities.
+const MIN_MATCH_AGE = 18;
+
 const GENDER_OPTIONS = [
   { value: 'Female', labelKey: 'female' },
   { value: 'Male', labelKey: 'male' },
@@ -39,6 +47,7 @@ export default function MatchFinder() {
   const blockedUsers = useBlockedUsers(userId);
   const [displayName, setDisplayName] = useState('');
   const [age, setAge] = useState('');
+  const [ageConsent, setAgeConsent] = useState(false);
   const [gender, setGender] = useState('');
   const [avatarColor, setAvatarColor] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -224,10 +233,19 @@ export default function MatchFinder() {
     setRemovePhoto(true);
   };
 
-  const canSaveProfile = displayName.trim() && bio.trim() && hobbies.trim() && lookingFor.trim() && age && gender && avatarColor && !saving;
+  const canSaveProfile = displayName.trim() && bio.trim() && hobbies.trim() && lookingFor.trim()
+    && age && Number(age) >= MIN_MATCH_AGE && ageConsent && gender && avatarColor && !saving;
 
   const saveProfile = async () => {
     if (!userId || !canSaveProfile) return;
+    if (Number(age) < MIN_MATCH_AGE) {
+      setSaveError(t('match_age_error'));
+      return;
+    }
+    if (!ageConsent) {
+      setSaveError(t('match_age_consent_required'));
+      return;
+    }
     const moderationReason = moderateText(`${bio} ${hobbies} ${lookingFor} ${displayName}`);
     if (moderationReason) {
       setSaveError(MODERATION_MESSAGES[moderationReason]);
@@ -245,7 +263,7 @@ export default function MatchFinder() {
       // never go on this doc (enforced both here and by firestore.rules,
       // which rejects a matchProfiles write containing either field).
       const cardPayload = {
-        avatarColor, age: numericAge, gender,
+        avatarColor, age: numericAge, gender, ageConfirmed18: true,
         bio: bio.trim(), hobbies: hobbies.trim(), lookingFor: lookingFor.trim(),
       };
       if (myCardId) {
@@ -262,7 +280,7 @@ export default function MatchFinder() {
       // gender are mirrored here too, purely so the account-level record
       // stays consistent — they're not gated, since matchProfiles above
       // already shows them to everyone.
-      const identityPayload = { displayName: displayName.trim(), age: numericAge, gender };
+      const identityPayload = { displayName: displayName.trim(), age: numericAge, gender, ageConfirmed18: true };
       if (photoDataUrl) identityPayload.photoURL = photoDataUrl;
       else if (removePhoto) identityPayload.photoURL = deleteField();
       await setDoc(doc(db, 'userIdentities', userId), identityPayload, { merge: true });
@@ -441,8 +459,23 @@ export default function MatchFinder() {
           <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
 
           <div className="aura-row">
-            <input className="aura-input" style={{ flex: '1 1 120px' }} type="number" inputMode="numeric" min={16} value={age} onChange={(e) => setAge(e.target.value)} placeholder={t('age_placeholder')} data-testid="match-age" />
+            <input className="aura-input" style={{ flex: '1 1 120px' }} type="number" inputMode="numeric" min={MIN_MATCH_AGE} value={age} onChange={(e) => setAge(e.target.value)} placeholder={t('age_placeholder')} data-testid="match-age" />
           </div>
+          {age !== '' && Number(age) < MIN_MATCH_AGE && (
+            <p className="aura-login-error" style={{ margin: '4px 0 0' }} data-testid="match-age-error">
+              {t('match_age_error')}
+            </p>
+          )}
+          <label className="aura-row" style={{ gap: 8, alignItems: 'flex-start', margin: '10px 0 2px', fontSize: '0.82rem', cursor: 'pointer' }} data-testid="match-age-consent-label">
+            <input
+              type="checkbox"
+              checked={ageConsent}
+              onChange={(e) => setAgeConsent(e.target.checked)}
+              style={{ marginTop: 2 }}
+              data-testid="match-age-consent-checkbox"
+            />
+            <span>{t('match_age_consent')}</span>
+          </label>
           <div className="aura-field" style={{ marginBottom: 6 }}>
             <div className="aura-segmented" role="radiogroup" aria-label={t('gender')}>
               {GENDER_OPTIONS.map((opt) => (
