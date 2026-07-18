@@ -845,11 +845,11 @@ a { color: var(--primary); }
 .sticker-picker__add:disabled { opacity: 0.6; cursor: default; }
 .sticker-picker__tile { position: relative; aspect-ratio: 1; }
 .sticker-picker__pick {
-  width: 100%; height: 100%; padding: 4px; border: 1px solid var(--border);
+  position: relative; width: 100%; height: 100%; padding: 4px; border: 1px solid var(--border);
   border-radius: 14px; background: var(--surface-2); cursor: pointer;
   display: grid; place-items: center;
 }
-.sticker-picker__img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sticker-picker__img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; }
 .sticker-picker__delete {
   position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
   border-radius: 50%; border: none; background: var(--danger); color: #fff;
@@ -857,8 +857,31 @@ a { color: var(--primary); }
 }
 .sticker-picker__empty { grid-column: 1 / -1; font-size: 0.8rem; text-align: center; padding: 12px 4px; }
 
+/* Live sticker badge, shown on video/gif tiles in the Live tab so it's
+   obvious at a glance which stickers loop before you tap one. */
+.sticker-picker__live-badge {
+  position: absolute; bottom: 4px; left: 4px; font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.03em; color: #fff; background: rgba(0, 0, 0, 0.6);
+  border-radius: 6px; padding: 1px 5px; pointer-events: none;
+}
+
+/* Shared "pending" step — shown after picking a photo (choose a crop
+   shape) or after recording/importing a live sticker (preview + save). */
+.sticker-picker__pending { margin-top: 14px; }
+.sticker-picker__pending-preview {
+  display: grid; place-items: center; background: var(--surface-2);
+  border-radius: 14px; border: 1px solid var(--border); padding: 10px;
+}
+.sticker-picker__pending-img {
+  max-width: 100%; max-height: 45vh; border-radius: 10px; object-fit: contain;
+  display: block; margin: 0 auto; background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
 .message__sticker-btn { display: block; padding: 0; border: 0; background: none; cursor: pointer; }
-.message__sticker { display: block; width: 132px; height: 132px; object-fit: contain; }
+/* Applies to both a static <img> sticker and a looping <video> "live"
+   sticker (see StickerPicker.jsx / lib/stickers.js) — same box either way. */
+.message__sticker { display: block; width: 132px; height: 132px; object-fit: contain; border-radius: 10px; }
 .message--sticker .message__bubble {
   background: none; border: none; padding: 0; box-shadow: none;
 }
