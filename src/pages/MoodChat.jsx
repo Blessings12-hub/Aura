@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, where, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, limit,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
@@ -30,6 +30,14 @@ import { recordMoodActivity } from '../lib/moodActivity';
 import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { todayKey } from '../constants/dailyQuestions';
+
+// The room is already bounded to a rolling 24h window (see
+// last24HoursTimestamp), which self-prunes day to day — but a single busy
+// day could still mean thousands of messages downloaded and live-subscribed
+// to in one shot on first paint. This caps the LIVE view to the most recent
+// N messages within that window; anything older than that just isn't shown
+// (no "load more" yet — this is a safety cap, not full pagination).
+const LIVE_MESSAGE_LIMIT = 150;
 
 // Short one-line preview used for reply quotes — same shape as the other
 // chats' buildPreview() (Match Chat, Skill Swap Chat, Event Chat).
@@ -66,7 +74,14 @@ export default function MoodChat() {
   const chunksRef = useRef([]);
   const recTimerRef = useRef(null);
   const listRef = useRef(null);
-  const lastSeenRef = useRef(0);
+  // Was a positional counter (lastSeenRef = index up to which messages had
+  // been "seen"), which only worked because the old query had no limit()
+  // and could only ever grow by appending at the end. Once the query below
+  // caps the live window, an old message can drop OUT of the results when
+  // a new one arrives — so "new" now has to mean "id we haven't seen
+  // before", not "past this index".
+  const seenIdsRef = useRef(new Set());
+  const initializedRef = useRef(false);
   const longPressTimerRef = useRef(null);
   const openedAtRef = useRef(0);
   const messageElsRef = useRef({});
@@ -92,22 +107,34 @@ export default function MoodChat() {
   }, []);
 
   useEffect(() => {
-    if (!mood) { setMessages([]); lastSeenRef.current = 0; return undefined; }
+    if (!mood) { setMessages([]); seenIdsRef.current = new Set(); initializedRef.current = false; return undefined; }
     setChatError('');
+    // orderBy(desc) + limit() gives a live "most recent N" window — as a
+    // new message arrives, the oldest one in view drops out once the cap
+    // is exceeded. Reversed below so the UI still renders oldest-first.
     const q = query(
       collection(db, 'chats', mood, 'messages'),
       where('createdAt', '>=', last24HoursTimestamp()),
-      orderBy('createdAt', 'asc'),
+      orderBy('createdAt', 'desc'),
+      limit(LIVE_MESSAGE_LIMIT),
     );
     return subscribe(q, (snap) => {
-      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const newOnes = all.slice(lastSeenRef.current);
-      newOnes.forEach((m) => {
-        if (m.userId !== userId && lastSeenRef.current > 0) {
-          pushAuraNotification(`Aura • ${mood}`, m.text ? m.text.slice(0, 80) : t('voice_note'));
-        }
-      });
-      lastSeenRef.current = all.length;
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
+      if (!initializedRef.current) {
+        // First load for this mood — record what's already here, but
+        // don't notify for any of it (matches the old lastSeenRef.current
+        // > 0 guard's intent exactly).
+        seenIdsRef.current = new Set(all.map((m) => m.id));
+        initializedRef.current = true;
+      } else {
+        const newOnes = all.filter((m) => !seenIdsRef.current.has(m.id));
+        newOnes.forEach((m) => {
+          if (m.userId !== userId) {
+            pushAuraNotification(`Aura • ${mood}`, m.text ? m.text.slice(0, 80) : t('voice_note'));
+          }
+        });
+        seenIdsRef.current = new Set(all.map((m) => m.id));
+      }
       setMessages(all);
       requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
     }, () => setChatError('Messages could not be loaded. Check your connection and try reopening this mood.'), `mood chat (${mood})`);
