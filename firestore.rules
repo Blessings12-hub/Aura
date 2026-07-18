@@ -406,13 +406,40 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // DAILY QUESTION — anonymous answers, one collection per day.
+    // DAILY QUESTION — anonymous answers, one collection per day. Now a
+    // live room exactly like Mood Chat's chats/{mood}/messages: text,
+    // voice notes, stickers, replies and group delivered/seen receipts.
     // ------------------------------------------------------------------
     match /dailyQuestions/{day}/answers/{answerId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && validText(request.resource.data.get('text', ''), 3000);
-      allow update: if false;
+                    && validText(request.resource.data.get('text', ''), 3000)
+                    // Storage upload failures fall back to embedding the
+                    // recording directly as a base64 data URL on the doc
+                    // (see DailyQuestion.jsx) — cap it well under
+                    // Firestore's 1 MiB document limit so that path can't
+                    // blow up a doc.
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
+                    // Stickers ship the same way — a base64 PNG on
+                    // fileUrl, same cap as voiceUrl.
+                    && validText(request.resource.data.get('fileUrl', ''), 900000)
+                    && validText(request.resource.data.get('fileMime', ''), 100);
+      // Group delivered/seen receipts: unlike a 1:1 chat, a daily question
+      // room can have many people reading at once, so each answer tracks
+      // small deliveredBy/seenBy maps (uid -> true) instead of a single
+      // deliveredAt/seenAt pair. Only the two receipt fields may ever be
+      // touched post-create — every other field (text, userId, replyTo,
+      // etc.) stays immutable — and only by someone who isn't the
+      // answer's own sender, and only by writing their OWN uid into the
+      // map (never altering or removing anyone else's entry).
+      allow update: if signedIn() && request.auth.uid != resource.data.userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredBy', 'seenBy'])
+                    && (!('deliveredBy' in request.resource.data.diff(resource.data).affectedKeys())
+                        || (request.resource.data.deliveredBy.diff(resource.data.get('deliveredBy', {})).affectedKeys().hasOnly([request.auth.uid])
+                            && request.resource.data.deliveredBy[request.auth.uid] == true))
+                    && (!('seenBy' in request.resource.data.diff(resource.data).affectedKeys())
+                        || (request.resource.data.seenBy.diff(resource.data.get('seenBy', {})).affectedKeys().hasOnly([request.auth.uid])
+                            && request.resource.data.seenBy[request.auth.uid] == true));
       allow delete: if isOwner(resource.data.userId);
     }
 

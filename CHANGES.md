@@ -1,3 +1,24 @@
+# Daily Question: now exactly like Mood Chat (voice notes, stickers, replies, receipts)
+
+## What's new
+Daily Question's room now shares the exact same chat experience as Mood
+Chat — same `.chat-card` shell, same message list, same input bar.
+
+- **Voice notes** and **stickers** can now be sent as answers, not just
+  text — same sticker picker and recorder as Mood Chat.
+- **Long-press / right-click an answer** for reply or delete (your own
+  only); **swipe left/right** to reply, same gesture and thresholds as
+  Mood Chat.
+- **Delivered/seen receipts** on your latest answer, tracked the same
+  group-chat way (`deliveredBy`/`seenBy` maps) as Mood Chat.
+- **Tap a sticker** to view it full-size in a lightbox.
+- Firestore rules for `dailyQuestions/{day}/answers` updated to match
+  `chats/{mood}/messages`: voice/sticker fields are now allowed on
+  create, and the two receipt fields may be updated post-create under
+  the same restrictions.
+
+---
+
 # Mood Chat: bigger WhatsApp-style room, swipe/long-press actions, stickers, live stats
 
 ## What's new
