@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIncomingRequests } from '../hooks/useIncomingRequests';
-import { todayKey } from '../constants/dailyQuestions';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import OnboardingModal from '../components/OnboardingModal';
@@ -122,22 +121,16 @@ export default function Home() {
 
         <NotificationOptInBanner userId={userId} />
         <DailyQuestionNudge user={user} />
-        {/* DailyQuestionNudge above only shows while the streak is still
-            "at risk" (unanswered today) — the moment someone checks in,
-            it disappears entirely, so a 30-day streak gets zero
-            acknowledgment on the one screen they're most likely to see
-            it. This fills that gap: shown only once today's answer is
-            already in, so the two never appear together. */}
-        {user.dailyStreak > 0 && user.dailyStreakLastDate === todayKey() && (
-          <button
-            type="button"
-            onClick={() => navigate('/aura/question')}
+        {/* This badge tracks the general "used Aura today" streak (see
+            recordAppStreak in PresenceRoot), not the Daily-Question-specific
+            one — the nudge above already covers that case on its own. Using
+            appStreak here means someone gets credit for a streak from using
+            ANY activity, not just Daily Question. */}
+        {user.appStreak > 0 && (
+          <div
             className="aura-card fade-in"
             data-testid="home-streak-badge"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-              textAlign: 'left', cursor: 'pointer',
-            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}
           >
             <div
               style={{
@@ -150,12 +143,12 @@ export default function Home() {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ margin: 0, fontWeight: 700 }}>
-                {user.dailyStreak}-day streak
-                {user.dailyStreakBest > user.dailyStreak ? ` · best ${user.dailyStreakBest}` : ''}
+                {user.appStreak}-day Aura streak
+                {user.appStreakBest > user.appStreak ? ` · best ${user.appStreakBest}` : ''}
               </p>
-              <p className="aura-muted" style={{ margin: 0, fontSize: '0.85rem' }}>Nice work checking in today.</p>
+              <p className="aura-muted" style={{ margin: 0, fontSize: '0.85rem' }}>Good to see you today.</p>
             </div>
-          </button>
+          </div>
         )}
 
         <div className="aura-grid">
