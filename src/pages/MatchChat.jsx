@@ -480,12 +480,12 @@ export default function MatchChat() {
   // just tagged with its own type so it renders without bubble chrome. The
   // sticker itself is picked from the sender's personal pack — see
   // StickerPicker.jsx / lib/stickers.js.
-  const handleSendSticker = async (dataUrl) => {
+  const handleSendSticker = async (sticker) => {
     setShowStickerPicker(false);
     setMediaError('');
     try {
       await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
-        type: 'sticker', fileUrl: dataUrl, fileMime: 'image/png', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+        type: 'sticker', fileUrl: sticker.dataUrl, fileMime: sticker.mime || 'image/png', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
         ...replyToField(),
       });
       setReplyingTo(null);
@@ -650,14 +650,22 @@ export default function MatchChat() {
                         </button>
                       )}
                       {m.type === 'sticker' && m.fileUrl && (
-                        <button
-                          type="button"
-                          className="message__sticker-btn"
-                          onClick={() => setLightboxUrl(m.fileUrl)}
-                          data-testid={`sticker-msg-${m.id}`}
-                        >
-                          <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
-                        </button>
+                        m.fileMime?.startsWith('video/') ? (
+                          // Live (looping video) stickers already play inline at
+                          // sticker size, so there's nothing extra a lightbox
+                          // would show — same reasoning WhatsApp/Telegram use
+                          // for not zooming stickers.
+                          <video src={m.fileUrl} className="message__sticker" muted autoPlay loop playsInline data-testid={`sticker-msg-${m.id}`} />
+                        ) : (
+                          <button
+                            type="button"
+                            className="message__sticker-btn"
+                            onClick={() => setLightboxUrl(m.fileUrl)}
+                            data-testid={`sticker-msg-${m.id}`}
+                          >
+                            <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
+                          </button>
+                        )
                       )}
                       {m.type === 'audio' && m.fileUrl && (
                         <div className="message__file-audio">

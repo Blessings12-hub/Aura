@@ -56,7 +56,7 @@ export default function MoodChat() {
   const [chatError, setChatError] = useState('');
   const [moodActivityToday, setMoodActivityToday] = useState({});
   const [showStickerPicker, setShowStickerPicker] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState('');
+  const [lightbox, setLightbox] = useState(null); // { url, mime } | null
 
   // Long-press message actions (reply / delete-your-own) and swipe-to-reply.
   const [actionsFor, setActionsFor] = useState(null);
@@ -285,12 +285,12 @@ export default function MoodChat() {
     }
   };
 
-  const handleSendSticker = async (dataUrl) => {
+  const handleSendSticker = async (sticker) => {
     setShowStickerPicker(false);
     if (!mood || !userId) return;
     try {
       await addDoc(collection(db, 'chats', mood, 'messages'), {
-        type: 'sticker', fileUrl: dataUrl, fileMime: 'image/png', userId,
+        type: 'sticker', fileUrl: sticker.dataUrl, fileMime: sticker.mime || 'image/png', userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
         ...replyToField(),
@@ -465,8 +465,12 @@ export default function MoodChat() {
                       {m.type === 'voice' && m.voiceUrl ? (
                         <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
                       ) : m.type === 'sticker' && m.fileUrl ? (
-                        <button type="button" className="message__sticker-btn" onClick={() => setLightboxUrl(m.fileUrl)} data-testid={`sticker-msg-${m.id}`}>
-                          <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
+                        <button type="button" className="message__sticker-btn" onClick={() => setLightbox({ url: m.fileUrl, mime: m.fileMime })} data-testid={`sticker-msg-${m.id}`}>
+                          {m.fileMime?.startsWith('video/') ? (
+                            <video src={m.fileUrl} className="message__sticker" muted autoPlay loop playsInline />
+                          ) : (
+                            <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
+                          )}
                         </button>
                       ) : (
                         <span>{m.text}</span>
@@ -534,12 +538,16 @@ export default function MoodChat() {
         <StickerPicker userId={userId} onSelect={handleSendSticker} onClose={() => setShowStickerPicker(false)} />
       )}
 
-      {lightboxUrl && (
-        <div className="aura-modal-backdrop" onClick={() => setLightboxUrl('')} data-testid="image-lightbox">
-          <button type="button" className="aura-btn aura-btn-secondary aura-btn-pill image-lightbox__close" onClick={() => setLightboxUrl('')} aria-label={t('close')}>
+      {lightbox && (
+        <div className="aura-modal-backdrop" onClick={() => setLightbox(null)} data-testid="image-lightbox">
+          <button type="button" className="aura-btn aura-btn-secondary aura-btn-pill image-lightbox__close" onClick={() => setLightbox(null)} aria-label={t('close')}>
             <X size={16} />
           </button>
-          <img src={lightboxUrl} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
+          {lightbox.mime?.startsWith('video/') ? (
+            <video src={lightbox.url} className="image-lightbox__img" controls autoPlay loop onClick={(e) => e.stopPropagation()} />
+          ) : (
+            <img src={lightbox.url} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
+          )}
         </div>
       )}
 
