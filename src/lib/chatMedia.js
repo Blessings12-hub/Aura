@@ -26,6 +26,25 @@ export function pickSupportedVoiceMimeType() {
 
 export const MAX_RECORDING_SECONDS = 60;
 
+// Live stickers (short looping video clips, TikTok-style) — same
+// MediaRecorder approach as voice notes, just pointed at a video track
+// instead of audio. Kept deliberately short: a sticker is meant to be
+// glanced at and reused, not a video message, and a longer clip would
+// blow the data-URL budget below fast since video is far denser than audio.
+const VIDEO_MIME_CANDIDATES = [
+  'video/webm;codecs=vp9',
+  'video/webm;codecs=vp8',
+  'video/webm',
+  'video/mp4',
+];
+
+export function pickSupportedVideoMimeType() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  return VIDEO_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+}
+
+export const MAX_LIVE_STICKER_SECONDS = 5;
+
 // Firestore hard-caps a document at 1 MiB. Base64 inflates raw bytes by
 // ~33%, and the message doc also carries a few other small fields (userId,
 // timestamps, reply/pin metadata later on) — 900,000 characters (~660KB
