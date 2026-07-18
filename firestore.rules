@@ -53,6 +53,17 @@ function validAge(data) {
   return !('age' in data) || (data.age is int && data.age >= 16);
 }
 
+// Match Finder specifically requires 18+, plus an explicit consent flag
+// the client sets when the person checks the "I confirm I am 18 or
+// older" box. This is stricter than validAge() above (16), which still
+// governs the account-wide users/{uid} doc used by every other activity.
+// A client-side age check is never real security on its own — this is
+// what actually stops an under-18 profile from being written, regardless
+// of what number the client happens to send.
+function validMatchAge(data) {
+  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true;
+}
+
 // Caps how long a public text field is allowed to be. Uses .get(field, '')
 // instead of a presence check so it's safe to call even on documents where
 // the field is legitimately absent (e.g. Mood Chat voice notes have no
@@ -139,10 +150,10 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /userIdentities/{uid} {
       allow read: if isOwner(uid) || isMatchedWith(uid);
-      allow create: if isOwner(uid) && validAge(request.resource.data)
+      allow create: if isOwner(uid) && validMatchAge(request.resource.data)
                     && validText(request.resource.data.get('displayName', ''), 100)
                     && validText(request.resource.data.get('photoURL', ''), 220000);
-      allow update: if isOwner(uid) && validAge(request.resource.data)
+      allow update: if isOwner(uid) && validMatchAge(request.resource.data)
                     && validText(request.resource.data.get('displayName', ''), 100)
                     && validText(request.resource.data.get('photoURL', ''), 220000);
       allow delete: if isOwner(uid);
@@ -211,9 +222,11 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     // MATCH FINDER — public card. Unlike Skill Swap/Event Buddy, Match
     // Finder's card is DELIBERATELY not fully anonymous: age and gender
-    // are shown on the browsable card itself (validated the same way the
-    // account-level users/{uid} doc validates age, via validAge()). What
-    // stays gated behind a real match is identity that could make someone
+    // are shown on the browsable card itself. Because this is the one
+    // activity that matches strangers by age/gender/photo, it requires
+    // 18+ and an explicit consent flag via validMatchAge() — stricter
+    // than the account-wide 16+ minimum used elsewhere. What stays gated
+    // behind a real match is identity that could make someone
     // individually recognisable — name and photo — which live only in
     // userIdentities (see above) and are never present here. This rule
     // rejects a create/update that tries to add either of those fields to
@@ -223,14 +236,14 @@ service cloud.firestore {
     match /matchProfiles/{cardId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && validAge(request.resource.data)
+                    && validMatchAge(request.resource.data)
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
                     && validText(request.resource.data.get('bio', ''), 300)
                     && validText(request.resource.data.get('hobbies', ''), 300)
                     && validText(request.resource.data.get('lookingFor', ''), 300);
-      allow update: if isOwner(resource.data.userId) && validAge(request.resource.data)
+      allow update: if isOwner(resource.data.userId) && validMatchAge(request.resource.data)
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
