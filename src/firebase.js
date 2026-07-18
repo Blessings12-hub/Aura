@@ -6,15 +6,26 @@ import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
 
+// Config now comes from Vite env vars (see .env.example) instead of being
+// hardcoded here. This isn't hiding a secret — a Firebase web apiKey is not
+// sensitive, security rules are the real gate — it's about having ONE place
+// (Vercel's Environment Variables screen) where these values live, instead
+// of them being buried in source and drifting out of sync with .env.example.
+//
+// The hardcoded values are kept as fallbacks so nothing breaks on the
+// current Vercel deployment before its env vars are set. Once
+// VITE_FIREBASE_* is added in Vercel -> Settings -> Environment Variables
+// and redeployed, the env values take over automatically and these
+// fallbacks become dead weight you can delete.
 const firebaseConfig = {
-  apiKey: "AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk",
-  authDomain: "aura-5693e.firebaseapp.com",
-  databaseURL: "https://aura-5693e-default-rtdb.firebaseio.com",
-  projectId: "aura-5693e",
-  storageBucket: "aura-5693e.firebasestorage.app",
-  messagingSenderId: "1028269030459",
-  appId: "1:1028269030459:web:43762becb2ccccb61c301e",
-  measurementId: "G-9PG36HYYR7"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'aura-5693e.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://aura-5693e-default-rtdb.firebaseio.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'aura-5693e',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'aura-5693e.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1028269030459',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1028269030459:web:43762becb2ccccb61c301e',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-9PG36HYYR7',
 };
 
 if (!firebaseConfig.apiKey) {
