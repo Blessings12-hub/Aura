@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { usePresence } from '../hooks/usePresence';
 import IncomingRequestWatcher from '../components/IncomingRequestWatcher';
+import { recordAppStreak } from '../lib/streak';
 
 export default function PresenceRoot({ children }) {
   const [uid, setUid] = useState(() => localStorage.getItem('aura_userId'));
@@ -16,6 +17,17 @@ export default function PresenceRoot({ children }) {
   }, []);
 
   usePresence(uid);
+
+  // General "used Aura today" streak — separate from the Daily Question
+  // streak, and deliberately placed here rather than in any one activity
+  // page, since this component already mounts once per session no matter
+  // which activity someone opens (or none at all). The function itself
+  // dedupes to once per calendar day, so this is safe to call on every
+  // mount without extra guarding here.
+  useEffect(() => {
+    if (!uid) return;
+    recordAppStreak(uid).catch((err) => console.error('app streak update failed', err));
+  }, [uid]);
 
   return (
     <>
