@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useCallback, useEffect, useRef, useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { collection, addDoc, query, orderBy, where, Timestamp, doc, onSnapshot } from 'firebase/firestore';
-import { Send, Mic, Square } from 'lucide-react';
+import {
+  collection, addDoc, query, orderBy, where, Timestamp, doc, deleteDoc,
+  onSnapshot, writeBatch,
+} from 'firebase/firestore';
+import {
+  Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
+} from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
@@ -10,44 +17,29 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
 import { useRoomPresence } from '../hooks/useRoomPresence';
+import {
+  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, MAX_DATA_URL_CHARS,
+} from '../lib/chatMedia';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
+import StickerPicker from '../components/StickerPicker';
 import { pushAuraNotification } from '../notifications/NotificationManager';
 import { recordMoodActivity } from '../lib/moodActivity';
 import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { todayKey } from '../constants/dailyQuestions';
 
-// MediaRecorder's actual output codec depends entirely on what the browser
-// supports — there is no universal default. The previous version hardcoded
-// `new Blob(chunks, { type: 'audio/webm' })` regardless of what was really
-// recorded, which silently mislabels the file on any browser that doesn't
-// use webm/opus (notably Safari/iOS, which records audio/mp4). A mislabeled
-// blob uploads fine but then fails to play back, because the browser trusts
-// the declared type over the actual bytes. This picks the first type the
-// browser actually supports and uses that same type consistently for the
-// recorder, the blob, and the upload's Content-Type metadata.
-const VOICE_MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4',
-  'audio/ogg;codecs=opus',
-  'audio/ogg',
-];
-function pickSupportedMimeType() {
-  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
-  return VOICE_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
-}
-// Voice notes are stored directly inside the Firestore message document as
-// base64 (no Firebase Storage — Storage now requires the paid Blaze plan
-// even for free-tier usage as of Feb 2026, so it's off the table on Spark).
-// Firestore hard-caps a document at 1MB, and base64 inflates raw audio by
-// ~33%, so recording length needs a real ceiling rather than hoping it
-// stays small. 60s is generous for a chat voice note and stays comfortably
-// under the limit for every codec in VOICE_MIME_CANDIDATES.
-const MAX_RECORDING_SECONDS = 60;
+// Short one-line preview used for reply quotes — same shape as the other
+// chats' buildPreview() (Match Chat, Skill Swap Chat, Event Chat).
+const buildPreview = (m, t) => {
+  if (!m) return '';
+  if (m.type === 'voice') return `🎤 ${t('voice_note')}`;
+  if (m.type === 'sticker') return '🖼️ Sticker';
+  const text = (m.text || '').trim();
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+};
 
 export default function MoodChat() {
   const navigate = useNavigate();
@@ -63,17 +55,27 @@ export default function MoodChat() {
   const [micError, setMicError] = useState('');
   const [chatError, setChatError] = useState('');
   const [moodActivityToday, setMoodActivityToday] = useState({});
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState('');
+
+  // Long-press message actions (reply / delete-your-own) and swipe-to-reply.
+  const [actionsFor, setActionsFor] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+
   const recRef = useRef(null);
   const chunksRef = useRef([]);
-  const mimeRef = useRef('');
   const recTimerRef = useRef(null);
   const listRef = useRef(null);
   const lastSeenRef = useRef(0);
+  const longPressTimerRef = useRef(null);
+  const openedAtRef = useRef(0);
+  const messageElsRef = useRef({});
+  const bubbleElsRef = useRef({});
+  const dragStateRef = useRef(null);
 
-  // Genuine "who's actually in this room right now" — replaces the old
-  // (incorrect) display of messages.length as if it were an online count.
-  // Server-enforced via RTDB onDisconnect, so it stays accurate even if
-  // someone's tab crashes rather than closes cleanly.
+  // Genuine "who's actually in this room right now" — server-enforced via
+  // RTDB onDisconnect, so it stays accurate even if someone's tab crashes
+  // rather than closes cleanly.
   const { count: onlineCount, error: presenceError } = useRoomPresence(
     mood ? `mood-${mood}` : null,
     userId,
@@ -111,7 +113,154 @@ export default function MoodChat() {
     }, () => setChatError('Messages could not be loaded. Check your connection and try reopening this mood.'), `mood chat (${mood})`);
   }, [mood, userId, t]);
 
-  useEffect(() => () => clearInterval(recTimerRef.current), []);
+  useEffect(() => () => { clearInterval(recTimerRef.current); clearTimeout(longPressTimerRef.current); }, []);
+
+  // --- Group delivered/seen receipts ------------------------------------
+  // A mood room can have many people in it at once, so this isn't the
+  // single delivered/seen boolean Match Chat uses for a 1:1 thread — it's
+  // a small map of who has received/seen each message (deliveredBy/seenBy,
+  // keyed by uid). "Delivered" is stamped the moment a message reaches my
+  // snapshot listener; "seen" only while this tab is actually visible and
+  // focused, same distinction Match Chat makes.
+  const markReceipts = useCallback(() => {
+    if (!mood || !userId) return;
+    const isVisible = typeof document !== 'undefined' && document.visibilityState === 'visible';
+    const pending = messages.filter((m) => m.userId && m.userId !== userId
+      && (!m.deliveredBy?.[userId] || (isVisible && !m.seenBy?.[userId])));
+    if (!pending.length) return;
+    const batch = writeBatch(db);
+    pending.forEach((m) => {
+      const patch = {};
+      if (!m.deliveredBy?.[userId]) patch[`deliveredBy.${userId}`] = true;
+      if (isVisible && !m.seenBy?.[userId]) patch[`seenBy.${userId}`] = true;
+      if (Object.keys(patch).length) batch.update(doc(db, 'chats', mood, 'messages', m.id), patch);
+    });
+    batch.commit().catch((err) => console.error('Could not update read receipts:', err));
+  }, [messages, mood, userId]);
+
+  useEffect(() => { markReceipts(); }, [markReceipts]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') markReceipts(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [markReceipts]);
+
+  // --- Long-press (reply/delete) + swipe-left/right (reply) -------------
+  // Same long-press timing/jitter-tolerance as Match Chat, extended so a
+  // horizontal drag is recognised as its own gesture (swipe-to-reply)
+  // rather than just cancelling the long press. The two are mutually
+  // exclusive per-gesture: whichever direction the finger commits to first
+  // (mostly horizontal vs. barely moving) wins.
+  const LONG_PRESS_MS = 450;
+  const AXIS_LOCK_PX = 10;
+  const REPLY_TRIGGER_PX = 56;
+  const REPLY_MAX_PX = 84;
+
+  const resetBubbleTransform = (id, animate) => {
+    const el = bubbleElsRef.current[id];
+    if (!el) return;
+    if (animate) {
+      el.style.transition = 'transform 180ms ease';
+      el.style.transform = 'translateX(0px)';
+      setTimeout(() => { if (el) el.style.transition = ''; }, 200);
+    } else {
+      el.style.transition = '';
+      el.style.transform = 'translateX(0px)';
+    }
+  };
+
+  const cancelLongPress = () => clearTimeout(longPressTimerRef.current);
+
+  const startPress = (m, e) => {
+    clearTimeout(longPressTimerRef.current);
+    dragStateRef.current = {
+      id: m.id, startX: e.clientX, startY: e.clientY, axisLocked: null, dx: 0,
+    };
+    longPressTimerRef.current = setTimeout(() => {
+      if (dragStateRef.current?.axisLocked === 'x') return; // mid-swipe, not a long-press
+      if (navigator.vibrate) navigator.vibrate(10);
+      openedAtRef.current = Date.now();
+      setActionsFor(m);
+    }, LONG_PRESS_MS);
+  };
+
+  const movePress = (m, e) => {
+    const ds = dragStateRef.current;
+    if (!ds || ds.id !== m.id) return;
+    const dx = e.clientX - ds.startX;
+    const dy = e.clientY - ds.startY;
+    if (!ds.axisLocked) {
+      if (Math.abs(dx) > AXIS_LOCK_PX || Math.abs(dy) > AXIS_LOCK_PX) {
+        ds.axisLocked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        cancelLongPress();
+      }
+    }
+    if (ds.axisLocked === 'x') {
+      const clamped = Math.max(-REPLY_MAX_PX, Math.min(REPLY_MAX_PX, dx));
+      ds.dx = clamped;
+      const el = bubbleElsRef.current[m.id];
+      if (el) { el.style.transition = ''; el.style.transform = `translateX(${clamped}px)`; }
+    }
+  };
+
+  const endPress = (m) => {
+    cancelLongPress();
+    const ds = dragStateRef.current;
+    dragStateRef.current = null;
+    if (!ds || ds.id !== m.id) return;
+    if (ds.axisLocked === 'x') {
+      resetBubbleTransform(m.id, true);
+      if (Math.abs(ds.dx) >= REPLY_TRIGGER_PX) {
+        if (navigator.vibrate) navigator.vibrate(8);
+        setReplyingTo(m);
+      }
+    }
+  };
+
+  const cancelPress = (m) => {
+    cancelLongPress();
+    dragStateRef.current = null;
+    resetBubbleTransform(m.id, true);
+  };
+
+  const openActionsViaContextMenu = (e, m) => {
+    e.preventDefault();
+    openedAtRef.current = Date.now();
+    setActionsFor(m);
+  };
+  const closeActions = () => {
+    if (Date.now() - openedAtRef.current < 400) return;
+    setActionsFor(null);
+  };
+
+  const scrollToMessage = (id) => {
+    const el = messageElsRef.current[id];
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('message--flash');
+    setTimeout(() => el.classList.remove('message--flash'), 1200);
+  };
+
+  const handleReply = (m) => { setReplyingTo(m); setActionsFor(null); };
+
+  const handleDelete = async (m) => {
+    setActionsFor(null);
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(t('delete_message_confirm'))) return;
+    try {
+      await deleteDoc(doc(db, 'chats', mood, 'messages', m.id));
+    } catch (err) {
+      setChatError(`Couldn't delete that message. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
+  };
+
+  // Denormalized reply-quote metadata, kept as a small preview snapshot
+  // (not a live reference) so it still renders correctly even if the
+  // original message is later deleted.
+  const replyToField = () => (replyingTo
+    ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo, t) } }
+    : {});
 
   const send = async () => {
     if (!text.trim() || !mood || !userId || !sendReady) return;
@@ -126,11 +275,30 @@ export default function MoodChat() {
         type: 'text', text: text.trim(), userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
+        ...replyToField(),
       });
       setText('');
+      setReplyingTo(null);
       recordMoodActivity(mood);
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
+    }
+  };
+
+  const handleSendSticker = async (dataUrl) => {
+    setShowStickerPicker(false);
+    if (!mood || !userId) return;
+    try {
+      await addDoc(collection(db, 'chats', mood, 'messages'), {
+        type: 'sticker', fileUrl: dataUrl, fileMime: 'image/png', userId,
+        userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
+        createdAt: Timestamp.now(),
+        ...replyToField(),
+      });
+      setReplyingTo(null);
+      recordMoodActivity(mood);
+    } catch (err) {
+      setChatError(`Couldn't send that sticker. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
   };
 
@@ -138,8 +306,7 @@ export default function MoodChat() {
     setMicError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = pickSupportedMimeType();
-      mimeRef.current = mimeType;
+      const mimeType = pickSupportedVoiceMimeType();
       const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
@@ -164,11 +331,17 @@ export default function MoodChat() {
             reader.onerror = () => reject(reader.error);
             reader.readAsDataURL(blob);
           });
+          if (dataUrl.length > MAX_DATA_URL_CHARS) {
+            setMicError('That recording was too long to send — try one under a minute.');
+            return;
+          }
           await addDoc(collection(db, 'chats', mood, 'messages'), {
             type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
+            ...replyToField(),
           });
+          setReplyingTo(null);
           recordMoodActivity(mood);
         } catch (err) {
           setMicError(`Couldn't send that voice note. (${err?.code || 'unknown'}: ${err?.message || err})`);
@@ -204,6 +377,10 @@ export default function MoodChat() {
 
   if (loading || !user) return <PageSkeleton />;
 
+  const visibleMessages = messages.filter((m) => !blockedUsers.has(m.userId));
+  const lastMineId = [...visibleMessages].reverse().find((m) => m.userId === userId)?.id;
+  const messagesToday = moodActivityToday[mood] || 0;
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -236,67 +413,153 @@ export default function MoodChat() {
             </div>
           </div>
         ) : (
-          <div className="aura-card aura-section fade-in" data-testid="mood-chat-room">
-            <div className="aura-row" style={{ justifyContent: 'space-between' }}>
+          <div className="fade-in" data-testid="mood-chat-room">
+            <div className="aura-row" style={{ justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
               <div className="chip"><span className="dot dot--live" /> {mood} • {t('online_now')}: {presenceError ? '—' : onlineCount}</div>
-              {presenceError && (
-                <p className="aura-muted" style={{ fontSize: '0.78rem', margin: '4px 0 0' }} data-testid="presence-error">
-                  {t('presence_unavailable')}
-                </p>
-              )}
+              <div className="chip" data-testid="messages-today-chip">{t('messages_today_count', { count: messagesToday })}</div>
               <button type="button" onClick={() => setMood('')} className="aura-btn aura-btn-secondary aura-btn-pill" data-testid="change-mood-btn">{t('change_mood')}</button>
             </div>
+            {presenceError && (
+              <p className="aura-muted" style={{ fontSize: '0.78rem', margin: '0 0 8px' }} data-testid="presence-error">
+                {t('presence_unavailable')}
+              </p>
+            )}
 
-            <div ref={listRef} className="message-list" data-testid="message-list" style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 12, border: '1px solid var(--border)' }}>
-              {messages.filter((m) => !blockedUsers.has(m.userId)).length === 0 ? (
-                <p className="aura-muted" style={{ textAlign: 'center', padding: '2rem' }}>{t('no_messages')}</p>
-              ) : messages.filter((m) => !blockedUsers.has(m.userId)).map((m) => (
-                <div key={m.id} className={`message${m.userId === userId ? ' message--mine' : ''}`} data-testid={`msg-${m.id}`}>
-                  <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
-                    <div className="aura-row" style={{ gap: 8 }}>
-                      <Avatar color={m.userColor} size={24} />
-                      <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
+            <div className="aura-card chat-card fade-in">
+              <div ref={listRef} className="message-list" data-testid="message-list">
+                {visibleMessages.length === 0 ? (
+                  <p className="chat-empty-state">{t('no_messages')}</p>
+                ) : visibleMessages.map((m) => (
+                  <div
+                    key={m.id}
+                    ref={(el) => { messageElsRef.current[m.id] = el; }}
+                    className={`message${m.userId === userId ? ' message--mine' : ''}${m.type === 'sticker' ? ' message--sticker' : ''}`}
+                    onPointerDown={(e) => startPress(m, e)}
+                    onPointerMove={(e) => movePress(m, e)}
+                    onPointerUp={() => endPress(m)}
+                    onPointerCancel={() => cancelPress(m)}
+                    onContextMenu={(e) => openActionsViaContextMenu(e, m)}
+                    data-testid={`msg-${m.id}`}
+                  >
+                    <div className="aura-row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                      <div className="aura-row" style={{ gap: 8 }}>
+                        <Avatar color={m.userColor} size={24} />
+                        <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
+                      </div>
+                      {m.userId !== userId && (
+                        <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="moodChat" contextId={mood} compact />
+                      )}
                     </div>
-                    {m.userId !== userId && (
-                      <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="moodChat" contextId={mood} compact />
+                    <div className="message__bubble" ref={(el) => { bubbleElsRef.current[m.id] = el; }}>
+                      {m.replyTo && (
+                        <button
+                          type="button"
+                          className="message__reply-quote"
+                          onClick={(e) => { e.stopPropagation(); scrollToMessage(m.replyTo.id); }}
+                          data-testid={`reply-quote-${m.id}`}
+                        >
+                          <span className="message__reply-quote__name">{m.replyTo.userId === userId ? t('you') : `Person ${m.replyTo.userId?.slice(0, 6)}`}</span>
+                          <span className="message__reply-quote__text">{m.replyTo.preview}</span>
+                        </button>
+                      )}
+                      {m.type === 'voice' && m.voiceUrl ? (
+                        <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} data-testid={`voice-msg-${m.id}`} />
+                      ) : m.type === 'sticker' && m.fileUrl ? (
+                        <button type="button" className="message__sticker-btn" onClick={() => setLightboxUrl(m.fileUrl)} data-testid={`sticker-msg-${m.id}`}>
+                          <img src={m.fileUrl} alt="Sticker" className="message__sticker" />
+                        </button>
+                      ) : (
+                        <span>{m.text}</span>
+                      )}
+                    </div>
+                    {m.userId === userId && m.id === lastMineId && (Object.keys(m.deliveredBy || {}).length > 0 || Object.keys(m.seenBy || {}).length > 0) && (
+                      <span className="message__receipt-label" data-testid="last-message-receipt-label">
+                        {t('delivered_to', { count: Object.keys(m.deliveredBy || {}).length })}
+                        {Object.keys(m.seenBy || {}).length > 0 && ` • ${t('seen_by', { count: Object.keys(m.seenBy || {}).length })}`}
+                      </span>
                     )}
                   </div>
-                  <div className="message__bubble">
-                    {m.type === 'voice' && m.voiceUrl ? (
-                      <audio controls src={m.voiceUrl} style={{ maxWidth: 240 }} />
-                    ) : (
-                      <span>{m.text}</span>
-                    )}
+                ))}
+              </div>
+
+              {chatError && <p className="chat-card__error aura-login-error" data-testid="chat-error">{chatError}</p>}
+              {micError && <p className="chat-card__error aura-login-error">{micError}</p>}
+              {replyingTo && (
+                <div className="reply-preview" data-testid="reply-preview-bar">
+                  <div className="reply-preview__body">
+                    <span className="reply-preview__name">{replyingTo.userId === userId ? t('you') : `Person ${replyingTo.userId?.slice(0, 6)}`}</span>
+                    <span className="reply-preview__text">{buildPreview(replyingTo, t)}</span>
                   </div>
+                  <button type="button" onClick={() => setReplyingTo(null)} className="aura-btn aura-btn-secondary aura-btn-pill" aria-label={t('cancel_reply')} data-testid="cancel-reply-btn">
+                    <X size={14} />
+                  </button>
                 </div>
-              ))}
-            </div>
-
-            {chatError && <p className="aura-login-error" style={{ margin: '10px 0 0' }} data-testid="chat-error">{chatError}</p>}
-            {micError && <p className="aura-login-error" style={{ margin: '10px 0 0' }}>{micError}</p>}
-
-            <div className="aura-row">
-              <input
-                type="text"
-                className="aura-input"
-                placeholder={t('type_message')}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
-                maxLength={3000}
-                style={{ flex: '1 1 240px' }}
-                data-testid="message-input"
-              />
-              {recording ? (
-                <button type="button" className="aura-btn aura-btn-danger" onClick={stopRecording} data-testid="stop-record-btn"><Square size={16} /> {t('recording')} · {Math.max(0, MAX_RECORDING_SECONDS - recordSeconds)}s</button>
-              ) : (
-                <button type="button" className="aura-btn aura-btn-secondary" onClick={startRecording} aria-label={t('send_voice_note')} data-testid="record-btn"><Mic size={16} /></button>
               )}
-              <button type="button" className="aura-btn aura-btn-primary" onClick={send} disabled={!text.trim() || !sendReady} data-testid="send-btn"><Send size={16} /> {t('send')}</button>
+
+              <div className="chat-input-bar">
+                <button
+                  type="button"
+                  onClick={() => setShowStickerPicker(true)}
+                  disabled={recording}
+                  className="aura-btn aura-btn-secondary"
+                  aria-label={t('send_sticker')}
+                  data-testid="mood-sticker-btn"
+                >
+                  <StickerIcon size={16} />
+                </button>
+                <input
+                  type="text"
+                  className="aura-input"
+                  placeholder={t('type_message')}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+                  maxLength={3000}
+                  style={{ flex: '1 1 240px' }}
+                  data-testid="message-input"
+                />
+                {recording ? (
+                  <button type="button" className="aura-btn aura-btn-danger" onClick={stopRecording} data-testid="stop-record-btn"><Square size={16} /> {Math.max(0, MAX_RECORDING_SECONDS - recordSeconds)}s</button>
+                ) : (
+                  <button type="button" className="aura-btn aura-btn-secondary" onClick={startRecording} disabled={!!text.trim()} aria-label={t('send_voice_note')} data-testid="record-btn"><Mic size={16} /></button>
+                )}
+                <button type="button" className="aura-btn aura-btn-primary" onClick={send} disabled={!text.trim() || !sendReady} data-testid="send-btn"><Send size={16} /></button>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {showStickerPicker && (
+        <StickerPicker userId={userId} onSelect={handleSendSticker} onClose={() => setShowStickerPicker(false)} />
+      )}
+
+      {lightboxUrl && (
+        <div className="aura-modal-backdrop" onClick={() => setLightboxUrl('')} data-testid="image-lightbox">
+          <button type="button" className="aura-btn aura-btn-secondary aura-btn-pill image-lightbox__close" onClick={() => setLightboxUrl('')} aria-label={t('close')}>
+            <X size={16} />
+          </button>
+          <img src={lightboxUrl} alt="" className="image-lightbox__img" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {actionsFor && (
+        <div className="aura-modal-backdrop message-actions-backdrop" onClick={closeActions} data-testid="message-actions-sheet">
+          <div className="message-actions-sheet" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="message-actions-sheet__item" onClick={() => handleReply(actionsFor)} data-testid="action-reply">
+              <Reply size={16} /> {t('reply')}
+            </button>
+            {actionsFor.userId === userId && (
+              <button type="button" className="message-actions-sheet__item message-actions-sheet__item--danger" onClick={() => handleDelete(actionsFor)} data-testid="action-delete">
+                <Trash2 size={16} /> {t('delete_message')}
+              </button>
+            )}
+            <button type="button" className="message-actions-sheet__item message-actions-sheet__item--cancel" onClick={() => setActionsFor(null)} data-testid="action-cancel">
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
