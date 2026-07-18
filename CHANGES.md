@@ -1,3 +1,44 @@
+# Mood Chat: bigger WhatsApp-style room, swipe/long-press actions, stickers, live stats
+
+## What's new
+Mood Chat now shares the same polished chat-room shell as Match Chat /
+Skill Swap Chat / Event Chat (`.chat-card`), instead of a plain scrolling
+list — a taller, bounded panel with a soft wallpaper behind the messages
+and a pinned input bar, so it reads as an actual room rather than a page
+that just keeps growing.
+
+- **Long-press a message** to open an action sheet: reply, or delete (your
+  own messages only). Right-click does the same on desktop.
+- **Swipe a message left or right** to reply to it — same gesture as
+  WhatsApp. A small drag-and-release past a short threshold opens the
+  reply composer with a quote of the original; swiping either direction
+  works, and a light drag that doesn't cross the threshold just snaps
+  back.
+- **Stickers** — a new sticker button next to the input opens a personal
+  sticker pack (shared component with Match Chat, `StickerPicker.jsx`).
+  Add a sticker from any photo, or import one exported out of WhatsApp's
+  own share/save sheet (WhatsApp has no public export API, so "share/save
+  as image, then pick it here" is the real-world equivalent of "import
+  from WhatsApp" a web app can do). Tap a sent sticker to view it full-size.
+- **Live room stats** in the header: online count (unchanged, genuine RTDB
+  presence), plus a running "X messages today" chip for the room. Your own
+  latest message also shows "Delivered to N • Seen by M" underneath it —
+  group-chat read receipts, tracked per-message as small `deliveredBy`/
+  `seenBy` maps (who has received/seen it) rather than the single
+  delivered/seen pair a 1:1 thread uses. "Seen" only counts while someone's
+  tab is actually visible, same distinction Match Chat's receipts make.
+
+## Rules changes
+`chats/{mood}/messages` in `firestore.rules`:
+- `create` now also allows (and caps) `fileUrl`/`fileMime`, so a sticker
+  message can ship the same way a voice note already does.
+- `update` went from fully locked (`allow update: if false`) to allowing
+  exactly one thing: someone other than the sender adding *their own* uid
+  to `deliveredBy` or `seenBy` — every other field, and every other
+  person's receipt entry, stays immutable.
+- `delete` is unchanged — deleting your own message already worked
+  server-side; long-press just exposes it in the UI.
+
 # Match Chat: send photos, audio files, and general files (plus voice notes)
 
 ## What's new
