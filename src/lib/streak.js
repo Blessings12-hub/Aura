@@ -41,3 +41,35 @@ export async function recordDailyAnswerStreak(userId, day = todayKey()) {
   await updateDoc(ref, { dailyStreak, dailyStreakBest, dailyStreakLastDate: day });
   return { dailyStreak, dailyStreakBest };
 }
+
+/**
+ * A second, SEPARATE streak from the Daily-Question-specific one above.
+ * That one only moves when someone answers today's question; this one
+ * moves on any day the person opens Aura at all, regardless of which
+ * activity (or none) they actually use. Kept as entirely separate fields
+ * (appStreak / appStreakBest / appStreakLastDate) rather than reusing
+ * dailyStreak*, so DailyQuestionNudge and the Daily Question page's own
+ * streak chip keep working exactly as before — nothing about this touches
+ * their logic.
+ *
+ * Called from PresenceRoot, which already mounts once per authenticated
+ * session app-wide, so this doesn't need wiring into every activity page
+ * individually. Same once-per-day dedupe pattern as recordDailyAnswerStreak.
+ */
+export async function recordAppStreak(userId, day = todayKey()) {
+  const ref = doc(db, 'users', userId);
+  const snap = await getDoc(ref);
+  const data = snap.exists() ? snap.data() : {};
+  const lastDate = data.appStreakLastDate;
+
+  if (lastDate === day) {
+    return { appStreak: data.appStreak || 1, appStreakBest: data.appStreakBest || 1 };
+  }
+
+  const isConsecutive = lastDate === yesterdayKey(new Date(`${day}T00:00:00`));
+  const appStreak = isConsecutive ? (data.appStreak || 0) + 1 : 1;
+  const appStreakBest = Math.max(appStreak, data.appStreakBest || 0);
+
+  await updateDoc(ref, { appStreak, appStreakBest, appStreakLastDate: day });
+  return { appStreak, appStreakBest };
+}
