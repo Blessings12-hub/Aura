@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc, limit,
 } from 'firebase/firestore';
 import { CalendarHeart, MessageCircle, Check, X } from 'lucide-react';
 import { db } from '../firebase';
@@ -34,7 +34,21 @@ export default function EventBuddy() {
   const [pendingActions, setPendingActions] = useState({});
 
   useEffect(() => {
-    const q = query(collection(db, 'eventBuddy'), orderBy('createdAt', 'desc'));
+    // Previously this subscribed to every event ever posted, all-time, with
+    // no time bound and no cap — the "hide past events" step happened only
+    // client-side, after downloading the entire history. This now filters
+    // server-side to events whose date hasn't passed yet, sorted soonest
+    // first (a more useful order for an events list than "most recently
+    // posted"), with a limit() as a safety cap in case the upcoming list
+    // ever gets very large. The where()+orderBy() both target `date`,
+    // which Firestore allows on its automatic single-field index — no
+    // manual composite index needed in the console for this one.
+    const q = query(
+      collection(db, 'eventBuddy'),
+      where('date', '>=', todayKey()),
+      orderBy('date', 'asc'),
+      limit(200),
+    );
     return subscribe(
       q,
       (s) => setEvents(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
@@ -134,11 +148,10 @@ export default function EventBuddy() {
 
   if (loading || !user) return <PageSkeleton />;
 
-  // "Resets every 24 hours" for Event Buddy means something different from
-  // a chat feed: an event 5 days out is still very much joinable the day
-  // after it's posted, so this hides by the event's own DATE having
-  // passed, not by how long ago it was posted (unlike Mood Chat/Match
-  // Finder/Skill Swap, which age out by post time).
+  // The query itself now only fetches upcoming events (see the where()
+  // above), so this date check is just a defensive backup for any old
+  // event docs missing a `date` field — the real filtering already
+  // happened server-side instead of downloading the full history first.
   const visibleEvents = events.filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()));
 
   return (
