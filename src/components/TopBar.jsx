@@ -1,4 +1,4 @@
-import { ArrowLeft, Moon, Sun, Bell, BellRing, LogOut } from 'lucide-react';
+import { ArrowLeft, Moon, Sun, Bell, BellRing, LogOut, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { useTheme } from '../context/ThemeContext';
@@ -7,7 +7,7 @@ import LanguageSwitcher from './LanguageSwitcher';
 import { useNotifications } from '../notifications/NotificationManager';
 import { auth } from '../firebase';
 
-export default function TopBar({ title, subtitle, onBack, right = null, showLogout = false }) {
+export default function TopBar({ title, subtitle, onBack, right = null, showLogout = false, showSettings = false }) {
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const { permission, request } = useNotifications();
@@ -62,6 +62,18 @@ export default function TopBar({ title, subtitle, onBack, right = null, showLogo
         >
           {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
         </button>
+        {showSettings && (
+          <button
+            type="button"
+            className="aura-btn aura-btn-secondary aura-btn-pill"
+            onClick={() => navigate('/aura/settings')}
+            data-testid="settings-btn"
+            aria-label="Account settings"
+            title="Account settings"
+          >
+            <Settings size={14} />
+          </button>
+        )}
         {showLogout && (
           <button
             type="button"
