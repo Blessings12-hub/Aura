@@ -9,7 +9,8 @@ import {
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
 import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -48,6 +49,32 @@ export default function MatchFinder() {
   const [displayName, setDisplayName] = useState('');
   const [age, setAge] = useState('');
   const [ageConsent, setAgeConsent] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+
+  // Redirects to Didit's hosted verification flow. The actual verified
+  // flag doesn't land until Didit's webhook fires (see
+  // functions/index.js's diditWebhook) — a full ID document check takes
+  // longer than a quick facial estimate would have, so this can't just
+  // optimistically flip something locally.
+  // Didit's callback sends them back to this same page; user.verified
+  // becomes true (via useCurrentUser's live subscription) once the
+  // webhook lands, no manual refresh needed.
+  const handleVerify = async () => {
+    setVerifyError('');
+    setVerifying(true);
+    try {
+      const createSession = httpsCallable(functions, 'createDiditSession');
+      const result = await createSession();
+      const url = result?.data?.url;
+      if (!url) throw new Error('No verification URL returned');
+      window.location.href = url;
+    } catch (err) {
+      console.error('verification session creation failed', err);
+      setVerifyError('Could not start verification right now. Please try again in a moment.');
+      setVerifying(false);
+    }
+  };
   const [gender, setGender] = useState('');
   const [avatarColor, setAvatarColor] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -234,7 +261,7 @@ export default function MatchFinder() {
   };
 
   const canSaveProfile = displayName.trim() && bio.trim() && hobbies.trim() && lookingFor.trim()
-    && age && Number(age) >= MIN_MATCH_AGE && ageConsent && gender && avatarColor && !saving;
+    && age && Number(age) >= MIN_MATCH_AGE && ageConsent && gender && avatarColor && user?.verified === true && !saving;
 
   const saveProfile = async () => {
     if (!userId || !canSaveProfile) return;
@@ -244,6 +271,10 @@ export default function MatchFinder() {
     }
     if (!ageConsent) {
       setSaveError(t('match_age_consent_required'));
+      return;
+    }
+    if (user?.verified !== true) {
+      setSaveError('Please verify your age first — see the verification step above.');
       return;
     }
     const moderationReason = moderateText(`${bio} ${hobbies} ${lookingFor} ${displayName}`);
@@ -457,6 +488,25 @@ export default function MatchFinder() {
           {photoError && <p className="aura-login-error" style={{ margin: '6px 0 0' }}>{photoError}</p>}
 
           <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
+
+          {user?.verified !== true && (
+            <div className="aura-card" style={{ borderColor: '#f59e0b', margin: '10px 0' }} data-testid="match-verify-card">
+              <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Verify your age to use Match Finder</p>
+              <p className="aura-muted" style={{ margin: '0 0 10px', fontSize: '0.85rem' }}>
+                A quick ID check — separate from the self-reported number below, which anyone could otherwise type incorrectly. You'll scan an ID document; it usually only takes a couple of minutes, and you'll be brought right back here.
+              </p>
+              <button
+                type="button"
+                className="aura-btn aura-btn-secondary"
+                onClick={handleVerify}
+                disabled={verifying}
+                data-testid="match-verify-btn"
+              >
+                {verifying ? 'Starting…' : 'Verify my age'}
+              </button>
+              {verifyError && <p className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
+            </div>
+          )}
 
           <div className="aura-row">
             <input className="aura-input" style={{ flex: '1 1 120px' }} type="number" inputMode="numeric" min={MIN_MATCH_AGE} value={age} onChange={(e) => setAge(e.target.value)} placeholder={t('age_placeholder')} data-testid="match-age" />
