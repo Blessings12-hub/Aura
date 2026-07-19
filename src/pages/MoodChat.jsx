@@ -4,8 +4,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, where, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch, limit,
+  collection, query, orderBy, where, Timestamp, doc, deleteDoc,
+  onSnapshot, writeBatch, limit, serverTimestamp,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
@@ -289,6 +289,22 @@ export default function MoodChat() {
     ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo, t) } }
     : {});
 
+  // Sends a message AND bumps users/{uid}.lastMessageAt in the same atomic
+  // batch. This is what firestore.rules actually checks now (see
+  // messageCooldownOk / bumpsCooldown there) — useSendCooldown() below is
+  // still what gives instant UI feedback (disabling the send button), but
+  // it's just UX polish now, not the real enforcement. A batch (not two
+  // separate calls) matters here: the rule uses getAfter() to confirm this
+  // exact write bumped the timestamp, which only works if both writes
+  // commit together.
+  const sendWithCooldownBump = async (payload) => {
+    const batch = writeBatch(db);
+    const msgRef = doc(collection(db, 'chats', mood, 'messages'));
+    batch.set(msgRef, payload);
+    batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
+    await batch.commit();
+  };
+
   const send = async () => {
     if (!text.trim() || !mood || !userId || !sendReady) return;
     const moderationReason = moderateText(text);
@@ -298,7 +314,7 @@ export default function MoodChat() {
     }
     triggerCooldown();
     try {
-      await addDoc(collection(db, 'chats', mood, 'messages'), {
+      await sendWithCooldownBump({
         type: 'text', text: text.trim(), userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
@@ -316,7 +332,7 @@ export default function MoodChat() {
     setShowStickerPicker(false);
     if (!mood || !userId) return;
     try {
-      await addDoc(collection(db, 'chats', mood, 'messages'), {
+      await sendWithCooldownBump({
         type: 'sticker', fileUrl: sticker.dataUrl, fileMime: sticker.mime || 'image/png', userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
@@ -362,7 +378,7 @@ export default function MoodChat() {
             setMicError('That recording was too long to send — try one under a minute.');
             return;
           }
-          await addDoc(collection(db, 'chats', mood, 'messages'), {
+          await sendWithCooldownBump({
             type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
