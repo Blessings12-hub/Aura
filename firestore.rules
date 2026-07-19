@@ -124,7 +124,12 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validAge(request.resource.data);
       allow update: if isOwner(uid) && validAge(request.resource.data);
-      allow delete: if false;
+      // Was `if false` — meaning nobody, not even the account's own
+      // owner, could ever delete it. That made a genuine self-service
+      // "delete my account" feature impossible at the rules level,
+      // regardless of what the client tried to do. This only allows the
+      // owner to delete their own doc — nobody else's.
+      allow delete: if isOwner(uid);
     }
 
     // ------------------------------------------------------------------
