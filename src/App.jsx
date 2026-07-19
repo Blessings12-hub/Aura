@@ -32,6 +32,7 @@ const EventBuddy = lazy(() => import('./pages/EventBuddy'));
 const EventChat = lazy(() => import('./pages/EventChat'));
 const CollabStudio = lazy(() => import('./pages/CollabStudio'));
 const AdminReports = lazy(() => import('./pages/AdminReports'));
+const AccountSettings = lazy(() => import('./pages/AccountSettings'));
 
 export default function App() {
   return (
@@ -57,6 +58,7 @@ export default function App() {
                   <Route path="/aura/event/chat/:eventId" element={<EventChat />} />
                   <Route path="/aura/collab" element={<CollabStudio />} />
                   <Route path="/aura/admin/reports" element={<AdminReports />} />
+                  <Route path="/aura/settings" element={<AccountSettings />} />
                 </Routes>
               </Suspense>
             </BrowserRouter>
