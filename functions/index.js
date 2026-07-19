@@ -230,9 +230,9 @@ exports.onEventJoinUpdated = onDocumentUpdated('eventJoins/{joinId}', async (eve
 // JSON serialization (sorted keys, compact separators, float normalization)
 // in this function, which is real complexity to take on for no added
 // protection given what this handler actually uses.
-const diditApiKey = defineSecret('DIDIT_API_KEY');
+const diditApiKey = defineSecret('FX9s3ybNSW59XurBIasaPsq8vboQ8myh8FzSbVQINts');
 const diditWebhookSecret = defineSecret('DIDIT_WEBHOOK_SECRET');
-const DIDIT_WORKFLOW_ID = 'REPLACE_WITH_YOUR_DIDIT_WORKFLOW_ID';
+const DIDIT_WORKFLOW_ID = '293d9688-aafc-4c92-bdda-0279a937b383';
 
 exports.createDiditSession = onCall({ secrets: [diditApiKey] }, async (request) => {
   if (!request.auth) {
