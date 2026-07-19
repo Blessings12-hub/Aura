@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { deleteUser } from 'firebase/auth';
+import { deleteUser, linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import {
   doc, getDoc, deleteDoc, collection, query, where, getDocs,
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { Download, Trash2, AlertTriangle } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { auth, db } from '../firebase';
 import TopBar from '../components/TopBar';
@@ -25,10 +25,41 @@ export default function AccountSettings() {
   const { user, userId, loading } = useCurrentUser();
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [linkedEmail, setLinkedEmail] = useState(
+    auth.currentUser?.providerData?.find((p) => p.providerId === 'google.com')?.email || null,
+  );
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
 
   if (loading || !user) return <PageSkeleton />;
+
+  // Anonymous accounts (what everyone on Aura starts as) have no password
+  // and no way to sign back in on a new device or after clearing cache —
+  // clear localStorage and the whole profile, matches, and history are
+  // gone for good. Linking a Google account doesn't make the account any
+  // less anonymous inside Aura (no name/email is ever shown to other
+  // users — this is purely a recovery credential), it just gives this
+  // same uid a way back in. See handleRecover in Login.jsx for the other
+  // half of this — signing in with the same Google account there resolves
+  // straight back to this account instead of creating a new one.
+  const handleLinkGoogle = async () => {
+    setError('');
+    setLinking(true);
+    try {
+      const result = await linkWithPopup(auth.currentUser, new GoogleAuthProvider());
+      setLinkedEmail(result.user.email);
+    } catch (e) {
+      if (e?.code === 'auth/credential-already-in-use') {
+        setError('That Google account is already linked to a different Aura account. Sign in with it from the Login screen instead to recover that one.');
+      } else if (e?.code !== 'auth/popup-closed-by-user') {
+        console.error('link account failed', e);
+        setError('Could not link that Google account. Please try again.');
+      }
+    } finally {
+      setLinking(false);
+    }
+  };
 
   const gatherAccountData = async () => {
     const [identitySnap, cardsSnap] = await Promise.all([
@@ -96,6 +127,31 @@ export default function AccountSettings() {
     <div className="aura-page">
       <div className="aura-shell">
         <TopBar title="Account settings" onBack={() => navigate('/aura')} />
+
+        <div className="aura-card fade-in" style={{ marginTop: 16 }}>
+          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldCheck size={18} /> Back up your account
+          </h2>
+          <p className="aura-muted">
+            Aura is anonymous by design — there's no password, no email required. That also means if you clear your browser data, switch phones, or reinstall, there is normally no way back into this exact profile, matches, or history.
+          </p>
+          <p className="aura-muted">
+            Linking a Google account fixes that, without making you any less anonymous inside Aura — nobody else ever sees your name or email, it's only used to get back into this account from a new device.
+          </p>
+          {linkedEmail ? (
+            <p style={{ fontWeight: 600 }} data-testid="linked-account-status">✓ Linked to {linkedEmail}</p>
+          ) : (
+            <button
+              type="button"
+              className="aura-btn aura-btn-secondary"
+              onClick={handleLinkGoogle}
+              disabled={linking}
+              data-testid="link-google-btn"
+            >
+              {linking ? 'Linking…' : 'Link a Google account'}
+            </button>
+          )}
+        </div>
 
         <div className="aura-card fade-in" style={{ marginTop: 16 }}>
           <h2 style={{ marginTop: 0 }}>Export your data</h2>

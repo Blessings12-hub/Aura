@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { Check } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { AVATAR_COLORS } from '../constants/moods';
@@ -27,6 +27,40 @@ export default function Login() {
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+
+  // Recovers a previous account on a new device/cleared cache — this is
+  // the counterpart to the "Link Google account" option in Account
+  // Settings. Anonymous accounts have no password and no way to sign back
+  // in on their own; if someone never linked a Google account first,
+  // there is genuinely nothing to recover here — that limitation is real,
+  // not a bug in this flow, and is explained in the UI below.
+  const handleRecover = async () => {
+    setError('');
+    setRecovering(true);
+    try {
+      const result = await signInWithPopup(auth, new GoogleAuthProvider());
+      const uid = result.user.uid;
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists()) {
+        localStorage.setItem('aura_userId', uid);
+        navigate('/aura');
+      } else {
+        // Signed in fine, but this Google account was never linked to an
+        // Aura profile before — nothing to recover, so just let them
+        // continue into the normal sign-up form with this new identity.
+        localStorage.setItem('aura_userId', uid);
+        setError('That Google account isn\'t linked to an existing Aura profile yet — continue below to set one up.');
+      }
+    } catch (err) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        console.error('account recovery failed', err);
+        setError('Could not sign in with Google. Please try again.');
+      }
+    } finally {
+      setRecovering(false);
+    }
+  };
 
   // Single source of truth for "is Firebase Auth actually ready yet".
   // Previously this page had two separate effects: one that read Firestore
@@ -129,6 +163,22 @@ export default function Login() {
             <div className="aura-login-mark" aria-hidden="true">A</div>
             <h1 className="aura-login-title" data-testid="login-title">{t('app_name')}</h1>
             <p className="aura-login-copy" data-testid="login-copy">{t('app_tagline')}</p>
+          </div>
+
+          <div className="aura-field">
+            <button
+              type="button"
+              className="aura-btn aura-btn-secondary"
+              style={{ width: '100%' }}
+              onClick={handleRecover}
+              disabled={recovering || submitting}
+              data-testid="recover-account-btn"
+            >
+              {recovering ? 'Checking…' : 'Used Aura before? Recover with Google'}
+            </button>
+            <span className="aura-field-hint">
+              Only works if you previously linked a Google account in Account Settings — otherwise there's nothing to recover, and you can just continue below.
+            </span>
           </div>
 
           <div className="aura-field">
