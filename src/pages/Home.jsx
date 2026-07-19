@@ -117,6 +117,7 @@ export default function Home() {
           title={t('welcome_back')}
           subtitle={t('six_activities')}
           showLogout
+          showSettings
         />
 
         <NotificationOptInBanner userId={userId} />
