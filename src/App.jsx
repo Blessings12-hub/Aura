@@ -30,7 +30,7 @@ const SkillSwapChat = lazy(() => import('./pages/SkillSwapChat'));
 const SkillSwapCall = lazy(() => import('./pages/SkillSwapCall'));
 const EventBuddy = lazy(() => import('./pages/EventBuddy'));
 const EventChat = lazy(() => import('./pages/EventChat'));
-const CollabStudio = lazy(() => import('./pages/CollabStudio'));
+const AnonymousLetters = lazy(() => import('./pages/AnonymousLetters'));
 const AdminReports = lazy(() => import('./pages/AdminReports'));
 const AccountSettings = lazy(() => import('./pages/AccountSettings'));
 
@@ -56,7 +56,7 @@ export default function App() {
                   <Route path="/aura/swap/call/:swapId" element={<SkillSwapCall />} />
                   <Route path="/aura/event" element={<EventBuddy />} />
                   <Route path="/aura/event/chat/:eventId" element={<EventChat />} />
-                  <Route path="/aura/collab" element={<CollabStudio />} />
+                  <Route path="/aura/letters" element={<AnonymousLetters />} />
                   <Route path="/aura/admin/reports" element={<AdminReports />} />
                   <Route path="/aura/settings" element={<AccountSettings />} />
                 </Routes>
