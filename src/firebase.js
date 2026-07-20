@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
+import { getFunctions } from 'firebase/functions';
 
 // Config now comes from Vite env vars (see .env.example) instead of being
 // hardcoded here. This isn't hiding a secret — a Firebase web apiKey is not
@@ -75,3 +76,9 @@ export const storage = getStorage(app);
 // onDisconnect() is handled server-side, so it fires even on a crashed tab
 // or lost connection, not just a clean unmount.
 export const rtdb = getDatabase(app);
+// Used by MatchFinder's Didit age-verification flow (createDiditSession)
+// — see functions/index.js. Everything else in the app talks to Firestore
+// directly; this is the one place a client needs to call actual server
+// code, since starting a verification session requires the Didit API key,
+// which can never live in client code.
+export const functions = getFunctions(app);
