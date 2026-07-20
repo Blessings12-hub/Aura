@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Brush, ArrowRight, ShieldCheck,
+  MessageCircle, Heart, HelpCircle, Repeat, CalendarHeart, Mail, ArrowRight, ShieldCheck,
 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIncomingRequests } from '../hooks/useIncomingRequests';
@@ -20,7 +20,7 @@ const ACTIVITY_ICONS = {
   'daily-question': HelpCircle,
   'skill-swap': Repeat,
   'event-buddy': CalendarHeart,
-  'collab-studio': Brush,
+  'anonymous-letters': Mail,
 };
 
 const ACTIVITY_TINTS = {
@@ -29,7 +29,7 @@ const ACTIVITY_TINTS = {
   'daily-question': 'rgba(16, 185, 129, 0.25)',
   'skill-swap': 'rgba(245, 158, 11, 0.25)',
   'event-buddy': 'rgba(59, 130, 246, 0.25)',
-  'collab-studio': 'rgba(168, 85, 247, 0.25)',
+  'anonymous-letters': 'rgba(168, 85, 247, 0.25)',
 };
 
 const ACTIVITY_COLORS = {
@@ -38,7 +38,7 @@ const ACTIVITY_COLORS = {
   'daily-question': '#10b981',
   'skill-swap': '#f59e0b',
   'event-buddy': '#3b82f6',
-  'collab-studio': '#a855f7',
+  'anonymous-letters': '#a855f7',
 };
 
 const ACTIVITY_KEYS = [
@@ -47,7 +47,7 @@ const ACTIVITY_KEYS = [
   { id: 'daily-question', titleKey: 'daily_question', descKey: 'daily_question_desc', route: '/aura/question' },
   { id: 'skill-swap', titleKey: 'skill_swap', descKey: 'skill_swap_desc', route: '/aura/swap' },
   { id: 'event-buddy', titleKey: 'event_buddy', descKey: 'event_buddy_desc', route: '/aura/event' },
-  { id: 'collab-studio', titleKey: 'collab_studio', descKey: 'collab_studio_desc', route: '/aura/collab' },
+  { id: 'anonymous-letters', titleKey: 'anonymous_letters', descKey: 'anonymous_letters_desc', route: '/aura/letters' },
 ];
 
 export default function Home() {
