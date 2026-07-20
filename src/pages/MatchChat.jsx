@@ -4,7 +4,7 @@ import {
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
+  collection, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp, serverTimestamp,
 } from 'firebase/firestore';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Paperclip, Download, FileText,
@@ -343,11 +343,24 @@ export default function MatchChat() {
     ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo) } }
     : {});
 
+  // Same pattern as Mood Chat/Daily Question — bumps the SAME shared
+  // users/{uid}.lastMessageAt field in the same atomic batch as the
+  // message, which is what firestore.rules now checks (messageCooldownOk
+  // / bumpsCooldown). One combined per-user cooldown across every
+  // activity that's adopted this, not a separate one per activity.
+  const sendWithCooldownBump = async (payload) => {
+    const batch = writeBatch(db);
+    const msgRef = doc(collection(db, 'matchChats', matchId, 'messages'));
+    batch.set(msgRef, payload);
+    batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
+    await batch.commit();
+  };
+
   const send = async () => {
     if (!text.trim() || !userId || !sendReady) return;
     triggerCooldown();
     try {
-      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+      await sendWithCooldownBump({
         type: 'text', text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
         ...replyToField(),
       });
@@ -395,7 +408,7 @@ export default function MatchChat() {
             setMediaError('That recording was too long to send — try one under a minute.');
             return;
           }
-          await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+          await sendWithCooldownBump({
             type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
             ...replyToField(),
           });
@@ -449,13 +462,13 @@ export default function MatchChat() {
       const isAudio = file.type?.startsWith('audio/');
       if (isImage) {
         const dataUrl = await resizeChatImageToDataUrl(file);
-        await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        await sendWithCooldownBump({
           type: 'image', fileUrl: dataUrl, fileMime: 'image/jpeg', fileName: file.name || 'photo.jpg', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
           ...replyToField(),
         });
       } else {
         const dataUrl = await readFileAsDataUrl(file);
-        await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+        await sendWithCooldownBump({
           type: isAudio ? 'audio' : 'file',
           fileUrl: dataUrl,
           fileMime: file.type || 'application/octet-stream',
@@ -484,7 +497,7 @@ export default function MatchChat() {
     setShowStickerPicker(false);
     setMediaError('');
     try {
-      await addDoc(collection(db, 'matchChats', matchId, 'messages'), {
+      await sendWithCooldownBump({
         type: 'sticker', fileUrl: sticker.dataUrl, fileMime: sticker.mime || 'image/png', userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
         ...replyToField(),
       });
