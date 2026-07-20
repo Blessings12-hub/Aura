@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, Timestamp,
+  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, Timestamp,
 } from 'firebase/firestore';
-import { ShieldAlert, Check, Trash2 } from 'lucide-react';
+import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
 import { db } from '../firebase';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIsAdmin } from '../hooks/useIsAdmin';
@@ -24,6 +24,7 @@ export default function AdminReports() {
   const [reports, setReports] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [bannedStatus, setBannedStatus] = useState({}); // { [uid]: true | false }
 
   useEffect(() => {
     if (!isAdmin) return undefined;
@@ -53,6 +54,35 @@ export default function AdminReports() {
       await deleteDoc(doc(db, 'reports', id));
     } catch (err) {
       setLoadError(`Couldn't delete that report. (${err?.code || 'unknown'})`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Reads current status right before writing rather than pre-fetching
+  // every reported user's ban status on page load — keeps this screen's
+  // read cost proportional to actions actually taken, not report volume.
+  const toggleBan = async (report) => {
+    const targetUid = report.reportedId;
+    if (!targetUid) return;
+    setBusyId(report.id);
+    try {
+      const snap = await getDoc(doc(db, 'users', targetUid));
+      const currentlyBanned = snap.exists() && snap.data()?.banned === true;
+      const nextBanned = !currentlyBanned;
+      if (nextBanned) {
+        // eslint-disable-next-line no-alert
+        const confirmed = window.confirm(`Ban this user? They'll be signed out and blocked from using Aura until unbanned.`);
+        if (!confirmed) { setBusyId(null); return; }
+      }
+      await updateDoc(doc(db, 'users', targetUid), {
+        banned: nextBanned,
+        banReason: nextBanned ? `Reported for: ${report.reason}` : null,
+        bannedAt: nextBanned ? Timestamp.now() : null,
+      });
+      setBannedStatus((prev) => ({ ...prev, [targetUid]: nextBanned }));
+    } catch (err) {
+      setLoadError(`Couldn't update ban status. (${err?.code || 'unknown'})`);
     } finally {
       setBusyId(null);
     }
@@ -109,6 +139,18 @@ export default function AdminReports() {
                     <Trash2 size={14} /> {t('delete')}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className="aura-btn"
+                  style={{ width: '100%', marginTop: 8, background: bannedStatus[r.reportedId] ? undefined : '#ef4444', color: bannedStatus[r.reportedId] ? undefined : '#fff' }}
+                  disabled={busyId === r.id || !r.reportedId}
+                  onClick={() => toggleBan(r)}
+                  data-testid={`toggle-ban-${r.id}`}
+                >
+                  {bannedStatus[r.reportedId] ? <ShieldOff size={14} /> : <Ban size={14} />}
+                  {' '}
+                  {bannedStatus[r.reportedId] ? 'Unban this user' : 'Ban / unban reported user'}
+                </button>
               </div>
             ))}
           </div>
