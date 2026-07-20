@@ -511,6 +511,8 @@ service cloud.firestore {
     match /dailyQuestions/{day}/answers/{answerId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !isBanned(request.auth.uid)
+                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Storage upload failures fall back to embedding the
                     // recording directly as a base64 data URL on the doc
