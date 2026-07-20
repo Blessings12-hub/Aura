@@ -5,10 +5,10 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, updateDoc, deleteField,
 } from 'firebase/firestore';
 import {
-  Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
+  Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X, Heart,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';
@@ -374,6 +374,35 @@ export default function DailyQuestion() {
   if (loading || !user) return <PageSkeleton />;
 
   const visibleMessages = messages.filter((m) => !blockedUsers.has(m.userId));
+
+  // The one piece of this activity that Mood Chat structurally can't have:
+  // Mood Chat is a live, ephemeral vibe — there's no "best" message, just
+  // a stream. Daily Question is scoped to one shared prompt everyone in
+  // the room is answering, which makes a shared favorite genuinely
+  // meaningful. Only surfaced once someone's actually reacted, so an
+  // empty room doesn't show an arbitrary "top answer" with zero votes.
+  const topAnswer = visibleMessages.reduce((best, m) => {
+    const count = Object.keys(m.reactions || {}).length;
+    if (count === 0) return best;
+    if (!best || count > Object.keys(best.reactions || {}).length) return m;
+    return best;
+  }, null);
+
+  // Toggles the current user's own key in the reactions map — matches the
+  // same "only your own key, hasOnly([uid])" pattern firestore.rules
+  // already uses for deliveredBy/seenBy, just extended to a third field
+  // anyone (including the answer's own author) can touch.
+  const toggleReaction = async (m) => {
+    if (!userId) return;
+    const alreadyReacted = !!m.reactions?.[userId];
+    try {
+      await updateDoc(doc(db, 'dailyQuestions', day, 'answers', m.id), {
+        [`reactions.${userId}`]: alreadyReacted ? deleteField() : true,
+      });
+    } catch (err) {
+      setChatError(`Couldn't update that. (${err?.code || 'unknown'})`);
+    }
+  };
   const lastMineId = [...visibleMessages].reverse().find((m) => m.userId === userId)?.id;
 
   return (
@@ -402,6 +431,22 @@ export default function DailyQuestion() {
           )}
 
           <div className="aura-card chat-card fade-in">
+            {topAnswer && (
+              <button
+                type="button"
+                className="aura-card"
+                style={{ width: '100%', textAlign: 'left', marginBottom: 10, borderColor: '#f59e0b' }}
+                onClick={() => scrollToMessage(topAnswer.id)}
+                data-testid="top-answer-card"
+              >
+                <p style={{ margin: '0 0 4px', fontSize: '0.75rem', fontWeight: 700, color: '#f59e0b' }}>
+                  🏆 Today's top answer · {Object.keys(topAnswer.reactions || {}).length} {Object.keys(topAnswer.reactions || {}).length === 1 ? 'reaction' : 'reactions'}
+                </p>
+                <p className="aura-muted" style={{ margin: 0 }}>
+                  {topAnswer.type === 'voice' ? '🎤 Voice note' : topAnswer.type === 'sticker' ? '🖼️ Sticker' : (topAnswer.text || '').slice(0, 140)}
+                </p>
+              </button>
+            )}
             <div ref={listRef} className="message-list" data-testid="daily-message-list">
               {visibleMessages.length === 0 ? (
                 <p className="chat-empty-state">{t('no_messages')}</p>
@@ -452,6 +497,18 @@ export default function DailyQuestion() {
                       <span>{m.text}</span>
                     )}
                   </div>
+                  <button
+                    type="button"
+                    className={`message__reaction-btn${m.reactions?.[userId] ? ' message__reaction-btn--active' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); toggleReaction(m); }}
+                    data-testid={`react-btn-${m.id}`}
+                    aria-label="React to this answer"
+                  >
+                    <Heart size={14} fill={m.reactions?.[userId] ? 'currentColor' : 'none'} />
+                    {Object.keys(m.reactions || {}).length > 0 && (
+                      <span style={{ marginLeft: 4, fontSize: '0.75rem' }}>{Object.keys(m.reactions || {}).length}</span>
+                    )}
+                  </button>
                   {m.userId === userId && m.id === lastMineId && (Object.keys(m.deliveredBy || {}).length > 0 || Object.keys(m.seenBy || {}).length > 0) && (
                     <span className="message__receipt-label" data-testid="last-message-receipt-label">
                       {t('delivered_to', { count: Object.keys(m.deliveredBy || {}).length })}
