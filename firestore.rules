@@ -530,14 +530,26 @@ service cloud.firestore {
       // etc.) stays immutable — and only by someone who isn't the
       // answer's own sender, and only by writing their OWN uid into the
       // map (never altering or removing anyone else's entry).
-      allow update: if signedIn() && request.auth.uid != resource.data.userId
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredBy', 'seenBy'])
+      //
+      // `reactions` (uid -> true) follows the same one-key-only toggle
+      // shape, but is NOT restricted to "not the sender" — reacting to
+      // your own answer is allowed (each person still only ever gets one
+      // vote, so it's not really gameable), unlike marking your own
+      // message as delivered/seen, which never made sense to allow.
+      allow update: if signedIn()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredBy', 'seenBy', 'reactions'])
                     && (!('deliveredBy' in request.resource.data.diff(resource.data).affectedKeys())
-                        || (request.resource.data.deliveredBy.diff(resource.data.get('deliveredBy', {})).affectedKeys().hasOnly([request.auth.uid])
+                        || (request.auth.uid != resource.data.userId
+                            && request.resource.data.deliveredBy.diff(resource.data.get('deliveredBy', {})).affectedKeys().hasOnly([request.auth.uid])
                             && request.resource.data.deliveredBy[request.auth.uid] == true))
                     && (!('seenBy' in request.resource.data.diff(resource.data).affectedKeys())
-                        || (request.resource.data.seenBy.diff(resource.data.get('seenBy', {})).affectedKeys().hasOnly([request.auth.uid])
-                            && request.resource.data.seenBy[request.auth.uid] == true));
+                        || (request.auth.uid != resource.data.userId
+                            && request.resource.data.seenBy.diff(resource.data.get('seenBy', {})).affectedKeys().hasOnly([request.auth.uid])
+                            && request.resource.data.seenBy[request.auth.uid] == true))
+                    && (!('reactions' in request.resource.data.diff(resource.data).affectedKeys())
+                        || (request.resource.data.reactions.diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([request.auth.uid])
+                            && (request.resource.data.reactions[request.auth.uid] == true
+                                || !(request.auth.uid in request.resource.data.reactions))));
       allow delete: if isOwner(resource.data.userId);
     }
 
