@@ -167,6 +167,9 @@ export default function EventBuddy() {
             <input type="time" className="aura-input" value={time} onChange={(e) => setTime(e.target.value)} style={{ flex: 1 }} data-testid="event-time" />
           </div>
           <input className="aura-input" value={place} onChange={(e) => setPlace(e.target.value)} placeholder={t('event_location_ph')} maxLength={200} data-testid="event-place" />
+          <p className="aura-muted" style={{ fontSize: '0.8rem', margin: '8px 0' }} data-testid="event-safety-note">
+            🛡️ {t('event_safety_note')}
+          </p>
           {error && <p className="aura-login-error">{error}</p>}
           <button type="button" onClick={post} className="aura-btn aura-btn-primary" data-testid="event-post-btn"><CalendarHeart size={16} /> {t('post_event')}</button>
         </div>
