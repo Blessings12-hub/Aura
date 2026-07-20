@@ -97,6 +97,7 @@
     "event_time": "Time",
     "event_location": "Location",
     "event_location_ph": "e.g. Central Park, the coffee shop downtown",
+    "event_safety_note": "Meeting a stranger from the internet? Pick a public place, tell a friend where you're going, and trust your gut if anything feels off.",
     "post_event": "Post event",
     "available_events": "Available events",
     "join_event": "Join event",
