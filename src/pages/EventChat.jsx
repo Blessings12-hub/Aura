@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, Timestamp,
+  collection, doc, query, orderBy, Timestamp, writeBatch, serverTimestamp,
 } from 'firebase/firestore';
 import { Send } from 'lucide-react';
 import { db } from '../firebase';
@@ -44,13 +44,18 @@ export default function EventChat() {
     );
   }, [eventId]);
 
+  // Same pattern as the other activities — bumps the SAME shared
+  // users/{uid}.lastMessageAt field in the same atomic batch as the
+  // message, which is what firestore.rules checks now.
   const send = async () => {
     if (!text.trim() || !userId || !sendReady) return;
     triggerCooldown();
     try {
-      await addDoc(collection(db, 'eventChats', eventId, 'messages'), {
-        text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
-      });
+      const batch = writeBatch(db);
+      const msgRef = doc(collection(db, 'eventChats', eventId, 'messages'));
+      batch.set(msgRef, { text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now() });
+      batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
+      await batch.commit();
       setText('');
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);
