@@ -92,8 +92,14 @@ function validAge(data) {
 // A client-side age check is never real security on its own — this is
 // what actually stops an under-18 profile from being written, regardless
 // of what number the client happens to send.
-function validMatchAge(data) {
-  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true;
+function validMatchAge(uid, data) {
+  // verified is checked against the user's OWN account doc (server-set
+  // only, see users/{uid} above), not anything the client sends here —
+  // matchProfiles/userIdentities payloads never carry a verified field at
+  // all, so there's nothing to fake in the request itself.
+  let userPath = /databases/$(database)/documents/users/$(uid);
+  let isVerified = exists(userPath) && get(userPath).data.get('verified', false) == true;
+  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true && isVerified;
 }
 
 // Caps how long a public text field is allowed to be. Uses .get(field, '')
@@ -154,14 +160,45 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /users/{uid} {
       allow read: if signedIn();
-      allow create: if isOwner(uid) && validAge(request.resource.data);
-      allow update: if isOwner(uid) && validAge(request.resource.data);
+      allow create: if isOwner(uid) && validAge(request.resource.data)
+                    && !('verified' in request.resource.data)
+                    && !('banned' in request.resource.data);
+      // The !('verified' in ...) || (unchanged) clause is what actually
+      // makes `verified` server-only: a client update() sends the FULL
+      // resulting document as request.resource.data, so this either
+      // requires the field to be entirely absent from what they're
+      // setting, or requires it to stay exactly what it already was
+      // (resource.data, the pre-write value) — never letting a client
+      // flip it from missing/false to true. Only functions/index.js's
+      // diditWebhook can do that, since the Admin SDK it uses bypasses
+      // these rules entirely.
+      //
+      // `banned` follows the same lock idea but via a DIFFERENT path: an
+      // admin (a real signed-in user with an /admins/{uid} doc, not a
+      // server) needs to be able to set it. So this is two full
+      // alternatives, not one shared check: the OWNER path (first line)
+      // can update anything about their own account EXCEPT verified/banned;
+      // the ADMIN path (second line) can ONLY touch banned/banReason/
+      // bannedAt on ANYONE's account, via diff().affectedKeys().hasOnly(),
+      // and nothing else — an admin can't use this to edit someone's age
+      // or gender, just ban status.
+      allow update: if (isOwner(uid) && validAge(request.resource.data)
+                        && (!('verified' in request.resource.data)
+                            || request.resource.data.verified == resource.data.get('verified', false))
+                        && (!('banned' in request.resource.data)
+                            || request.resource.data.banned == resource.data.get('banned', false)))
+                    || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt']));
       // Was `if false` — meaning nobody, not even the account's own
       // owner, could ever delete it. That made a genuine self-service
       // "delete my account" feature impossible at the rules level,
       // regardless of what the client tried to do. This only allows the
       // owner to delete their own doc — nobody else's.
       allow delete: if isOwner(uid);
+    }
+
+    function isBanned(uid) {
+      let path = /databases/$(database)/documents/users/$(uid);
+      return exists(path) && get(path).data.get('banned', false) == true;
     }
 
     // ------------------------------------------------------------------
@@ -187,10 +224,10 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /userIdentities/{uid} {
       allow read: if isOwner(uid) || isMatchedWith(uid);
-      allow create: if isOwner(uid) && validMatchAge(request.resource.data)
+      allow create: if isOwner(uid) && !isBanned(uid) && validMatchAge(uid, request.resource.data)
                     && validText(request.resource.data.get('displayName', ''), 100)
                     && validText(request.resource.data.get('photoURL', ''), 220000);
-      allow update: if isOwner(uid) && validMatchAge(request.resource.data)
+      allow update: if isOwner(uid) && validMatchAge(uid, request.resource.data)
                     && validText(request.resource.data.get('displayName', ''), 100)
                     && validText(request.resource.data.get('photoURL', ''), 220000);
       allow delete: if isOwner(uid);
@@ -227,6 +264,7 @@ service cloud.firestore {
     match /chats/{mood}/messages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !isBanned(request.auth.uid)
                     && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Storage upload failures fall back to embedding the
@@ -274,14 +312,15 @@ service cloud.firestore {
     match /matchProfiles/{cardId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && validMatchAge(request.resource.data)
+                    && !isBanned(request.auth.uid)
+                    && validMatchAge(request.auth.uid, request.resource.data)
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
                     && validText(request.resource.data.get('bio', ''), 300)
                     && validText(request.resource.data.get('hobbies', ''), 300)
                     && validText(request.resource.data.get('lookingFor', ''), 300);
-      allow update: if isOwner(resource.data.userId) && validMatchAge(request.resource.data)
+      allow update: if isOwner(resource.data.userId) && validMatchAge(resource.data.userId, request.resource.data)
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
