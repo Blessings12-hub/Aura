@@ -4,8 +4,8 @@
     ".write": false,
 
     "status": {
+      ".read": "auth != null",
       "$uid": {
-        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "newData.hasChildren(['state', 'lastChanged'])"
       }
