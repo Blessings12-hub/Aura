@@ -377,6 +377,8 @@ service cloud.firestore {
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
+                    && !isBanned(request.auth.uid)
+                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     && validText(request.resource.data.get('voiceUrl', ''), 900000)
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
