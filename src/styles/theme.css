@@ -736,6 +736,13 @@ a { color: var(--primary); }
 .message__receipt--seen { color: #4fa8ff; }
 .message__receipt-label { font-size: 0.68rem; color: var(--muted-2); margin-top: 1px; align-self: flex-end; }
 .message__receipt-label--seen { color: #4fa8ff; }
+.message__reaction-btn {
+  display: inline-flex; align-items: center; align-self: flex-start;
+  margin-top: 2px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted-2); cursor: pointer;
+}
+.message__reaction-btn--active { color: #ef4444; border-color: #ef4444; }
+.message--mine .message__reaction-btn { align-self: flex-end; }
 
 /* Header presence line ("Online" / "Last seen …") on Match Chat. */
 .chat-presence-online { color: #2ecc71; font-weight: 600; }
