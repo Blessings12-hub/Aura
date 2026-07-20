@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIncomingRequests } from '../hooks/useIncomingRequests';
+import { useOnlineCount } from '../hooks/useOnlineCount';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import OnboardingModal from '../components/OnboardingModal';
@@ -54,6 +55,7 @@ export default function Home() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
+  const onlineCount = useOnlineCount();
   const { matchRequests, swapRequests, eventRequests } = useIncomingRequests(userId);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -119,6 +121,13 @@ export default function Home() {
           showLogout
           showSettings
         />
+
+        {onlineCount !== null && (
+          <p className="aura-muted fade-in" style={{ margin: '4px 0 0', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }} data-testid="online-count">
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} aria-hidden="true" />
+            {onlineCount === 1 ? '1 person online right now' : `${onlineCount} people online right now`}
+          </p>
+        )}
 
         <NotificationOptInBanner userId={userId} />
         <DailyQuestionNudge user={user} />
