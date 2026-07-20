@@ -425,6 +425,8 @@ service cloud.firestore {
     match /swapChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
+                    && !isBanned(request.auth.uid)
+                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
@@ -500,6 +502,8 @@ service cloud.firestore {
     match /eventChats/{eventId}/messages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && !isBanned(request.auth.uid)
+                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
