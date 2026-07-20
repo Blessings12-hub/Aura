@@ -4,8 +4,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, query, orderBy, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch, updateDoc, deleteField,
+  collection, query, orderBy, Timestamp, doc, deleteDoc,
+  onSnapshot, writeBatch, updateDoc, deleteField, serverTimestamp,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X, Heart,
@@ -253,6 +253,22 @@ export default function DailyQuestion() {
     ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo, t) } }
     : {});
 
+  // Same pattern as Mood Chat's sendWithCooldownBump — bumps
+  // users/{uid}.lastMessageAt in the same atomic batch as the message
+  // itself, which is what firestore.rules actually checks now (see
+  // messageCooldownOk / bumpsCooldown there). This reuses the exact same
+  // field Mood Chat writes to, on purpose — one shared per-user cooldown
+  // across both activities, rather than a separate independent one per
+  // activity, which would let someone dodge the limit just by alternating
+  // between the two.
+  const sendWithCooldownBump = async (payload) => {
+    const batch = writeBatch(db);
+    const msgRef = doc(collection(db, 'dailyQuestions', day, 'answers'));
+    batch.set(msgRef, payload);
+    batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
+    await batch.commit();
+  };
+
   const send = async () => {
     if (!text.trim() || !userId || !sendReady) return;
     const moderationReason = moderateText(text);
@@ -262,7 +278,7 @@ export default function DailyQuestion() {
     }
     triggerCooldown();
     try {
-      await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
+      await sendWithCooldownBump({
         type: 'text', text: text.trim(), userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
@@ -285,7 +301,7 @@ export default function DailyQuestion() {
     setShowStickerPicker(false);
     if (!userId) return;
     try {
-      await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
+      await sendWithCooldownBump({
         type: 'sticker', fileUrl: sticker.dataUrl, fileMime: sticker.mime || 'image/png', userId,
         userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
         createdAt: Timestamp.now(),
@@ -331,7 +347,7 @@ export default function DailyQuestion() {
             setMicError('That recording was too long to send — try one under a minute.');
             return;
           }
-          await addDoc(collection(db, 'dailyQuestions', day, 'answers'), {
+          await sendWithCooldownBump({
             type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
