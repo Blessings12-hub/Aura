@@ -565,28 +565,58 @@ service cloud.firestore {
     // COLLAB STUDIO — shared live canvas. Anyone signed in can draw and
     // see cursors; you can only write/delete your own stroke or cursor.
     // ------------------------------------------------------------------
-    match /collabStudio/{strokeId} {
+    // ------------------------------------------------------------------
+    // ANONYMOUS LETTERS — replaces Collab Studio. One-shot async exchange:
+    // write a letter (status 'open'), a random stranger claims it
+    // (-> 'delivered', recipientId set to them), they write ONE reply
+    // (-> 'replied'). No back-and-forth thread beyond that.
+    //
+    // Real limitation worth knowing: read access has to be granted to any
+    // signed-in user (both to browse a batch of open letters when picking
+    // one at random, and to read your own letter once a reply lands) —
+    // Firestore's security model is document-level, not field-level, so
+    // there's no way to let someone "see that open letters exist" without
+    // also letting them read the full text of a batch of them client-side.
+    // Redacting that would need a Cloud Function acting as a read proxy,
+    // which is more infrastructure than this warrants right now.
+    // ------------------------------------------------------------------
+    match /letters/{letterId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if false;
-      allow delete: if isOwner(resource.data.userId);
-    }
-
-    match /collabCursors/{uid} {
-      allow read: if signedIn();
-      allow write: if isOwner(uid);
-    }
-
-    // Collab Studio live chat — same anonymous-group-room pattern as Mood
-    // Chat: one shared room since there's one shared canvas. Anyone
-    // signed in can read/post; you can only send as yourself and only
-    // delete your own message.
-    match /collabChatMessages/{messageId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && validText(request.resource.data.get('text', ''), 3000);
-      allow update: if false;
-      allow delete: if isOwner(resource.data.userId);
+      allow create: if signedIn() && !isBanned(request.auth.uid)
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.status == 'open'
+                    && !('recipientId' in request.resource.data)
+                    && !('replyText' in request.resource.data)
+                    && validText(request.resource.data.get('text', ''), 2000);
+      // Two very different kinds of update, kept strictly separate:
+      //
+      // CLAIMING (open -> delivered): anyone except the author can claim
+      // an open letter, but ONLY by setting status to 'delivered' and
+      // recipientId to their OWN uid — nothing else may change.
+      // resource.data.status == 'open' is checked against the PRE-write
+      // state, so only the first claim attempt to actually reach
+      // Firestore can ever pass — the client also wraps this in a
+      // transaction (see AnonymousLetters.jsx) so two people don't even
+      // both try, but this rule is what actually prevents a double-claim
+      // regardless of what the client does.
+      //
+      // REPLYING (delivered -> replied): only the uid that already
+      // claimed it may write a reply, only once, and only the three
+      // reply-related fields may change.
+      allow update: if signedIn() && !isBanned(request.auth.uid) && (
+        (resource.data.status == 'open'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'recipientId', 'deliveredAt'])
+          && request.resource.data.status == 'delivered'
+          && request.resource.data.recipientId == request.auth.uid
+          && request.auth.uid != resource.data.authorId)
+        ||
+        (resource.data.status == 'delivered'
+          && resource.data.recipientId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'replyText', 'repliedAt'])
+          && request.resource.data.status == 'replied'
+          && validText(request.resource.data.get('replyText', ''), 2000))
+      );
+      allow delete: if isOwner(resource.data.authorId);
     }
 
     // ------------------------------------------------------------------
