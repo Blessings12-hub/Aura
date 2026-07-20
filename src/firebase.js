@@ -3,7 +3,6 @@ import { initializeApp } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
 import { getFunctions } from 'firebase/functions';
 
@@ -70,7 +69,6 @@ if (recaptchaSiteKey) {
 
 export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const storage = getStorage(app);
 // Realtime Database — used specifically for presence (online/last-seen).
 // Firestore has no reliable "the client disconnected" signal; RTDB's
 // onDisconnect() is handled server-side, so it fires even on a crashed tab
