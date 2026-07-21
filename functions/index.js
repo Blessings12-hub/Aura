@@ -28,6 +28,7 @@ const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const crypto = require('crypto');
+const Stripe = require('stripe');
 
 initializeApp();
 const db = getFirestore();
@@ -230,9 +231,9 @@ exports.onEventJoinUpdated = onDocumentUpdated('eventJoins/{joinId}', async (eve
 // JSON serialization (sorted keys, compact separators, float normalization)
 // in this function, which is real complexity to take on for no added
 // protection given what this handler actually uses.
-const diditApiKey = defineSecret('FX9s3ybNSW59XurBIasaPsq8vboQ8myh8FzSbVQINts');
+const diditApiKey = defineSecret('DIDIT_API_KEY');
 const diditWebhookSecret = defineSecret('DIDIT_WEBHOOK_SECRET');
-const DIDIT_WORKFLOW_ID = '293d9688-aafc-4c92-bdda-0279a937b383';
+const DIDIT_WORKFLOW_ID = 'REPLACE_WITH_YOUR_DIDIT_WORKFLOW_ID';
 
 exports.createDiditSession = onCall({ secrets: [diditApiKey] }, async (request) => {
   if (!request.auth) {
@@ -323,5 +324,110 @@ exports.diditWebhook = onRequest({ secrets: [diditWebhookSecret] }, async (req, 
   res.status(200).send('ok');
 });
 
-  res.status(200).send('OK');
+// ---------------------------------------------------------------------
+// MONETIZATION — Match Finder's "see who liked you first" paid tier.
+// Same shape as the Didit functions above: a callable function starts a
+// hosted checkout flow, a webhook (verified, never trusted blind) is what
+// actually flips user.plan — never the client. See the "see who liked you"
+// gate in src/pages/MatchFinder.jsx for how this is actually used.
+//
+// SETUP NEEDED before this works (all browser-only at stripe.com, plus
+// the same one-time CLI step as Didit's secrets):
+//   1. Create a Stripe account at stripe.com (no card required to start
+//      in test mode — you can build and test this whole flow for free
+//      before ever taking a real payment).
+//   2. Dashboard -> Product catalog -> add a product ("Aura Premium"),
+//      recurring price, whatever you want to charge -> copy its Price ID
+//      (starts with `price_`) into STRIPE_PRICE_ID below.
+//   3. Dashboard -> Developers -> API keys -> copy your Secret key (test
+//      mode key while building, live key only once you're ready to
+//      actually charge people).
+//   4. Dashboard -> Developers -> Webhooks -> Add destination -> paste
+//      this function's URL (shown in Firebase Console after first
+//      deploy) -> listen for `checkout.session.completed` and
+//      `customer.subscription.deleted` -> copy the signing secret it
+//      shows you.
+//   5. From a machine with the Firebase CLI:
+//        firebase functions:secrets:set STRIPE_SECRET_KEY
+//        firebase functions:secrets:set STRIPE_WEBHOOK_SECRET
+//   6. firebase deploy --only functions
+//   7. Before trusting this with real money: Stripe Dashboard ->
+//      Developers -> Webhooks -> your endpoint -> Send test webhook ->
+//      send a `checkout.session.completed` event, and confirm it
+//      actually flips plan: 'premium' on a test user doc. Stripe's test
+//      mode (test API keys + test card 4242 4242 4242 4242) lets you run
+//      an entire real checkout end-to-end without any real charge.
+const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
+const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
+const STRIPE_PRICE_ID = 'REPLACE_WITH_YOUR_STRIPE_PRICE_ID';
+
+exports.createStripeCheckoutSession = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+  const uid = request.auth.uid;
+
+  const stripe = Stripe(stripeSecretKey.value());
+
+  // If they already have a Stripe customer from a previous checkout
+  // attempt, reuse it instead of creating a duplicate customer record
+  // every time someone opens the upgrade flow.
+  const userSnap = await db.doc(`users/${uid}`).get();
+  const existingCustomerId = userSnap.exists() ? userSnap.data()?.stripeCustomerId : null;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
+    // client_reference_id is how the webhook maps a completed checkout
+    // back to a specific Aura account — Stripe has no idea what a
+    // Firebase uid is otherwise.
+    client_reference_id: uid,
+    customer: existingCustomerId || undefined,
+    success_url: `${BASE_URL}/aura/match?upgrade=success`,
+    cancel_url: `${BASE_URL}/aura/match?upgrade=cancelled`,
+  });
+
+  return { url: session.url };
+});
+
+exports.stripeWebhook = onRequest({ secrets: [stripeSecretKey, stripeWebhookSecret] }, async (req, res) => {
+  const stripe = Stripe(stripeSecretKey.value());
+
+  let event;
+  try {
+    // constructEvent is what actually verifies this request really came
+    // from Stripe (HMAC-signed with your webhook secret) rather than
+    // trusting the request body blind — the same principle as Didit's
+    // signature check above, just using Stripe's own SDK to do it since
+    // they provide one, unlike Didit's simpler shared-secret HMAC.
+    event = stripe.webhooks.constructEvent(req.rawBody, req.headers['stripe-signature'], stripeWebhookSecret.value());
+  } catch (err) {
+    logger.error('Stripe webhook signature verification failed', { message: err?.message });
+    res.status(400).send(`Webhook signature verification failed`);
+    return;
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const uid = session.client_reference_id;
+    if (uid) {
+      await db.doc(`users/${uid}`).set({
+        plan: 'premium',
+        stripeCustomerId: session.customer,
+        stripeSubscriptionId: session.subscription,
+      }, { merge: true });
+    }
+  } else if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object;
+    // No uid on a subscription-deleted event directly — look up whichever
+    // account we stored this subscription id on back at checkout time.
+    const matches = await db.collection('users').where('stripeSubscriptionId', '==', subscription.id).limit(1).get();
+    if (!matches.empty) {
+      await matches.docs[0].ref.set({ plan: 'free' }, { merge: true });
+    }
+  }
+  // Any other event type — deliberately no-op; Stripe sends many event
+  // types this app doesn't act on, and the correct response to those is
+  // just a 200, not an error (an error makes Stripe keep retrying
+  // delivery of an event we were never going to do anything with).
+
+  res.status(200).send('ok');
 });
