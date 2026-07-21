@@ -4,7 +4,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, updateDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, deleteDoc, deleteField,
+  collection, addDoc, doc, setDoc, updateDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, deleteDoc, deleteField, limit,
 } from 'firebase/firestore';
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
@@ -15,7 +15,6 @@ import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
-import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { AVATAR_COLORS } from '../constants/moods';
 import TopBar from '../components/TopBar';
@@ -140,10 +139,17 @@ export default function MatchFinder() {
   }, [userId, user]);
 
   useEffect(() => {
+    // Persistent by design now (not time-bounded like Mood Chat/Daily
+    // Question) — a matching pool that resets every 24h can leave the
+    // deck empty during low-traffic hours, which defeats the point of a
+    // matching activity. limit() is a safety cap, not a time window: it
+    // bounds how much a single busy deck can cost to load, but a card
+    // otherwise stays visible until its owner removes it (see
+    // removeMyCard below) or deletes their account.
     const q = query(
       collection(db, 'matchProfiles'),
-      where('createdAt', '>=', last24HoursTimestamp()),
       orderBy('createdAt', 'desc'),
+      limit(300),
     );
     return subscribe(
       q,
@@ -335,6 +341,29 @@ export default function MatchFinder() {
   // before that was required). Both are needed before this person can be
   // matched with anyone, so their partner always has a real profile to see.
   const hasCompletedProfile = !!myCardId && hasSavedIdentity;
+
+  // Now that the pool is persistent (see the query above), "delete this
+  // card" is the actual off-switch — without it, posting once would mean
+  // being visible in Match Finder forever with no way to stop. This only
+  // removes the public browsable card; it does NOT delete userIdentities
+  // (name/photo) or any existing matches/chats — someone you already
+  // matched with keeps that conversation and can still see your identity,
+  // this just takes you out of the browsable deck for new matches.
+  const [removingCard, setRemovingCard] = useState(false);
+  const removeMyCard = async () => {
+    if (!myCardId) return;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm('Remove your card from Match Finder? You can post a new one any time, but existing matches and chats stay untouched either way.')) return;
+    setRemovingCard(true);
+    try {
+      await deleteDoc(doc(db, 'matchProfiles', myCardId));
+      setMyCardId(null);
+    } catch (err) {
+      setSaveError(`Couldn't remove your card. (${err?.code || 'unknown'})`);
+    } finally {
+      setRemovingCard(false);
+    }
+  };
 
   const requestMatch = async (other) => {
     if (!userId || !other?.userId || other.userId === userId) return;
@@ -575,6 +604,18 @@ export default function MatchFinder() {
             </button>
             {saved && <span className="aura-muted" data-testid="match-saved-msg">{t('profile_saved')}</span>}
           </div>
+          {myCardId && (
+            <button
+              type="button"
+              onClick={removeMyCard}
+              disabled={removingCard}
+              className="aura-btn aura-btn-secondary"
+              style={{ marginTop: 8 }}
+              data-testid="match-remove-card-btn"
+            >
+              {removingCard ? 'Removing…' : 'Remove my card from Match Finder'}
+            </button>
+          )}
         </div>
 
         {actionError && <p className="aura-login-error" data-testid="match-action-error">{actionError}</p>}
