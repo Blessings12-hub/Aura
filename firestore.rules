@@ -82,7 +82,19 @@ function bumpsCooldown(uid) {
 // If MIN_AGE changes in Login.jsx, update the literal below to match.
 // ------------------------------------------------------------------
 function validAge(data) {
-  return !('age' in data) || (data.age is int && data.age >= 16);
+  // Was `data.age is int`. Both the signup form (Login.jsx) and the Match
+  // Finder profile form use a plain <input type="number"> with no `step`
+  // restriction, so a typed decimal (e.g. "24.5") is a legal value the
+  // client can send. If a non-integer ever landed in a user's `age` field,
+  // it would brick their account: this function also gates the update
+  // rule on users/{uid}, so EVERY future write to that doc — including the
+  // atomic lastMessageAt bump every chat send in Mood Chat/Match
+  // Chat/Skill Swap Chat/Event Chat/Daily Question depends on — would be
+  // permanently rejected, with no self-service way to fix the age
+  // afterwards. `is number` still accepts only actual numbers (a string
+  // like '99' still fails this, and the below >= 16 check), just not only
+  // whole ones.
+  return !('age' in data) || (data.age is number && data.age >= 16);
 }
 
 // Match Finder specifically requires 18+, plus an explicit consent flag
@@ -99,7 +111,10 @@ function validMatchAge(uid, data) {
   // all, so there's nothing to fake in the request itself.
   let userPath = /databases/$(database)/documents/users/$(uid);
   let isVerified = exists(userPath) && get(userPath).data.get('verified', false) == true;
-  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true && isVerified;
+  // Was `data.age is int` — same reasoning as validAge() above: the Match
+  // Finder age input is a plain number field with no step restriction, so
+  // this must accept non-integer numbers too, not just whole ones.
+  return data.age is number && data.age >= 18 && data.ageConfirmed18 == true && isVerified;
 }
 
 // Caps how long a public text field is allowed to be. Uses .get(field, '')
@@ -643,7 +658,15 @@ service cloud.firestore {
     // that would let someone retaliate against whoever blocked them.
     // ------------------------------------------------------------------
     match /blocks/{blockId} {
-      allow read: if signedIn() && resource.data.blockerId == request.auth.uid;
+      // Same fix as matchPairs/swapPairs/eventJoins: `resource == null`
+      // first so a getDoc() on a block row that doesn't exist yet (e.g. a
+      // future "am I already blocking this person" check) doesn't throw
+      // trying to read resource.data off nothing. Not currently exercised
+      // by blocking.js (it only setDoc/deleteDoc, never getDoc's a
+      // specific block row), but this was the one collection with an
+      // unguarded resource.data read left over from that same class of
+      // bug, so closing it here too rather than leaving it latent.
+      allow read: if signedIn() && (resource == null || resource.data.blockerId == request.auth.uid);
       allow create: if signedIn()
                     && blockId == request.auth.uid + '_' + request.resource.data.blockedId
                     && request.resource.data.blockerId == request.auth.uid
