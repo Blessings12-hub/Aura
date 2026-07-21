@@ -74,6 +74,27 @@ export default function MatchFinder() {
       setVerifying(false);
     }
   };
+
+  // Same shape as handleVerify above — a Cloud Function starts a hosted
+  // checkout flow, Stripe's webhook (functions/index.js's stripeWebhook)
+  // is what actually flips user.plan to 'premium' once payment succeeds,
+  // never this client. user.plan updates live via useCurrentUser once
+  // that lands, same as verified does.
+  const [checkingOut, setCheckingOut] = useState(false);
+  const startUpgradeCheckout = async () => {
+    setCheckingOut(true);
+    try {
+      const createCheckout = httpsCallable(functions, 'createStripeCheckoutSession');
+      const result = await createCheckout();
+      const url = result?.data?.url;
+      if (!url) throw new Error('No checkout URL returned');
+      window.location.href = url;
+    } catch (err) {
+      console.error('checkout session creation failed', err);
+      setActionError('Could not start checkout right now. Please try again in a moment.');
+      setCheckingOut(false);
+    }
+  };
   const [gender, setGender] = useState('');
   const [avatarColor, setAvatarColor] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -626,6 +647,36 @@ export default function MatchFinder() {
             <div className="match-deck" style={{ marginBottom: 22 }}>
               {incomingMatches.map((m) => {
                 const theirCard = profiles.find((p) => p.userId === m.theirId);
+                const isPremium = user?.plan === 'premium';
+                if (!isPremium) {
+                  // Free tier: you know someone requested you, not who,
+                  // until you upgrade. Deliberately no accept/decline here
+                  // — responding "blind" to a request you can't actually
+                  // see isn't a real choice, it's just friction.
+                  return (
+                    <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2, filter: 'blur(1px)', opacity: 0.85 }}>
+                      <div className="aura-row" style={{ gap: 14 }}>
+                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--card-bg-2, #2a2a3a)', display: 'grid', placeItems: 'center' }}>
+                          <Lock size={20} />
+                        </div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <strong>Someone wants to match with you</strong>
+                          <p className="aura-muted" style={{ margin: '6px 0 0' }}>Upgrade to see who, and to accept or decline.</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={startUpgradeCheckout}
+                        disabled={checkingOut}
+                        className="aura-btn aura-btn-primary"
+                        style={{ marginTop: 8, width: '100%' }}
+                        data-testid={`upgrade-to-reveal-${m.id}`}
+                      >
+                        {checkingOut ? 'Loading…' : 'Upgrade to reveal'}
+                      </button>
+                    </div>
+                  );
+                }
                 return (
                   <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
                     <div className="aura-row" style={{ gap: 14 }}>
