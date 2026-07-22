@@ -43,36 +43,20 @@ function isOwner(uid) {
   return signedIn() && request.auth.uid == uid;
 }
 
-// SEND COOLDOWN — real server-side enforcement, unlike useSendCooldown()
-// in the client (which only stops accidental double-sends from a normal
-// user; anyone hitting the Firestore SDK/API directly skips it entirely).
-//
-// This works by requiring the SAME batch that creates a message to ALSO
-// bump users/{uid}.lastMessageAt to exactly request.time (the server's
-// own commit timestamp) — getAfter() reads a document's state as it will
-// be once every write in this batch/transaction applies, so it's the only
-// way to assert two different documents are being written together
-// atomically. Without that companion write, or with a stale/wrong value,
-// the rule rejects the whole batch — meaning skipping the "bump" doesn't
-// let someone dodge the cooldown, it just fails their write outright.
-//
-// The 1-second minimum below is intentionally looser than the 1.2s
-// client-side useSendCooldown, to leave room for normal network/clock
-// variance without rejecting legitimate back-to-back sends.
-function lastMessageAt(uid) {
-  let path = /databases/$(database)/documents/users/$(uid);
-  return exists(path) && ('lastMessageAt' in get(path).data) ? get(path).data.lastMessageAt : null;
-}
-
-function messageCooldownOk(uid) {
-  let prior = lastMessageAt(uid);
-  return prior == null || request.time > prior + duration.value(1, 's');
-}
-
-function bumpsCooldown(uid) {
-  let path = /databases/$(database)/documents/users/$(uid);
-  return getAfter(path).data.lastMessageAt == request.time;
-}
+// A server-enforced per-message cooldown used to live here, requiring
+// every send to arrive as an atomic batch bumping users/{uid}.lastMessageAt
+// alongside the message (verified via getAfter()). It was removed after
+// repeatedly causing real send failures in practice — that pattern
+// requires the client to get an exact atomic batch write right every
+// single time, and any drift between client and rules broke sends
+// app-wide with an unhelpful generic "permission-denied". Given this
+// app's current stage, that was a worse trade than the spam risk it
+// prevented. useSendCooldown() in the client (a plain debounce on the
+// send button) is what's left — it stops accidental double-sends for a
+// normal user, though not someone hitting the API directly. If real
+// server-side rate limiting is worth revisiting later, a Cloud Function
+// checking recent message counts is a more forgiving way to do it than
+// a rules-only atomic-batch assertion.
 
 // Server-side backstop for the age gate on Login.jsx (MIN_AGE = 16 there).
 // The client already blocks submitting an age below this, but that's only
@@ -280,8 +264,6 @@ service cloud.firestore {
     match /chats/{mood}/messages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Storage upload failures fall back to embedding the
                     // recording directly as a base64 data URL on the doc
@@ -393,8 +375,6 @@ service cloud.firestore {
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     && validText(request.resource.data.get('voiceUrl', ''), 900000)
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
@@ -441,8 +421,6 @@ service cloud.firestore {
     match /swapChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
@@ -518,8 +496,6 @@ service cloud.firestore {
     match /eventChats/{eventId}/messages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000);
       allow update: if false;
       allow delete: if isOwner(resource.data.userId);
@@ -533,8 +509,6 @@ service cloud.firestore {
     match /dailyQuestions/{day}/answers/{answerId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Storage upload failures fall back to embedding the
                     // recording directly as a base64 data URL on the doc
