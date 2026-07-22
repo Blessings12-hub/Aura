@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, doc, onSnapshot, query, orderBy, updateDoc, Timestamp, getDoc, writeBatch, serverTimestamp,
+  collection, addDoc, doc, onSnapshot, query, orderBy, updateDoc, Timestamp, getDoc,
 } from 'firebase/firestore';
 import { Send, Video, X, PhoneIncoming } from 'lucide-react';
 import { db } from '../firebase';
@@ -49,18 +49,16 @@ export default function SkillSwapChat() {
     return () => { unsubMsg(); unsubPair(); };
   }, [swapId]);
 
-  // Same pattern as the other activities — bumps the SAME shared
-  // users/{uid}.lastMessageAt field in the same atomic batch as the
-  // message, which is what firestore.rules checks now.
+  // Was a batched write pairing with a server-enforced cooldown in
+  // firestore.rules — removed after repeatedly causing real send
+  // failures in practice. Back to a plain write.
   const send = async () => {
     if (!text.trim() || !userId || !sendReady) return;
     triggerCooldown();
     try {
-      const batch = writeBatch(db);
-      const msgRef = doc(collection(db, 'swapChats', swapId, 'messages'));
-      batch.set(msgRef, { text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now() });
-      batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
-      await batch.commit();
+      await addDoc(collection(db, 'swapChats', swapId, 'messages'), {
+        text: text.trim(), userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+      });
       setText('');
     } catch (err) {
       setChatError(`Couldn't send that. (${err?.code || 'unknown'}: ${err?.message || err})`);

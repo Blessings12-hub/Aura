@@ -4,8 +4,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch, updateDoc, deleteField, serverTimestamp,
+  collection, addDoc, query, orderBy, Timestamp, doc, deleteDoc,
+  onSnapshot, writeBatch, updateDoc, deleteField,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X, Heart,
@@ -253,20 +253,12 @@ export default function DailyQuestion() {
     ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo, t) } }
     : {});
 
-  // Same pattern as Mood Chat's sendWithCooldownBump — bumps
-  // users/{uid}.lastMessageAt in the same atomic batch as the message
-  // itself, which is what firestore.rules actually checks now (see
-  // messageCooldownOk / bumpsCooldown there). This reuses the exact same
-  // field Mood Chat writes to, on purpose — one shared per-user cooldown
-  // across both activities, rather than a separate independent one per
-  // activity, which would let someone dodge the limit just by alternating
-  // between the two.
+  // Was a batched write pairing with a server-enforced cooldown in
+  // firestore.rules — removed after repeatedly causing real send
+  // failures in practice. See the comment in firestore.rules where those
+  // functions used to live for the full reasoning. Back to a plain write.
   const sendWithCooldownBump = async (payload) => {
-    const batch = writeBatch(db);
-    const msgRef = doc(collection(db, 'dailyQuestions', day, 'answers'));
-    batch.set(msgRef, payload);
-    batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
-    await batch.commit();
+    await addDoc(collection(db, 'dailyQuestions', day, 'answers'), payload);
   };
 
   const send = async () => {

@@ -4,8 +4,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, where, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch, limit, serverTimestamp,
+  collection, addDoc, query, orderBy, where, Timestamp, doc, deleteDoc,
+  onSnapshot, writeBatch, limit,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
@@ -289,20 +289,15 @@ export default function MoodChat() {
     ? { replyTo: { id: replyingTo.id, userId: replyingTo.userId, preview: buildPreview(replyingTo, t) } }
     : {});
 
-  // Sends a message AND bumps users/{uid}.lastMessageAt in the same atomic
-  // batch. This is what firestore.rules actually checks now (see
-  // messageCooldownOk / bumpsCooldown there) — useSendCooldown() below is
-  // still what gives instant UI feedback (disabling the send button), but
-  // it's just UX polish now, not the real enforcement. A batch (not two
-  // separate calls) matters here: the rule uses getAfter() to confirm this
-  // exact write bumped the timestamp, which only works if both writes
-  // commit together.
+  // Was a batched write bumping users/{uid}.lastMessageAt alongside the
+  // message, to pair with a server-enforced cooldown in firestore.rules.
+  // That rule was removed after repeatedly causing real send failures in
+  // practice — see the comment in firestore.rules above where those
+  // functions used to live for the full reasoning. This is back to a
+  // plain write; useSendCooldown() below (a debounce on the send button)
+  // is the only cooldown left, same as before that experiment.
   const sendWithCooldownBump = async (payload) => {
-    const batch = writeBatch(db);
-    const msgRef = doc(collection(db, 'chats', mood, 'messages'));
-    batch.set(msgRef, payload);
-    batch.update(doc(db, 'users', userId), { lastMessageAt: serverTimestamp() });
-    await batch.commit();
+    await addDoc(collection(db, 'chats', mood, 'messages'), payload);
   };
 
   const send = async () => {
