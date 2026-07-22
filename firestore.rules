@@ -279,19 +279,12 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /chats/{mood}/messages/{messageId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
-                    && !isBanned(request.auth.uid)
-                    && messageCooldownOk(request.auth.uid) && bumpsCooldown(request.auth.uid)
-                    && validText(request.resource.data.get('text', ''), 3000)
-                    // Storage upload failures fall back to embedding the
-                    // recording directly as a base64 data URL on the doc
-                    // (see MoodChat.jsx) — cap it well under Firestore's
-                    // 1 MiB document limit so that path can't blow up a doc.
-                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
-                    // Stickers ship the same way — a base64 PNG on
-                    // fileUrl, same cap as voiceUrl.
-                    && validText(request.resource.data.get('fileUrl', ''), 900000)
-                    && validText(request.resource.data.get('fileMime', ''), 100);
+      // TEMPORARY DIAGNOSTIC — maximally permissive, every extra check
+      // removed entirely, to isolate whether this rule's normal logic is
+      // what's rejecting sends, or something unrelated to rules
+      // altogether. Revert to the real rule (see the version already in
+      // the repo) the moment this test is done, either way.
+      allow create: if signedIn();
       // Group delivered/seen receipts: unlike a 1:1 chat, a mood room can
       // have many people reading at once, so each message tracks small
       // deliveredBy/seenBy maps (uid -> true) instead of a single
