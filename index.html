@@ -2,6 +2,15 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- TEMPORARY DEBUG TOOL — remove this script tag once the login
+         issue is diagnosed. Eruda adds a small floating button (bottom
+         right) that opens a mobile-friendly console, viewable entirely
+         on-device — no computer, no cable, no remote debugging setup
+         needed. Tap it, go to the Console tab, reproduce the "Could not
+         sign you in" error, and the real error object logged by
+         Login.jsx's console.error(err) will be visible there. -->
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
     <!-- Sentry error monitoring — loaded first so it can catch errors from
          everything that loads after it. Loader Script approach (not npm)
          since there's no local CLI here to regenerate package-lock.json
@@ -9,7 +18,7 @@
          Sentry -> Settings -> Projects -> (your project) -> SDK Setup -> Loader Script.
          Replace ___YOUR_PUBLIC_KEY___ below with the real key from that page. -->
     <script
-      src="https://js-de.sentry-cdn.com/5969222b7c630376a0a4537fe3b86a77.min.js"
+      src="https://js.sentry-cdn.com/___YOUR_PUBLIC_KEY___.min.js"
       crossorigin="anonymous"
     ></script>
     <meta charset="UTF-8" />
@@ -21,7 +30,7 @@
     <meta name="theme-color" content="#4F46E5" />
     <meta
       name="description"
-      content="Aura is a free anonymous social app: chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or draw together live. No accounts, no permanent profiles — just presence."
+      content="Aura is a free anonymous social app: chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or write an anonymous letter. No accounts, no permanent profiles — just presence."
     />
 
     <link rel="canonical" href="https://aura-blush-zeta.vercel.app/" />
@@ -29,14 +38,14 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://aura-blush-zeta.vercel.app/" />
     <meta property="og:title" content="Aura — Anonymous Mood Chat, Matching & Shared Activities" />
-    <meta property="og:description" content="Chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or draw together live. No accounts, no permanent profiles." />
+    <meta property="og:description" content="Chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or write an anonymous letter. No accounts, no permanent profiles." />
     <meta property="og:image" content="https://aura-blush-zeta.vercel.app/icon-512.png" />
     <meta property="og:site_name" content="Aura" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://aura-blush-zeta.vercel.app/" />
     <meta name="twitter:title" content="Aura — Anonymous Mood Chat, Matching & Shared Activities" />
-    <meta name="twitter:description" content="Chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or draw together live. No accounts, no permanent profiles." />
+    <meta name="twitter:description" content="Chat by mood, answer a daily question, find an event buddy, match anonymously, swap skills, or write an anonymous letter. No accounts, no permanent profiles." />
     <meta name="twitter:image" content="https://aura-blush-zeta.vercel.app/icon-512.png" />
 
     <meta name="mobile-web-app-capable" content="yes" />
