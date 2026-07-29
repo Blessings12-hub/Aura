@@ -33,6 +33,16 @@ const pairId = (a, b) => [a, b].sort().join('_');
 // firestore.rules on matchProfiles and userIdentities.
 const MIN_MATCH_AGE = 18;
 
+// OFF by default on purpose. The "see who liked you" premium gate (see
+// isPremium below) is real, working code — but until Blaze is on and
+// Stripe is actually configured (see functions/index.js), NOBODY's
+// user.plan can ever become 'premium', which means leaving this gate
+// live would lock every single person out of a capability that used to
+// be free, with an "Upgrade" button that errors since the Cloud Function
+// behind it isn't deployed. Flip this to true once checkout is actually
+// live and tested — nothing else needs to change.
+const PREMIUM_GATE_ENABLED = false;
+
 const GENDER_OPTIONS = [
   { value: 'Female', labelKey: 'female' },
   { value: 'Male', labelKey: 'male' },
@@ -647,7 +657,7 @@ export default function MatchFinder() {
             <div className="match-deck" style={{ marginBottom: 22 }}>
               {incomingMatches.map((m) => {
                 const theirCard = profiles.find((p) => p.userId === m.theirId);
-                const isPremium = user?.plan === 'premium';
+                const isPremium = !PREMIUM_GATE_ENABLED || user?.plan === 'premium';
                 if (!isPremium) {
                   // Free tier: you know someone requested you, not who,
                   // until you upgrade. Deliberately no accept/decline here
