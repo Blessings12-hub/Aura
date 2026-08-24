@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { CalendarHeart, MessageCircle, Check, X } from 'lucide-react';
 import { db } from '../firebase';
+import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -107,6 +108,12 @@ export default function EventBuddy() {
           eventId: ev.id, hostId: ev.userId, guestId: userId,
           userIds: [ev.userId, userId], status: 'pending', createdAt: Timestamp.now(),
         });
+        sendNotification({
+          uid: ev.userId,
+          title: 'Aura • Event Buddy',
+          body: 'Someone wants to join your event.',
+          path: '/aura/event',
+        });
       }
     } catch (err) {
       setError(`Couldn't send that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
@@ -120,7 +127,17 @@ export default function EventBuddy() {
     setError('');
     setPendingActions((prev) => ({ ...prev, [joinId]: true }));
     try {
+      const snap = await getDoc(doc(db, 'eventJoins', joinId));
       await updateDoc(doc(db, 'eventJoins', joinId), { status: 'accepted', acceptedAt: Timestamp.now() });
+      const data = snap.data();
+      if (data?.guestId) {
+        sendNotification({
+          uid: data.guestId,
+          title: 'Aura • Event Buddy',
+          body: 'Your join request was accepted!',
+          path: `/aura/event/chat/${joinId}`,
+        });
+      }
     } catch (err) {
       setError(`Couldn't accept that request. (${err?.code || 'unknown'}: ${err?.message || err})`);
     } finally {

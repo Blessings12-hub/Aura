@@ -8,6 +8,7 @@ import {
   Video, MessageCircle, Repeat, X,
 } from 'lucide-react';
 import { db } from '../firebase';
+import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -107,6 +108,12 @@ export default function SkillSwap() {
           userAColor: user?.avatarColor, userBColor: item.userColor,
           createdAt: Timestamp.now(),
         });
+        sendNotification({
+          uid: item.userId,
+          title: 'Aura • Skill Swap',
+          body: 'Someone wants to swap skills with you.',
+          path: '/aura/swap',
+        });
       } else {
         const data = snap.data();
         const updates = {};
@@ -114,7 +121,15 @@ export default function SkillSwap() {
         if (data.userB === userId && !data.userBAccepted) updates.userBAccepted = true;
         const a = data.userAAccepted || updates.userAAccepted;
         const b = data.userBAccepted || updates.userBAccepted;
-        if (a && b) updates.status = 'matched';
+        if (a && b) {
+          updates.status = 'matched';
+          sendNotification({
+            uid: data.userA === userId ? data.userB : data.userA,
+            title: 'Aura • Skill Swap',
+            body: 'Your swap request was accepted!',
+            path: `/aura/swap/chat/${id}`,
+          });
+        }
         if (Object.keys(updates).length) await updateDoc(ref, updates);
       }
     } catch (err) {

@@ -9,8 +9,8 @@ import {
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
-import { db, functions } from '../firebase';
-import { httpsCallable } from 'firebase/functions';
+import { auth, db } from '../firebase';
+import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -73,11 +73,15 @@ export default function MatchFinder() {
     setVerifyError('');
     setVerifying(true);
     try {
-      const createSession = httpsCallable(functions, 'createDiditSession');
-      const result = await createSession();
-      const url = result?.data?.url;
-      if (!url) throw new Error('No verification URL returned');
-      window.location.href = url;
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-didit-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) throw new Error(`Supabase function returned ${res.status}`);
+      const data = await res.json();
+      if (!data.url) throw new Error('No verification URL returned');
+      window.location.href = data.url;
     } catch (err) {
       console.error('verification session creation failed', err);
       setVerifyError('Could not start verification right now. Please try again in a moment.');
@@ -85,20 +89,24 @@ export default function MatchFinder() {
     }
   };
 
-  // Same shape as handleVerify above — a Cloud Function starts a hosted
-  // checkout flow, Stripe's webhook (functions/index.js's stripeWebhook)
-  // is what actually flips user.plan to 'premium' once payment succeeds,
-  // never this client. user.plan updates live via useCurrentUser once
-  // that lands, same as verified does.
+  // Same shape as handleVerify above — a Supabase Edge Function starts a
+  // hosted checkout flow, Stripe's webhook (the stripe-webhook Supabase
+  // function) is what actually flips user.plan to 'premium' once payment
+  // succeeds, never this client. user.plan updates live via
+  // useCurrentUser once that lands, same as verified does.
   const [checkingOut, setCheckingOut] = useState(false);
   const startUpgradeCheckout = async () => {
     setCheckingOut(true);
     try {
-      const createCheckout = httpsCallable(functions, 'createStripeCheckoutSession');
-      const result = await createCheckout();
-      const url = result?.data?.url;
-      if (!url) throw new Error('No checkout URL returned');
-      window.location.href = url;
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-stripe-checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) throw new Error(`Supabase function returned ${res.status}`);
+      const data = await res.json();
+      if (!data.url) throw new Error('No checkout URL returned');
+      window.location.href = data.url;
     } catch (err) {
       console.error('checkout session creation failed', err);
       setActionError('Could not start checkout right now. Please try again in a moment.');
@@ -421,11 +429,23 @@ export default function MatchFinder() {
           status: 'pending',
           createdAt: Timestamp.now(),
         });
+        sendNotification({
+          uid: other.userId,
+          title: 'Aura • Match Finder',
+          body: 'Someone wants to match with you.',
+          path: '/aura/match',
+        });
       } else {
         const data = snap.data();
         // if the other person requested first → accept
         if (data.userA === other.userId && !data.userBAccepted && userId === data.userB) {
           await updateDoc(ref, { userBAccepted: true, status: 'matched', matchedAt: Timestamp.now() });
+          sendNotification({
+            uid: data.userA,
+            title: 'Aura • Match Finder',
+            body: 'Your match request was accepted!',
+            path: `/aura/match/chat/${id}`,
+          });
         }
         if (data.userA === userId && !data.userAAccepted) {
           await updateDoc(ref, { userAAccepted: true });

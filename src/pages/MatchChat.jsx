@@ -11,6 +11,7 @@ import {
   Check, CheckCheck, Reply, Pin, Trash2, Sticker as StickerIcon,
 } from 'lucide-react';
 import { db } from '../firebase';
+import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -347,8 +348,30 @@ export default function MatchChat() {
   // firestore.rules — removed after repeatedly causing real send
   // failures in practice. See the comment in firestore.rules where those
   // functions used to live for the full reasoning. Back to a plain write.
+  //
+  // The notification call here replaces what used to fire automatically
+  // via a Cloud Functions Firestore trigger (onMatchMessageCreated) —
+  // titled with the sender's own name, since by the time two people can
+  // message each other they've already matched and aren't hidden from
+  // one another anymore (see userIdentities rules).
   const sendWithCooldownBump = async (payload) => {
     await addDoc(collection(db, 'matchChats', matchId, 'messages'), payload);
+    if (theirUid) {
+      const myIdentitySnap = await getDoc(doc(db, 'userIdentities', userId)).catch(() => null);
+      const myName = myIdentitySnap?.exists() ? myIdentitySnap.data()?.displayName : null;
+      let preview = 'New message';
+      if (payload.type === 'voice') preview = '🎤 Voice note';
+      else if (payload.type === 'image') preview = '📷 Photo';
+      else if (payload.type === 'audio') preview = '🎵 Audio file';
+      else if (payload.type === 'file') preview = `📎 ${payload.fileName || 'File'}`;
+      else if (payload.text) preview = payload.text.length > 120 ? `${payload.text.slice(0, 117)}...` : payload.text;
+      sendNotification({
+        uid: theirUid,
+        title: myName ? `${myName} • Aura` : 'Aura • Match Finder',
+        body: preview,
+        path: `/aura/match/chat/${matchId}`,
+      });
+    }
   };
 
   const send = async () => {
