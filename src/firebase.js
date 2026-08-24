@@ -4,7 +4,6 @@ import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
-import { getFunctions } from 'firebase/functions';
 
 // Config now comes from Vite env vars (see .env.example) instead of being
 // hardcoded here. This isn't hiding a secret — a Firebase web apiKey is not
@@ -74,9 +73,10 @@ export const auth = getAuth(app);
 // onDisconnect() is handled server-side, so it fires even on a crashed tab
 // or lost connection, not just a clean unmount.
 export const rtdb = getDatabase(app);
-// Used by MatchFinder's Didit age-verification flow (createDiditSession)
-// — see functions/index.js. Everything else in the app talks to Firestore
-// directly; this is the one place a client needs to call actual server
-// code, since starting a verification session requires the Didit API key,
-// which can never live in client code.
-export const functions = getFunctions(app);
+// NOTE: there used to be a `functions` export here (Firebase Cloud
+// Functions), used for Didit verification, Stripe checkout, and push
+// notifications. All three moved off Firebase entirely (see the Supabase
+// Edge Functions and api/send-notification.js) specifically to avoid
+// requiring the Blaze billing plan — they're now called with plain
+// fetch() instead of the Firebase SDK. See src/lib/sendNotification.js
+// and the handleVerify/startUpgradeCheckout functions in MatchFinder.jsx.
