@@ -1,13 +1,14 @@
 // Shared helpers for sending voice notes, pictures, audio files, and
-// generic files inside 1:1 chats (starting with Match Chat).
+// generic files inside chats.
 //
-// There's no Firebase Storage bucket in play here (see firebase.js/
-// photoUpload.js — Storage now requires the paid Blaze plan even for
-// free-tier usage as of Feb 2026), so every attachment ships as a base64
-// data URL embedded directly in the Firestore message document. That
-// means every helper below has to enforce a hard byte ceiling well under
-// Firestore's 1 MiB document limit — there's no server-side resizing or
-// CDN to fall back on.
+// Voice notes upload to Supabase Storage now (see uploadVoiceNote below)
+// — moved off the base64-in-Firestore approach specifically to remove the
+// ~60-second recording cap that came from squeezing every voice note
+// under Firestore's 1 MiB document limit. Pictures, live stickers, and
+// generic file attachments still use the original base64 approach (no
+// Firebase Storage bucket for those — it requires the paid Blaze plan
+// even for free-tier usage as of Feb 2026) — every helper for THOSE below
+// still enforces a hard byte ceiling well under Firestore's document limit.
 
 // MediaRecorder's actual output codec depends entirely on what the
 // browser supports — same reasoning as MoodChat.jsx's voice notes.
@@ -24,7 +25,50 @@ export function pickSupportedVoiceMimeType() {
   return VOICE_MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
 
-export const MAX_RECORDING_SECONDS = 60;
+export const MAX_RECORDING_SECONDS = 300;
+
+// Raw byte ceiling for the recorded blob BEFORE upload — generous since
+// Supabase Storage's free tier is 1GB total, not the ~660KB-per-message
+// squeeze that applied when voice notes lived inside the Firestore
+// document itself. Match this to whatever max file size you configure on
+// the actual Supabase bucket (see the setup walkthrough) — this is a
+// client-side fast-fail check, not the real enforcement; the bucket's own
+// size limit is what actually protects your storage quota if this check
+// is ever bypassed.
+export const MAX_VOICE_BLOB_BYTES = 8 * 1024 * 1024;
+
+// Uploads a recorded voice note to Supabase Storage and returns a public
+// URL — used in place of the base64-data-URL approach still used for
+// stickers/images/files below (voice notes were the one migrated, per
+// the conversation that built this; the others stay as they were).
+//
+// Falls back to throwing a clear error if Supabase isn't configured,
+// rather than silently failing — a missing env var should be obvious
+// during setup, not show up as a mysterious broken voice note later.
+export async function uploadVoiceNote(blob, mimeType, uid) {
+  // eslint-disable-next-line global-require
+  const { supabase } = await import('./supabaseClient');
+  if (!supabase) {
+    throw new Error('Voice notes need Supabase Storage configured — see .env.example.');
+  }
+  if (blob.size > MAX_VOICE_BLOB_BYTES) {
+    throw new Error(`That recording is too large to send (max ${Math.round(MAX_VOICE_BLOB_BYTES / 1024 / 1024)}MB).`);
+  }
+  const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+  // Path includes the uploader's uid and a random-ish suffix — not for
+  // security (the bucket is public-read, see the setup walkthrough's
+  // honest note on this), just to avoid filename collisions.
+  const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+  const { error } = await supabase.storage.from('voice-notes').upload(path, blob, {
+    contentType: mimeType,
+    upsert: false,
+  });
+  if (error) throw new Error(`Could not upload voice note: ${error.message}`);
+
+  const { data } = supabase.storage.from('voice-notes').getPublicUrl(path);
+  return data.publicUrl;
+}
 
 // Live stickers (short looping video clips, TikTok-style) — same
 // MediaRecorder approach as voice notes, just pointed at a video track
@@ -48,9 +92,10 @@ export const MAX_LIVE_STICKER_SECONDS = 5;
 // Firestore hard-caps a document at 1 MiB. Base64 inflates raw bytes by
 // ~33%, and the message doc also carries a few other small fields (userId,
 // timestamps, reply/pin metadata later on) — 900,000 characters (~660KB
-// raw) leaves comfortable headroom. This matches the voiceUrl cap already
-// enforced server-side in firestore.rules for Mood Chat, and the same cap
-// is now enforced there for matchChats too.
+// raw) leaves comfortable headroom. Used for fileUrl (stickers/images) —
+// voiceUrl no longer shares this cap now that it's a short Supabase
+// Storage URL instead of embedded base64 (see firestore.rules, which now
+// checks voiceUrl against a much smaller URL-appropriate length).
 export const MAX_DATA_URL_CHARS = 900000;
 
 // Raw byte ceiling checked *before* reading a picked file, so a large
