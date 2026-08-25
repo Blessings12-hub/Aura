@@ -34,12 +34,12 @@ const pairId = (a, b) => [a, b].sort().join('_');
 const MIN_MATCH_AGE = 18;
 
 // OFF by default on purpose. The "see who liked you" premium gate (see
-// isPremium below) is real, working code — but until Blaze is on and
-// Stripe is actually configured (see functions/index.js), NOBODY's
-// user.plan can ever become 'premium', which means leaving this gate
-// live would lock every single person out of a capability that used to
-// be free, with an "Upgrade" button that errors since the Cloud Function
-// behind it isn't deployed. Flip this to true once checkout is actually
+// isPremium below) is real, working code — but until Flutterwave is
+// actually configured on the create-flutterwave-session Supabase
+// function, NOBODY's user.plan can ever become 'premium', which means
+// leaving this gate live would lock every single person out of a
+// capability that used to be free, with an "Upgrade" button that errors.
+// Flip this to true once checkout is actually
 // live and tested — nothing else needs to change.
 const PREMIUM_GATE_ENABLED = false;
 
@@ -90,7 +90,7 @@ export default function MatchFinder() {
   };
 
   // Same shape as handleVerify above — a Supabase Edge Function starts a
-  // hosted checkout flow, Stripe's webhook (the stripe-webhook Supabase
+  // hosted checkout flow, Flutterwave's webhook (the flutterwave-webhook
   // function) is what actually flips user.plan to 'premium' once payment
   // succeeds, never this client. user.plan updates live via
   // useCurrentUser once that lands, same as verified does.
@@ -99,7 +99,7 @@ export default function MatchFinder() {
     setCheckingOut(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-stripe-checkout-session`, {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-flutterwave-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
       });
