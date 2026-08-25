@@ -265,13 +265,13 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    // Storage upload failures fall back to embedding the
-                    // recording directly as a base64 data URL on the doc
-                    // (see MoodChat.jsx) — cap it well under Firestore's
-                    // 1 MiB document limit so that path can't blow up a doc.
-                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
-                    // Stickers ship the same way — a base64 PNG on
-                    // fileUrl, same cap as voiceUrl.
+                    // voiceUrl is now a Supabase Storage URL (see
+                    // uploadVoiceNote in chatMedia.js), not embedded
+                    // base64 — this cap is sized for a URL, not audio data.
+                    && validText(request.resource.data.get('voiceUrl', ''), 500)
+                    // Stickers still ship as embedded base64 — a base64
+                    // PNG on fileUrl, capped well under Firestore's 1 MiB
+                    // document limit.
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
                     && validText(request.resource.data.get('fileMime', ''), 100);
       // Group delivered/seen receipts: unlike a 1:1 chat, a mood room can
@@ -366,17 +366,17 @@ service cloud.firestore {
     }
 
     // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
-    // No Storage bucket is in play for attachments (see photoUpload.js /
-    // chatMedia.js) — voice notes, photos, audio files, and general files
-    // all ship as base64 data URLs embedded directly on the message doc,
-    // so each of those fields gets the same 900,000-char cap already used
-    // for Mood Chat's voiceUrl, keeping every doc well under Firestore's
-    // 1 MiB limit regardless of which attachment type was sent.
+    // Voice notes upload to Supabase Storage (see uploadVoiceNote in
+    // chatMedia.js) — voiceUrl below is a short URL, not embedded audio
+    // data. Photos, audio files, and general files still ship as base64
+    // data URLs embedded directly on the message doc (no Firebase Storage
+    // bucket for those), so those fields keep the 900,000-char cap that
+    // keeps a doc well under Firestore's 1 MiB limit.
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
+                    && validText(request.resource.data.get('voiceUrl', ''), 500)
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
                     && validText(request.resource.data.get('fileName', ''), 200)
                     && validText(request.resource.data.get('fileMime', ''), 100);
@@ -510,14 +510,13 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    // Storage upload failures fall back to embedding the
-                    // recording directly as a base64 data URL on the doc
-                    // (see DailyQuestion.jsx) — cap it well under
-                    // Firestore's 1 MiB document limit so that path can't
-                    // blow up a doc.
-                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
-                    // Stickers ship the same way — a base64 PNG on
-                    // fileUrl, same cap as voiceUrl.
+                    // voiceUrl is now a Supabase Storage URL (see
+                    // uploadVoiceNote in chatMedia.js), not embedded
+                    // base64 — this cap is sized for a URL, not audio data.
+                    && validText(request.resource.data.get('voiceUrl', ''), 500)
+                    // Stickers still ship as embedded base64 — a base64
+                    // PNG on fileUrl, capped well under Firestore's 1 MiB
+                    // document limit.
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
                     && validText(request.resource.data.get('fileMime', ''), 100);
       // Group delivered/seen receipts: unlike a 1:1 chat, a daily question
