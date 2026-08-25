@@ -18,7 +18,7 @@ import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
 import { useRoomPresence } from '../hooks/useRoomPresence';
 import {
-  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, MAX_DATA_URL_CHARS,
+  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, uploadVoiceNote,
 } from '../lib/chatMedia';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
@@ -355,26 +355,10 @@ export default function MoodChat() {
         const blob = new Blob(chunksRef.current, { type: actualType });
         stream.getTracks().forEach((tr) => tr.stop());
 
-        // Belt-and-suspenders: the 60s auto-stop should already keep this
-        // under the limit, but codecs/bitrates vary by browser, so check
-        // for real rather than assume the timer alone was enough.
-        if (blob.size > 700 * 1024) {
-          setMicError('That recording was too long to send — try one under a minute.');
-          return;
-        }
         try {
-          const reader = new FileReader();
-          const dataUrl = await new Promise((resolve, reject) => {
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-          });
-          if (dataUrl.length > MAX_DATA_URL_CHARS) {
-            setMicError('That recording was too long to send — try one under a minute.');
-            return;
-          }
+          const voiceUrl = await uploadVoiceNote(blob, actualType, userId);
           await sendWithCooldownBump({
-            type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId,
+            type: 'voice', voiceUrl, voiceMime: actualType, userId,
             userAge: user?.age, userGender: user?.gender, userColor: user?.avatarColor,
             createdAt: Timestamp.now(),
             ...replyToField(),

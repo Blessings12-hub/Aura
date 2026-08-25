@@ -18,7 +18,7 @@ import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useSendCooldown } from '../hooks/useSendCooldown';
 import { useUserStatus } from '../hooks/usePresence';
 import {
-  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, MAX_DATA_URL_CHARS,
+  pickSupportedVoiceMimeType, MAX_RECORDING_SECONDS, uploadVoiceNote,
   formatFileSize, readFileAsDataUrl, resizeChatImageToDataUrl,
 } from '../lib/chatMedia';
 import TopBar from '../components/TopBar';
@@ -408,26 +408,10 @@ export default function MatchChat() {
         const blob = new Blob(chunksRef.current, { type: actualType });
         stream.getTracks().forEach((tr) => tr.stop());
 
-        // Belt-and-suspenders: the 60s auto-stop should already keep this
-        // under budget, but codecs/bitrates vary by browser, so verify for
-        // real rather than assume the timer alone was enough.
-        if (blob.size > 700 * 1024) {
-          setMediaError('That recording was too long to send — try one under a minute.');
-          return;
-        }
         try {
-          const reader = new FileReader();
-          const dataUrl = await new Promise((resolve, reject) => {
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-          });
-          if (dataUrl.length > MAX_DATA_URL_CHARS) {
-            setMediaError('That recording was too long to send — try one under a minute.');
-            return;
-          }
+          const voiceUrl = await uploadVoiceNote(blob, actualType, userId);
           await sendWithCooldownBump({
-            type: 'voice', voiceUrl: dataUrl, voiceMime: actualType, userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
+            type: 'voice', voiceUrl, voiceMime: actualType, userId, userColor: user?.avatarColor, createdAt: Timestamp.now(),
             ...replyToField(),
           });
           setReplyingTo(null);
