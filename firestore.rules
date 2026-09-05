@@ -146,47 +146,30 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validAge(request.resource.data)
                     && !('verified' in request.resource.data)
-                    && !('banned' in request.resource.data)
-                    && !('plan' in request.resource.data)
-                    && !('stripeCustomerId' in request.resource.data)
-                    && !('stripeSubscriptionId' in request.resource.data);
+                    && !('banned' in request.resource.data);
       // The !('verified' in ...) || (unchanged) clause is what actually
       // makes `verified` server-only: a client update() sends the FULL
       // resulting document as request.resource.data, so this either
       // requires the field to be entirely absent from what they're
       // setting, or requires it to stay exactly what it already was
       // (resource.data, the pre-write value) — never letting a client
-      // flip it from missing/false to true. Only functions/index.js's
-      // diditWebhook can do that, since the Admin SDK it uses bypasses
-      // these rules entirely.
+      // flip it from missing/false to true. Only the Didit verification
+      // webhook can do that, since it writes via a service account that
+      // bypasses these rules entirely.
       //
       // `banned` follows the same lock idea but via a DIFFERENT path: an
       // admin (a real signed-in user with an /admins/{uid} doc, not a
       // server) needs to be able to set it. So this is two full
       // alternatives, not one shared check: the OWNER path (first line)
       // can update anything about their own account EXCEPT
-      // verified/banned/plan/stripe*; the ADMIN path (second line) can
-      // ONLY touch banned/banReason/bannedAt on ANYONE's account, via
+      // verified/banned; the ADMIN path (second line) can ONLY touch
+      // banned/banReason/bannedAt on ANYONE's account, via
       // diff().affectedKeys().hasOnly(), and nothing else.
-      //
-      // `plan`, `stripeCustomerId`, and `stripeSubscriptionId` follow the
-      // SAME server-only lock as verified — no admin override exists for
-      // these on purpose, unlike banned. Stripe's own dashboard already
-      // has refund/cancel tools if a subscription ever needs manual
-      // intervention; there's no established need yet for an in-app admin
-      // path to grant or revoke premium directly, and not building one
-      // keeps this smaller.
       allow update: if (isOwner(uid) && validAge(request.resource.data)
                         && (!('verified' in request.resource.data)
                             || request.resource.data.verified == resource.data.get('verified', false))
                         && (!('banned' in request.resource.data)
-                            || request.resource.data.banned == resource.data.get('banned', false))
-                        && (!('plan' in request.resource.data)
-                            || request.resource.data.plan == resource.data.get('plan', 'free'))
-                        && (!('stripeCustomerId' in request.resource.data)
-                            || request.resource.data.stripeCustomerId == resource.data.get('stripeCustomerId', null))
-                        && (!('stripeSubscriptionId' in request.resource.data)
-                            || request.resource.data.stripeSubscriptionId == resource.data.get('stripeSubscriptionId', null)))
+                            || request.resource.data.banned == resource.data.get('banned', false)))
                     || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt']));
       // Was `if false` — meaning nobody, not even the account's own
       // owner, could ever delete it. That made a genuine self-service
