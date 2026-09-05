@@ -33,16 +33,6 @@ const pairId = (a, b) => [a, b].sort().join('_');
 // firestore.rules on matchProfiles and userIdentities.
 const MIN_MATCH_AGE = 18;
 
-// OFF by default on purpose. The "see who liked you" premium gate (see
-// isPremium below) is real, working code — but until Flutterwave is
-// actually configured on the create-flutterwave-session Supabase
-// function, NOBODY's user.plan can ever become 'premium', which means
-// leaving this gate live would lock every single person out of a
-// capability that used to be free, with an "Upgrade" button that errors.
-// Flip this to true once checkout is actually
-// live and tested — nothing else needs to change.
-const PREMIUM_GATE_ENABLED = false;
-
 const GENDER_OPTIONS = [
   { value: 'Female', labelKey: 'female' },
   { value: 'Male', labelKey: 'male' },
@@ -89,30 +79,6 @@ export default function MatchFinder() {
     }
   };
 
-  // Same shape as handleVerify above — a Supabase Edge Function starts a
-  // hosted checkout flow, Flutterwave's webhook (the flutterwave-webhook
-  // function) is what actually flips user.plan to 'premium' once payment
-  // succeeds, never this client. user.plan updates live via
-  // useCurrentUser once that lands, same as verified does.
-  const [checkingOut, setCheckingOut] = useState(false);
-  const startUpgradeCheckout = async () => {
-    setCheckingOut(true);
-    try {
-      const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-flutterwave-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      });
-      if (!res.ok) throw new Error(`Supabase function returned ${res.status}`);
-      const data = await res.json();
-      if (!data.url) throw new Error('No checkout URL returned');
-      window.location.href = data.url;
-    } catch (err) {
-      console.error('checkout session creation failed', err);
-      setActionError('Could not start checkout right now. Please try again in a moment.');
-      setCheckingOut(false);
-    }
-  };
   const [gender, setGender] = useState('');
   const [avatarColor, setAvatarColor] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -677,36 +643,6 @@ export default function MatchFinder() {
             <div className="match-deck" style={{ marginBottom: 22 }}>
               {incomingMatches.map((m) => {
                 const theirCard = profiles.find((p) => p.userId === m.theirId);
-                const isPremium = !PREMIUM_GATE_ENABLED || user?.plan === 'premium';
-                if (!isPremium) {
-                  // Free tier: you know someone requested you, not who,
-                  // until you upgrade. Deliberately no accept/decline here
-                  // — responding "blind" to a request you can't actually
-                  // see isn't a real choice, it's just friction.
-                  return (
-                    <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2, filter: 'blur(1px)', opacity: 0.85 }}>
-                      <div className="aura-row" style={{ gap: 14 }}>
-                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--card-bg-2, #2a2a3a)', display: 'grid', placeItems: 'center' }}>
-                          <Lock size={20} />
-                        </div>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <strong>Someone wants to match with you</strong>
-                          <p className="aura-muted" style={{ margin: '6px 0 0' }}>Upgrade to see who, and to accept or decline.</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={startUpgradeCheckout}
-                        disabled={checkingOut}
-                        className="aura-btn aura-btn-primary"
-                        style={{ marginTop: 8, width: '100%' }}
-                        data-testid={`upgrade-to-reveal-${m.id}`}
-                      >
-                        {checkingOut ? 'Loading…' : 'Upgrade to reveal'}
-                      </button>
-                    </div>
-                  );
-                }
                 return (
                   <div key={m.id} className="match-card fade-in" data-testid={`incoming-match-${m.id}`} style={{ borderColor: 'var(--primary)', borderWidth: 2 }}>
                     <div className="aura-row" style={{ gap: 14 }}>
@@ -745,6 +681,7 @@ export default function MatchFinder() {
             </div>
           </>
         )}
+
 
         <h2 className="aura-title">{t('your_matches')} ({myMatches.length})</h2>
         {myMatches.length === 0 ? (
