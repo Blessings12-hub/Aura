@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, setDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, updateDoc, deleteDoc, limit,
+  collection, addDoc, doc, setDoc, getDoc, query, orderBy, Timestamp, where, updateDoc, deleteDoc, limit,
 } from 'firebase/firestore';
 import { CalendarHeart, MessageCircle, Check, X } from 'lucide-react';
 import { db } from '../firebase';
@@ -16,8 +16,6 @@ import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
-
-const pairId = (a, b) => [a, b].sort().join('_');
 
 export default function EventBuddy() {
   const navigate = useNavigate();

@@ -27,7 +27,7 @@ export default function LanguageSwitcher({ compact = false }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="aura-btn aura-btn-secondary aura-btn-pill"
+        className={`aura-btn aura-btn-secondary aura-btn-pill${compact ? ' is-compact' : ''}`}
         data-testid="language-switcher-btn"
         aria-haspopup="listbox"
         aria-expanded={open}

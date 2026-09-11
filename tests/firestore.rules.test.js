@@ -70,7 +70,6 @@ describe('matchPairs — get-before-create', () => {
   });
 
   it('blocks someone who is not a participant from creating the pair', async () => {
-    const pairId = 'alice_bob';
     await assertFails(setDoc(doc(asBob(), 'matchPairs', 'alice_carol'), {
       userA: 'alice', userB: 'carol', status: 'pending', createdAt: Timestamp.now(),
     }));

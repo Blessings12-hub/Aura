@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 
 /**
  * Props:
@@ -41,16 +41,16 @@ export default function Canvas({
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  const getPos = (e) => {
+  const getPos = useCallback((e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const x = (clientX - rect.left) / rect.width;
     const y = (clientY - rect.top) / rect.height;
     return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
-  };
+  }, []);
 
-  const drawSegment = (from, to, color, size) => {
+  const drawSegment = useCallback((from, to, color, size) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
@@ -60,32 +60,32 @@ export default function Canvas({
     ctx.moveTo(from.x * rect.width, from.y * rect.height);
     ctx.lineTo(to.x * rect.width, to.y * rect.height);
     ctx.stroke();
-  };
+  }, []);
 
-  const handleDown = (e) => {
+  const handleDown = useCallback((e) => {
     e.preventDefault();
     const pos = getPos(e);
     drawing.current = true;
     lastPos.current = pos;
     if (onBeginStroke) onBeginStroke(pos);
-  };
+  }, [getPos, onBeginStroke]);
 
-  const handleMove = (e) => {
+  const handleMove = useCallback((e) => {
     if (!drawing.current) return;
     e.preventDefault();
     const pos = getPos(e);
     drawSegment(lastPos.current, pos, strokeColor, strokeSize);
     if (onPoint) onPoint(pos);
     lastPos.current = pos;
-  };
+  }, [drawSegment, getPos, onPoint, strokeColor, strokeSize]);
 
-  const handleUp = (e) => {
+  const handleUp = useCallback((e) => {
     if (!drawing.current) return;
     e.preventDefault();
     drawing.current = false;
     lastPos.current = null;
     if (onEndStroke) onEndStroke();
-  };
+  }, [onEndStroke]);
 
   useEffect(() => {
     const el = canvasRef.current;
@@ -107,7 +107,7 @@ export default function Canvas({
       el.removeEventListener('touchmove', handleMove);
       window.removeEventListener('touchend', handleUp);
     };
-  }, [strokeColor, strokeSize, onBeginStroke, onPoint, onEndStroke]);
+  }, [handleDown, handleMove, handleUp]);
 
   useEffect(() => {
     const handleRemoteStroke = (e) => {
@@ -133,7 +133,7 @@ export default function Canvas({
       window.removeEventListener('remote-stroke', handleRemoteStroke);
       window.removeEventListener('clear-canvas', handleClear);
     };
-  }, []);
+  }, [drawSegment, strokeColor, strokeSize]);
 
   return (
     <canvas

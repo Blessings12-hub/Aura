@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, addDoc, doc, onSnapshot, query, orderBy, updateDoc, Timestamp, getDoc,
+  collection, addDoc, doc, query, orderBy, updateDoc, Timestamp, getDoc,
 } from 'firebase/firestore';
 import { Send, Video, X, PhoneIncoming } from 'lucide-react';
 import { db } from '../firebase';
