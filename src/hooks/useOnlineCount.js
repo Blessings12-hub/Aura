@@ -1,43 +1,29 @@
 import { useEffect, useState } from 'react';
-import { ref, onValue } from 'firebase/database';
-import { rtdb } from '../firebase';
+import { APPWRITE_COLLECTIONS, Query, databases, databaseId, requireAppwrite } from '../lib/appwriteClient';
 
-/**
- * Live count of everyone currently online across the whole app — not
- * scoped to any one activity/room (see useRoomPresence for that). Reads
- * the same status/{uid} tree usePresence() writes to, counting entries
- * whose state is 'online'.
- *
- * Needs database.rules.json to grant .read at the status PARENT level,
- * not just per-uid — reading/counting the whole list is a different
- * permission from reading your own single entry, and RTDB rules don't
- * infer one from the other.
- */
+const ONLINE_WINDOW_MS = 75_000;
+
 export function useOnlineCount() {
-  const [count, setCount] = useState(null); // null = still loading, not "zero"
-
+  const [count, setCount] = useState(null);
   useEffect(() => {
-    const statusRef = ref(rtdb, 'status');
-    const unsub = onValue(
-      statusRef,
-      (snap) => {
-        if (!snap.exists()) { setCount(0); return; }
-        let online = 0;
-        snap.forEach((child) => {
-          if (child.val()?.state === 'online') online += 1;
-        });
-        setCount(online);
-      },
-      (err) => {
-        // Almost always means database.rules.json's .read at the status
-        // level hasn't been published yet — fails closed to "don't show
-        // a count" rather than showing a misleading 0.
-        console.error('online count: failed to read presence (check database.rules.json is published)', err);
-        setCount(null);
-      },
-    );
-    return () => unsub();
+    let active = true;
+    const read = async () => {
+      try {
+        requireAppwrite();
+        const result = await databases.listDocuments(databaseId, APPWRITE_COLLECTIONS.presence, [Query.limit(500)]);
+        const cutoff = Date.now() - ONLINE_WINDOW_MS;
+        const online = result.documents.filter((item) => item.state === 'online' && Number(item.lastChanged) >= cutoff).length;
+        if (active) setCount(online);
+      } catch (error) {
+        if (active) {
+          console.error('online count: failed to read Appwrite presence', error);
+          setCount(null);
+        }
+      }
+    };
+    read();
+    const timer = window.setInterval(read, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
-
   return count;
 }

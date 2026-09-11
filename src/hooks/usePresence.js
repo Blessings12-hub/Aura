@@ -1,73 +1,56 @@
 import { useEffect } from 'react';
-import {
-  ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp,
-} from 'firebase/database';
-import { rtdb } from '../firebase';
+import { APPWRITE_COLLECTIONS, databases, databaseId, requireAppwrite, upsertDocument } from '../lib/appwriteClient';
 
-/**
- * Establishes GENUINE presence for `uid`, for as long as this hook stays
- * mounted (call it once, near the top of the app, for as long as someone
- * is signed in).
- *
- * This is the canonical Firebase presence pattern:
- *  - `.info/connected` is a special RTDB path that reflects the actual
- *    client-server socket connection state — not something we set.
- *  - Whenever we (re)connect, we queue an `onDisconnect().set(...)` that
- *    the RTDB SERVER will run the moment it detects we've disconnected
- *    (clean close, crash, lost network — all of it), then we mark
- *    ourselves online.
- *  - This means offline status is enforced by Firebase's servers, not by
- *    our own client-side cleanup code, which is what makes it genuine
- *    rather than "assume online until told otherwise."
- *
- * Data shape written to `status/{uid}`:
- *   { state: 'online' | 'offline', lastChanged: <server timestamp> }
- */
+const HEARTBEAT_MS = 25_000;
+
 export function usePresence(uid) {
   useEffect(() => {
     if (!uid) return undefined;
-
-    const statusRef = ref(rtdb, `status/${uid}`);
-    const connectedRef = ref(rtdb, '.info/connected');
-
-    const unsub = onValue(
-      connectedRef,
-      (snap) => {
-        if (snap.val() === false) return;
-        // Queue the offline write on the SERVER first, so it fires even if
-        // our own JS never gets to run again (crash, network loss, etc.).
-        onDisconnect(statusRef).set({ state: 'offline', lastChanged: rtdbServerTimestamp() })
-          .then(() => {
-            set(statusRef, { state: 'online', lastChanged: rtdbServerTimestamp() });
-          })
-          .catch((err) => console.error('presence: failed to set up onDisconnect', err));
-      },
-      (err) => console.error('presence: .info/connected listener failed (check Realtime Database rules are published)', err),
-    );
-
-    return () => unsub();
+    let active = true;
+    const publish = async (state = 'online') => {
+      try {
+        requireAppwrite();
+        await upsertDocument(APPWRITE_COLLECTIONS.presence, uid, {
+          uid,
+          state,
+          lastChanged: Date.now(),
+        });
+      } catch (error) {
+        if (active) console.error('presence heartbeat failed', error);
+      }
+    };
+    publish();
+    const timer = window.setInterval(() => publish(), HEARTBEAT_MS);
+    const markOffline = () => { publish('offline'); };
+    window.addEventListener('pagehide', markOffline);
+    window.addEventListener('beforeunload', markOffline);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('pagehide', markOffline);
+      window.removeEventListener('beforeunload', markOffline);
+      publish('offline');
+    };
   }, [uid]);
 }
 
-/**
- * Subscribes to another user's genuine status. Returns
- * { state: 'online'|'offline'|null, lastChanged: number|null }.
- */
 export function useUserStatus(uid, onChange) {
   useEffect(() => {
     if (!uid) return undefined;
-    const statusRef = ref(rtdb, `status/${uid}`);
-    return onValue(
-      statusRef,
-      (snap) => {
-        onChange(snap.exists() ? snap.val() : { state: 'offline', lastChanged: null });
-      },
-      (err) => {
-        if (err?.code !== 'PERMISSION_DENIED') {
-          console.error(`presence: failed to read ${uid}`, err);
-        }
-        onChange({ state: 'offline', lastChanged: null });
-      },
-    );
+    let active = true;
+    const read = async () => {
+      try {
+        requireAppwrite();
+        const document = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.presence, uid);
+        if (active) onChange(document);
+      } catch (error) {
+        if (active && error?.code !== 404) console.error(`presence: failed to read ${uid}`, error);
+        if (active) onChange({ state: 'offline', lastChanged: null });
+      }
+    };
+    read();
+    const unsubscribe = databases ? undefined : undefined;
+    const timer = window.setInterval(read, HEARTBEAT_MS);
+    return () => { window.clearInterval(timer); unsubscribe?.(); };
   }, [uid, onChange]);
 }

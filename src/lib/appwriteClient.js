@@ -17,9 +17,25 @@ export const APPWRITE_COLLECTIONS = {
   users: import.meta.env.VITE_APPWRITE_USERS_COLLECTION_ID || 'users',
   verificationRequests: import.meta.env.VITE_APPWRITE_VERIFICATION_COLLECTION_ID || 'verificationRequests',
   reports: import.meta.env.VITE_APPWRITE_REPORTS_COLLECTION_ID || 'reports',
+  presence: import.meta.env.VITE_APPWRITE_PRESENCE_COLLECTION_ID || 'presence',
 };
 
 export const APPWRITE_MEDIA_BUCKET_ID = import.meta.env.VITE_APPWRITE_MEDIA_BUCKET_ID;
+
+export async function listCollection(collectionId, queries = []) {
+  requireAppwrite();
+  return databases.listDocuments(databaseId, collectionId, queries);
+}
+
+export async function upsertDocument(collectionId, documentId, data, permissions) {
+  requireAppwrite();
+  try {
+    return await databases.updateDocument(databaseId, collectionId, documentId, data);
+  } catch (error) {
+    if (error?.code !== 404) throw error;
+    return databases.createDocument(databaseId, collectionId, documentId, data, permissions);
+  }
+}
 
 export function requireAppwrite() {
   if (!appwriteConfigured) {
