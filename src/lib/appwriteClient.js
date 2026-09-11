@@ -34,6 +34,13 @@ export const APPWRITE_COLLECTIONS = {
   verificationRequests: import.meta.env.VITE_APPWRITE_VERIFICATION_COLLECTION_ID || 'verificationRequests',
   reports: import.meta.env.VITE_APPWRITE_REPORTS_COLLECTION_ID || 'reports',
   presence: import.meta.env.VITE_APPWRITE_PRESENCE_COLLECTION_ID || 'presence',
+  matchPairs: import.meta.env.VITE_APPWRITE_MATCH_PAIRS_COLLECTION_ID || 'matchPairs',
+  matchProfiles: import.meta.env.VITE_APPWRITE_MATCH_PROFILES_COLLECTION_ID || 'matchProfiles',
+  userIdentities: import.meta.env.VITE_APPWRITE_USER_IDENTITIES_COLLECTION_ID || 'userIdentities',
+  swapPairs: import.meta.env.VITE_APPWRITE_SWAP_PAIRS_COLLECTION_ID || 'swapPairs',
+  skillSwaps: import.meta.env.VITE_APPWRITE_SKILL_SWAPS_COLLECTION_ID || 'skillSwaps',
+  eventJoins: import.meta.env.VITE_APPWRITE_EVENT_JOINS_COLLECTION_ID || 'eventJoins',
+  reportsLegacy: import.meta.env.VITE_APPWRITE_REPORTS_COLLECTION_ID || 'reports',
 };
 
 export const APPWRITE_MEDIA_BUCKET_ID = import.meta.env.VITE_APPWRITE_MEDIA_BUCKET_ID;
@@ -49,7 +56,17 @@ export async function upsertDocument(collectionId, documentId, data, permissions
     return await databases.updateDocument(databaseId, collectionId, documentId, data);
   } catch (error) {
     if (error?.code !== 404) throw error;
-    return databases.createDocument(databaseId, collectionId, documentId, data, permissions);
+    try {
+      return await databases.createDocument(databaseId, collectionId, documentId, data, permissions);
+    } catch (createError) {
+      // Another tab/request may have created the same deterministic document
+      // between the update and create calls. Retry the update instead of
+      // surfacing Appwrite's duplicate-document error to the user.
+      if (createError?.code === 409) {
+        return databases.updateDocument(databaseId, collectionId, documentId, data);
+      }
+      throw createError;
+    }
   }
 }
 
