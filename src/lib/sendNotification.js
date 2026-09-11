@@ -12,20 +12,17 @@
 // failing to send should never block or error out the actual action (the
 // match request itself, the message itself) that's the real thing the
 // user cares about completing. Errors are logged, not thrown.
-import { auth } from '../firebase';
+import { account } from './appwriteClient';
 
 export async function sendNotification({ uid, title, body, path }) {
   try {
-    const idToken = await auth.currentUser?.getIdToken();
-    if (!idToken) return; // Not signed in somehow — nothing sensible to do.
-    await fetch('/api/send-notification', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ uid, title, body, path }),
-    });
+    await account.get();
+    // Notification delivery is intentionally disabled until it is backed by
+    // an Appwrite Function. Never send Firebase tokens to a Vercel endpoint.
+    void uid;
+    void title;
+    void body;
+    void path;
   } catch (err) {
     // Never let a notification failure surface to the user or block
     // whatever real action triggered it — this is best-effort.

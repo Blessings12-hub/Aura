@@ -6,11 +6,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
   plugins: [react()],
-  define: {
-    'import.meta.env.VITE_SUPABASE_FUNCTIONS_URL': JSON.stringify(
-      env.VITE_SUPABASE_FUNCTIONS_URL || env.SUPABASE_FUNCTIONS_URL || '',
-    ),
-  },
   build: {
     rollupOptions: {
       output: {
