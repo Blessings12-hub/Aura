@@ -30,8 +30,15 @@ export async function runTransaction(_db, callback) {
   return callback(transaction);
 }
 
-export function collection(_db, name) { return { collectionId: collectionId(name), name }; }
-export function doc(_db, name, id) { return { collectionId: collectionId(name), name, id }; }
+export function collection(_db, name, ...path) {
+  const collectionName = [name, ...path.filter(Boolean)].join('_');
+  return { collectionId: collectionId(collectionName), name: collectionName, path };
+}
+export function doc(_db, name, ...segments) {
+  const id = segments.pop();
+  const collectionName = [name, ...segments.filter(Boolean)].join('_');
+  return { collectionId: collectionId(collectionName), name: collectionName, id, path: segments };
+}
 export function where(field, operator, value) { return { type: 'where', field, operator, value }; }
 export function orderBy(field, direction = 'asc') { return { type: 'orderBy', field, direction }; }
 export function limit(value) { return { type: 'limit', value }; }
