@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
-import { account, databases, databaseId, ID, APPWRITE_COLLECTIONS, ensureAnonymousSession } from '../lib/appwriteClient';
+import { account, databases, databaseId, ID, APPWRITE_COLLECTIONS, ensureAnonymousSession, ownerPermissions } from '../lib/appwriteClient';
 import { AVATAR_COLORS } from '../constants/moods';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
@@ -100,19 +100,20 @@ export default function Login() {
         age: String(Number(age)), gender, avatarColor, createdAt: now, updatedAt: now,
         verificationStatus: 'pending', verified: false,
       };
+      const permissions = ownerPermissions(uid);
       try {
         await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, uid);
-        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile);
+        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile, permissions);
       } catch (lookupError) {
         if (lookupError?.code !== 404) throw lookupError;
-        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile);
+        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile, permissions);
       }
       const request = { uid, age: String(Number(age)), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '' };
       try {
-        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request);
+        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request, permissions);
       } catch (lookupError) {
         if (lookupError?.code !== 404) throw lookupError;
-        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request);
+        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request, permissions);
       }
       navigate('/aura/match', { replace: true });
     } catch (err) {
