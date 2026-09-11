@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { signInAnonymously, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { Check } from 'lucide-react';
-import { auth, db } from '../firebase';
+import { account, databases, databaseId, ID, APPWRITE_COLLECTIONS, ensureAnonymousSession } from '../lib/appwriteClient';
 import { AVATAR_COLORS } from '../constants/moods';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
@@ -40,25 +38,13 @@ export default function Login() {
     setError('');
     setRecovering(true);
     try {
-      const result = await signInWithPopup(auth, new GoogleAuthProvider());
-      const uid = result.user.uid;
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) {
-        navigate('/aura');
-      } else {
-        // Signed in fine, but this Google account was never linked to an
-        // Aura profile before — nothing to recover, so just let them
-        // continue into the normal sign-up form with this new identity.
-        setError('That Google account isn\'t linked to an existing Aura profile yet — continue below to set one up.');
-      }
+      const session = await account.createEmailPasswordSession(window.prompt('Email') || '', window.prompt('Password') || '');
+      const profile = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, session.userId);
+      if (profile) navigate('/aura', { replace: true });
     } catch (err) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        console.error('account recovery failed', err);
-        setError('Could not sign in with Google. Please try again.');
-      }
-    } finally {
-      setRecovering(false);
-    }
+      console.error('account recovery failed', err);
+      setError('Could not recover that account. Check your Appwrite email/password session.');
+    } finally { setRecovering(false); }
   };
 
   // Single source of truth for "is Firebase Auth actually ready yet".
@@ -71,40 +57,20 @@ export default function Login() {
   // security rules, and silently fail — leaving an already-onboarded person
   // stuck looking at the login form again instead of being sent to Home.
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      let uid = user?.uid;
-      if (!uid) {
-        try {
-          const cred = await signInAnonymously(auth);
-          uid = cred.user.uid;
-        } catch (e) {
-          console.error('anonymous sign-in failed', e);
-          return;
-        }
+    let active = true;
+    async function checkProfile() {
+      try {
+        const session = await ensureAnonymousSession();
+        const profile = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, session.$id);
+        const expiresAt = Number(profile.verificationExpiresAt || 0);
+        if (active && profile.verificationStatus === 'approved' && expiresAt > Date.now()) navigate('/aura/match', { replace: true });
+        if (active && profile.verificationStatus === 'pending') setVerificationPending(true);
+      } catch (e) {
+        if (e?.code !== 404) console.error('Appwrite profile check failed', e);
       }
-      // Firebase Auth is the identity source; a profile check is only made
-      // after the session has been restored or created.
-      if (uid) {
-        try {
-          const snap = await getDoc(doc(db, 'users', uid));
-          const profile = snap.exists() ? snap.data() : null;
-          const expiresAt = profile?.verificationExpiresAt?.toMillis
-            ? profile.verificationExpiresAt.toMillis()
-            : Number(profile?.verificationExpiresAt || 0);
-          if (profile?.verificationStatus === 'approved' && expiresAt > Date.now()) {
-            navigate('/aura/match', { replace: true });
-          } else if (profile?.verificationStatus === 'pending') {
-            setVerificationPending(true);
-          }
-        } catch (e) {
-          // A real failure here (not just "no doc yet") is worth knowing
-          // about instead of silently swallowing it — surfacing it in the
-          // console at minimum, rather than the previous bare .catch(() => {}).
-          console.error('redirect check failed', e);
-        }
-      }
-    });
-    return () => unsub();
+    }
+    checkProfile();
+    return () => { active = false; };
   }, [navigate]);
 
   // Live inline validation, distinct from the submit-time error banner —
@@ -127,29 +93,27 @@ export default function Login() {
     if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
     try {
-      let uid = auth.currentUser?.uid;
-      if (!uid) {
-        const cred = await signInAnonymously(auth);
-        uid = cred.user.uid;
+      const session = await ensureAnonymousSession();
+      const uid = session.$id;
+      const now = new Date().toISOString();
+      const profile = {
+        age: String(Number(age)), gender, avatarColor, createdAt: now, updatedAt: now,
+        verificationStatus: 'pending', verified: false,
+      };
+      try {
+        await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, uid);
+        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile);
+      } catch (lookupError) {
+        if (lookupError?.code !== 404) throw lookupError;
+        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile);
       }
-      const userRef = doc(db, 'users', uid);
-      const existing = await getDoc(userRef);
-      await setDoc(userRef, {
-        age: Number(age),
-        gender,
-        avatarColor,
-        createdAt: existing.exists() ? existing.data().createdAt : new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-      await setDoc(doc(db, 'verificationRequests', uid), {
-        uid,
-        age: Number(age),
-        gender,
-        status: 'pending',
-        submittedAt: new Date().toISOString(),
-        reviewedAt: null,
-        reviewerId: null,
-      }, { merge: true });
+      const request = { uid, age: String(Number(age)), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '' };
+      try {
+        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request);
+      } catch (lookupError) {
+        if (lookupError?.code !== 404) throw lookupError;
+        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request);
+      }
       navigate('/aura/match', { replace: true });
     } catch (err) {
       console.error(err);

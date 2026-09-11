@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { auth } from '../firebase';
+import { ensureAnonymousSession, appwriteConfigured } from '../lib/appwriteClient';
 import SplashScreen from '../components/SplashScreen';
 
 export default function AuthGate({ children }) {
@@ -8,44 +7,22 @@ export default function AuthGate({ children }) {
   const [fatalError, setFatalError] = useState(null);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setReady(true);
-        return;
-      }
-      // No session yet (first-ever visit, or a fully expired/cleared one).
-      // Establish one now, BEFORE letting any route mount, so every
-      // Firestore/Storage/RTDB call the app makes from here on has a
-      // guaranteed non-null request.auth.
-      try {
-        await signInAnonymously(auth);
-        // onAuthStateChanged will fire again with the new user and hit
-        // the branch above — no need to setReady(true) here too.
-      } catch (e) {
-        console.error('AuthGate: anonymous sign-in failed', e);
-        setFatalError(e);
-        setReady(true); // let the app render anyway rather than hang forever;
-        // individual pages' own error handling will surface the problem.
-      }
-    });
-    return () => unsub();
+    let active = true;
+    ensureAnonymousSession()
+      .catch((error) => { if (active) setFatalError(error); })
+      .finally(() => { if (active) setReady(true); });
+    return () => { active = false; };
   }, []);
 
-  if (!ready) {
-    return <SplashScreen />;
-  }
-
-  if (fatalError) {
+  if (!ready) return <SplashScreen />;
+  if (fatalError || !appwriteConfigured) {
     return (
       <div className="aura-page" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
-        <div className="aura-card" style={{ textAlign: 'center', maxWidth: 360 }}>
-          <p className="aura-muted">
-            Couldn&apos;t connect. Check your internet connection and reload the page.
-          </p>
+        <div className="aura-card" style={{ textAlign: 'center', maxWidth: 420 }}>
+          <p className="aura-muted">Aura is not connected to Appwrite yet. Add the Appwrite variables from APPWRITE_SETUP.md, then reload.</p>
         </div>
       </div>
     );
   }
-
   return children;
 }
