@@ -2,7 +2,11 @@
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { app } from './firebase';
 
-const messaging = getMessaging(app);
+let messaging;
+function getMessagingInstance() {
+  if (!messaging) messaging = getMessaging(app);
+  return messaging;
+}
 
 export async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
@@ -17,7 +21,7 @@ export async function requestNotificationPermission() {
 
   const registration = await registerServiceWorker();
 
-  const token = await getToken(messaging, {
+  const token = await getToken(getMessagingInstance(), {
     vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
     serviceWorkerRegistration: registration || undefined
   });
@@ -26,5 +30,5 @@ export async function requestNotificationPermission() {
 }
 
 export function listenForForegroundMessages(callback) {
-  return onMessage(messaging, callback);
+  return onMessage(getMessagingInstance(), callback);
 }

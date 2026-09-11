@@ -28,6 +28,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(false);
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
@@ -90,7 +91,11 @@ export default function Login() {
           const expiresAt = profile?.verificationExpiresAt?.toMillis
             ? profile.verificationExpiresAt.toMillis()
             : Number(profile?.verificationExpiresAt || 0);
-          if (profile?.verificationStatus === 'approved' && expiresAt > Date.now()) navigate('/aura');
+          if (profile?.verificationStatus === 'approved' && expiresAt > Date.now()) {
+            navigate('/aura/match', { replace: true });
+          } else if (profile?.verificationStatus === 'pending') {
+            setVerificationPending(true);
+          }
         } catch (e) {
           // A real failure here (not just "no doc yet") is worth knowing
           // about instead of silently swallowing it — surfacing it in the
@@ -137,7 +142,7 @@ export default function Login() {
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       const idToken = await auth.currentUser?.getIdToken(true);
-      const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || import.meta.env.SUPABASE_FUNCTIONS_URL;
+      const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
       if (!functionsUrl) throw new Error('verification service is not configured');
       const verificationRes = await fetch(`${functionsUrl}/create-didit-session`, {
         method: 'POST',
@@ -247,6 +252,12 @@ export default function Login() {
               })}
             </div>
           </div>
+
+          {verificationPending && (
+            <p role="status" className="aura-field-hint" data-testid="verification-pending">
+              Verification is still being reviewed. Keep this page open or return here later; once approved, you&apos;ll continue to Match Finder automatically.
+            </p>
+          )}
 
           {error && (
             <p role="alert" className="aura-login-error" data-testid="login-error">{error}</p>

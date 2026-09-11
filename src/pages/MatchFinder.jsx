@@ -50,6 +50,7 @@ export default function MatchFinder() {
   const [ageConsent, setAgeConsent] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState('');
+  const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
   // Redirects to Didit's hosted verification flow. The actual verified
   // flag doesn't land until Didit's webhook fires (see
@@ -64,9 +65,11 @@ export default function MatchFinder() {
     setVerifying(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/create-didit-session`, {
+      if (!functionsUrl) throw new Error('verification service is not configured');
+      const res = await fetch(`${functionsUrl}/create-didit-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ purpose: 'match' }),
       });
       if (!res.ok) throw new Error(`Supabase function returned ${res.status}`);
       const data = await res.json();
