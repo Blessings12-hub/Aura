@@ -1,14 +1,10 @@
 // Shared helpers for sending voice notes, pictures, audio files, and
 // generic files inside chats.
 //
-// Voice notes upload to Supabase Storage now (see uploadVoiceNote below)
-// — moved off the base64-in-Firestore approach specifically to remove the
-// ~60-second recording cap that came from squeezing every voice note
-// under Firestore's 1 MiB document limit. Pictures, live stickers, and
-// generic file attachments still use the original base64 approach (no
-// Firebase Storage bucket for those — it requires the paid Blaze plan
-// even for free-tier usage as of Feb 2026) — every helper for THOSE below
-// still enforces a hard byte ceiling well under Firestore's document limit.
+// Voice notes upload to a private Appwrite Storage bucket. Vercel serves the
+// static frontend; Appwrite owns authenticated media and application data.
+// Pictures, live stickers, and generic file attachments remain compact data
+// URLs until their chat records are migrated to Appwrite Databases.
 
 // MediaRecorder's actual output codec depends entirely on what the
 // browser supports — same reasoning as MoodChat.jsx's voice notes.
@@ -27,47 +23,25 @@ export function pickSupportedVoiceMimeType() {
 
 export const MAX_RECORDING_SECONDS = 300;
 
-// Raw byte ceiling for the recorded blob BEFORE upload — generous since
-// Supabase Storage's free tier is 1GB total, not the ~660KB-per-message
-// squeeze that applied when voice notes lived inside the Firestore
-// document itself. Match this to whatever max file size you configure on
-// the actual Supabase bucket (see the setup walkthrough) — this is a
-// client-side fast-fail check, not the real enforcement; the bucket's own
-// size limit is what actually protects your storage quota if this check
-// is ever bypassed.
+// Raw byte ceiling for the recorded blob before upload. Configure the same
+// limit on the private Appwrite bucket; client checks are only fast-fail UX.
 export const MAX_VOICE_BLOB_BYTES = 8 * 1024 * 1024;
 
-// Uploads a recorded voice note to Supabase Storage and returns a public
-// URL — used in place of the base64-data-URL approach still used for
-// stickers/images/files below (voice notes were the one migrated, per
-// the conversation that built this; the others stay as they were).
-//
-// Falls back to throwing a clear error if Supabase isn't configured,
-// rather than silently failing — a missing env var should be obvious
-// during setup, not show up as a mysterious broken voice note later.
+// Uploads a recorded voice note to a private Appwrite Storage bucket.
+// The returned URL is a preview URL; Appwrite permissions remain the source
+// of truth, so the bucket must not be configured for public access.
 export async function uploadVoiceNote(blob, mimeType, uid) {
-  // eslint-disable-next-line global-require
-  const { supabase } = await import('./supabaseClient');
-  if (!supabase) {
-    throw new Error('Voice notes need Supabase Storage configured — see .env.example.');
-  }
+  const { ID, requireAppwrite, storage } = await import('./appwriteClient');
+  requireAppwrite();
   if (blob.size > MAX_VOICE_BLOB_BYTES) {
     throw new Error(`That recording is too large to send (max ${Math.round(MAX_VOICE_BLOB_BYTES / 1024 / 1024)}MB).`);
   }
+  const bucketId = import.meta.env.VITE_APPWRITE_MEDIA_BUCKET_ID;
+  if (!bucketId) throw new Error('Voice notes need VITE_APPWRITE_MEDIA_BUCKET_ID configured.');
   const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-  // Path includes the uploader's uid and a random-ish suffix — not for
-  // security (the bucket is public-read, see the setup walkthrough's
-  // honest note on this), just to avoid filename collisions.
-  const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  const { error } = await supabase.storage.from('voice-notes').upload(path, blob, {
-    contentType: mimeType,
-    upsert: false,
-  });
-  if (error) throw new Error(`Could not upload voice note: ${error.message}`);
-
-  const { data } = supabase.storage.from('voice-notes').getPublicUrl(path);
-  return data.publicUrl;
+  const file = new File([blob], `${uid}-${Date.now()}.${ext}`, { type: mimeType });
+  const uploaded = await storage.createFile(bucketId, ID.unique(), file);
+  return storage.getFileView(bucketId, uploaded.$id).toString();
 }
 
 // Live stickers (short looping video clips, TikTok-style) — same

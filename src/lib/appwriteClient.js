@@ -19,6 +19,8 @@ export const APPWRITE_COLLECTIONS = {
   reports: import.meta.env.VITE_APPWRITE_REPORTS_COLLECTION_ID || 'reports',
 };
 
+export const APPWRITE_MEDIA_BUCKET_ID = import.meta.env.VITE_APPWRITE_MEDIA_BUCKET_ID;
+
 export function requireAppwrite() {
   if (!appwriteConfigured) {
     throw new Error('Aura is not connected to Appwrite. Add VITE_APPWRITE_PROJECT_ID and VITE_APPWRITE_DATABASE_ID.');
