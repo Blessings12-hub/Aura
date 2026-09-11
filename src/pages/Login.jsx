@@ -141,18 +141,16 @@ export default function Login() {
         createdAt: existing.exists() ? existing.data().createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }, { merge: true });
-      const idToken = await auth.currentUser?.getIdToken(true);
-      const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
-      if (!functionsUrl) throw new Error('verification service is not configured');
-      const verificationRes = await fetch(`${functionsUrl}/create-didit-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ purpose: 'account' }),
-      });
-      if (!verificationRes.ok) throw new Error('verification session unavailable');
-      const verification = await verificationRes.json();
-      if (!verification.url) throw new Error('verification URL missing');
-      window.location.href = verification.url;
+      await setDoc(doc(db, 'verificationRequests', uid), {
+        uid,
+        age: Number(age),
+        gender,
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+        reviewedAt: null,
+        reviewerId: null,
+      }, { merge: true });
+      navigate('/aura/match', { replace: true });
     } catch (err) {
       console.error(err);
       setError(t('signin_failed'));

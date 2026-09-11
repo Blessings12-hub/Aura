@@ -50,34 +50,24 @@ export default function MatchFinder() {
   const [ageConsent, setAgeConsent] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState('');
-  const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
-
-  // Redirects to Didit's hosted verification flow. The actual verified
-  // flag doesn't land until Didit's webhook fires (see
-  // functions/index.js's diditWebhook) — a full ID document check takes
-  // longer than a quick facial estimate would have, so this can't just
-  // optimistically flip something locally.
-  // Didit's callback sends them back to this same page; user.verified
-  // becomes true (via useCurrentUser's live subscription) once the
-  // webhook lands, no manual refresh needed.
   const handleVerify = async () => {
     setVerifyError('');
     setVerifying(true);
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!functionsUrl) throw new Error('verification service is not configured');
-      const res = await fetch(`${functionsUrl}/create-didit-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ purpose: 'match' }),
-      });
-      if (!res.ok) throw new Error(`Supabase function returned ${res.status}`);
-      const data = await res.json();
-      if (!data.url) throw new Error('No verification URL returned');
-      window.location.href = data.url;
+      if (!auth.currentUser) throw new Error('not signed in');
+      await setDoc(doc(db, 'verificationRequests', auth.currentUser.uid), {
+        uid: auth.currentUser.uid,
+        age: Number(age || user?.age || 0),
+        gender: gender || user?.gender || '',
+        status: 'pending',
+        submittedAt: Timestamp.now(),
+        reviewedAt: null,
+        reviewerId: null,
+      }, { merge: true });
     } catch (err) {
-      console.error('verification session creation failed', err);
-      setVerifyError('Could not start verification right now. Please try again in a moment.');
+      console.error('manual verification submission failed', err);
+      setVerifyError('Could not submit your verification request. Please try again.');
+    } finally {
       setVerifying(false);
     }
   };
