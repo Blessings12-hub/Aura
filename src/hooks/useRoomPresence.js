@@ -1,58 +1,52 @@
 import { useEffect, useState } from 'react';
-import { ref, onValue, onDisconnect, set, remove, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
-import { rtdb } from '../firebase';
+import { Query, APPWRITE_COLLECTIONS, databaseId, databases, ownerPermissions, subscribeToCollection } from '../lib/appwriteClient';
 
-/**
- * Joins `roomId` as genuinely present for as long as this hook stays
- * mounted, and returns the live count + list of who else is in the room
- * right now. Membership is removed server-side on disconnect (crash,
- * closed tab, lost network), via onDisconnect().remove() — not just when
- * our own cleanup code runs.
- *
- * roomId should be a safe RTDB key: no '.', '#', '$', '[', ']', or '/'.
- */
 export function useRoomPresence(roomId, uid, meta = {}) {
   const [members, setMembers] = useState({});
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!roomId || !uid) return undefined;
-    setError(null);
-    const memberRef = ref(rtdb, `roomPresence/${roomId}/${uid}`);
-    const roomRef = ref(rtdb, `roomPresence/${roomId}`);
+    let active = true;
+    const documentId = `${roomId}-${uid}`.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 36);
+    const data = { roomId, uid, ...meta, lastChanged: new Date().toISOString() };
 
-    onDisconnect(memberRef).remove()
-      .then(() => set(memberRef, { ...meta, joinedAt: rtdbServerTimestamp() }))
-      .catch((err) => {
-        // Almost always means database.rules.json was never deployed (or
-        // Realtime Database isn't enabled for this project yet) — a fresh
-        // RTDB instance denies everything by default. This used to only
-        // log to the console, so the online count just silently sat at 0
-        // forever with no hint why.
-        console.error('room presence: failed to join room (check Realtime Database rules are published)', err);
-        setError(err?.code || 'unknown');
-      });
+    async function join() {
+      try {
+        try {
+          await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.presence, documentId, data);
+        } catch (lookupError) {
+          if (lookupError?.code !== 404) throw lookupError;
+          await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.presence, documentId, data, ownerPermissions(uid));
+        }
+        if (!active) return;
+        const refresh = (result) => {
+          const rows = result?.documents || [];
+          setMembers(Object.fromEntries(rows.map((row) => [row.uid || row.$id, row])));
+        };
+        const queries = [Query.equal('roomId', roomId)];
+        refresh(await databases.listDocuments(databaseId, APPWRITE_COLLECTIONS.presence, queries));
+        const unsubscribe = subscribeToCollection(APPWRITE_COLLECTIONS.presence, queries, refresh, setError);
+        return unsubscribe;
+      } catch (joinError) {
+        if (active) setError(joinError?.message || 'presence unavailable');
+        return undefined;
+      }
+    }
 
-    const unsub = onValue(
-      roomRef,
-      (snap) => setMembers(snap.exists() ? snap.val() : {}),
-      (err) => {
-        console.error('room presence: room listener failed (check Realtime Database rules are published)', err);
-        setError(err?.code || 'unknown');
-      },
-    );
+    let unsubscribe;
+    join().then((cleanup) => { unsubscribe = cleanup; });
+    const heartbeat = window.setInterval(async () => {
+      try { await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.presence, documentId, { lastChanged: new Date().toISOString() }); } catch (heartbeatError) { if (active) setError(heartbeatError?.message || 'presence unavailable'); }
+    }, 30000);
 
     return () => {
-      unsub();
-      remove(memberRef);
+      active = false;
+      window.clearInterval(heartbeat);
+      unsubscribe?.();
+      databases.deleteDocument(databaseId, APPWRITE_COLLECTIONS.presence, documentId).catch(() => {});
     };
-    // meta is intentionally not in deps — we don't want to re-join the room
-    // every time avatarColor/etc. re-renders with a new object reference.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, uid]);
 
-  const count = Object.keys(members).length;
-  return {
-    members, count, error,
-  };
+  return { members, count: Object.keys(members).length, error };
 }
