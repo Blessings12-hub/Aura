@@ -9,7 +9,7 @@
 import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp,
 } from './appwriteFirestoreCompat';
-import { db } from '../firebase';
+import { db } from './appwriteFirestoreCompat';
 import {
   databases, databaseId, APPWRITE_COLLECTIONS, ID, requireAppwrite,
 } from './appwriteClient';

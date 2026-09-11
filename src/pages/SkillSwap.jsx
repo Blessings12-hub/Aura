@@ -7,7 +7,7 @@ import {
 import {
   Video, MessageCircle, Repeat, X,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';

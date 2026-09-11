@@ -9,7 +9,7 @@ import {
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { getCurrentAccount } from '../lib/appwriteClient';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';

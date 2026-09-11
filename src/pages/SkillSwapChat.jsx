@@ -5,7 +5,7 @@ import {
   collection, addDoc, doc, query, orderBy, updateDoc, Timestamp, getDoc,
 } from '../lib/appwriteFirestoreCompat';
 import { Send, Video, X, PhoneIncoming } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';

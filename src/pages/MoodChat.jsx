@@ -10,7 +10,7 @@ import {
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';

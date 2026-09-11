@@ -6,7 +6,7 @@ import {
 import {
   Plus, X, Trash2, Camera, Upload, Square as StopIcon,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { subscribe } from '../lib/subscribe';
 import {
   makeStickerDataUrl, readAnimatedStickerDataUrl, blobToStickerDataUrl,

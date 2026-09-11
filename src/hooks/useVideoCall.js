@@ -3,7 +3,7 @@ import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc,
   getDocs, serverTimestamp, query, orderBy,
 } from '../lib/appwriteFirestoreCompat';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 
 // STUN alone only works when at least one side has a directly reachable
 // (or easily NAT-mapped) network path — on real mobile networks and many

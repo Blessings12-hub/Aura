@@ -10,7 +10,7 @@ import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Paperclip, Download, FileText,
   Check, CheckCheck, Reply, Pin, Trash2, Sticker as StickerIcon,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';

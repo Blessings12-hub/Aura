@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
-import { account, databases, databaseId, ID, APPWRITE_COLLECTIONS, ensureAnonymousSession, ownerPermissions } from '../lib/appwriteClient';
+import { account, databases, databaseId, APPWRITE_COLLECTIONS, ensureAnonymousSession, ownerPermissions } from '../lib/appwriteClient';
 import { AVATAR_COLORS } from '../constants/moods';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 

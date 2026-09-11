@@ -26,7 +26,7 @@ export default function AccountSettings() {
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [linking, setLinking] = useState(false);
-  const [linkedEmail, setLinkedEmail] = useState(null);
+  const linkedEmail = null;
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
 
