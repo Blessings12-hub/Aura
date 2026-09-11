@@ -57,8 +57,17 @@ export function useUserStatus(uid, onChange) {
   useEffect(() => {
     if (!uid) return undefined;
     const statusRef = ref(rtdb, `status/${uid}`);
-    return onValue(statusRef, (snap) => {
-      onChange(snap.exists() ? snap.val() : { state: 'offline', lastChanged: null });
-    });
+    return onValue(
+      statusRef,
+      (snap) => {
+        onChange(snap.exists() ? snap.val() : { state: 'offline', lastChanged: null });
+      },
+      (err) => {
+        if (err?.code !== 'PERMISSION_DENIED') {
+          console.error(`presence: failed to read ${uid}`, err);
+        }
+        onChange({ state: 'offline', lastChanged: null });
+      },
+    );
   }, [uid, onChange]);
 }

@@ -47,6 +47,7 @@ export default function App() {
               <Suspense fallback={<PageSkeleton />}>
                 <Routes>
                   <Route path="/" element={<Login />} />
+                  <Route path="/login" element={<Login />} />
                   <Route path="/aura" element={<Home />} />
                   <Route path="/aura/chat" element={<MoodChat />} />
                   <Route path="/aura/match" element={<MatchFinder />} />
