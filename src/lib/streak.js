@@ -38,7 +38,15 @@ export async function recordDailyAnswerStreak(userId, day = todayKey()) {
   const dailyStreak = isConsecutive ? (data.dailyStreak || 0) + 1 : 1;
   const dailyStreakBest = Math.max(dailyStreak, data.dailyStreakBest || 0);
 
-  await setDoc(ref, { dailyStreak, dailyStreakBest, dailyStreakLastDate: day }, { merge: true });
+  try {
+    await setDoc(ref, { dailyStreak, dailyStreakBest, dailyStreakLastDate: day }, { merge: true });
+  } catch (error) {
+    if (error?.code === 401 || error?.type === 'user_unauthorized') {
+      console.warn('[v0] Daily streak skipped: users document is not writable by this account.');
+      return { dailyStreak: data.dailyStreak || 1, dailyStreakBest: data.dailyStreakBest || 1 };
+    }
+    throw error;
+  }
   return { dailyStreak, dailyStreakBest };
 }
 
@@ -70,6 +78,14 @@ export async function recordAppStreak(userId, day = todayKey()) {
   const appStreak = isConsecutive ? (data.appStreak || 0) + 1 : 1;
   const appStreakBest = Math.max(appStreak, data.appStreakBest || 0);
 
-  await setDoc(ref, { appStreak, appStreakBest, appStreakLastDate: day }, { merge: true });
+  try {
+    await setDoc(ref, { appStreak, appStreakBest, appStreakLastDate: day }, { merge: true });
+  } catch (error) {
+    if (error?.code === 401 || error?.type === 'user_unauthorized') {
+      console.warn('[v0] App streak skipped: users document is not writable by this account.');
+      return { appStreak: data.appStreak || 1, appStreakBest: data.appStreakBest || 1 };
+    }
+    throw error;
+  }
   return { appStreak, appStreakBest };
 }
