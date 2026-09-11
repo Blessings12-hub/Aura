@@ -1,4 +1,4 @@
-import { Account, Client, Databases, ID, Query, Storage } from 'appwrite';
+import { Account, Client, Databases, ID, Permission, Query, Role, Storage } from 'appwrite';
 
 const endpoint = import.meta.env.VITE_APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 const projectId = import.meta.env.VITE_APPWRITE_PROJECT_ID;
@@ -12,6 +12,22 @@ export const account = new Account(appwriteClient);
 export const databases = new Databases(appwriteClient);
 export const storage = new Storage(appwriteClient);
 export { ID, Query };
+
+// Grants read/update/delete of a document to exactly one user (by their
+// Appwrite account $id) and no one else. Pass this as the permissions
+// argument to createDocument/updateDocument so a document's owner is the
+// only account (besides collection-level roles like aura-admins) that can
+// read or change it. Requires "Document Security" to be turned ON for the
+// collection in the Appwrite console — without that, per-document
+// permissions like these are ignored and only collection-level
+// permissions apply.
+export function ownerPermissions(uid) {
+  return [
+    Permission.read(Role.user(uid)),
+    Permission.update(Role.user(uid)),
+    Permission.delete(Role.user(uid)),
+  ];
+}
 
 export const APPWRITE_COLLECTIONS = {
   users: import.meta.env.VITE_APPWRITE_USERS_COLLECTION_ID || 'users',
