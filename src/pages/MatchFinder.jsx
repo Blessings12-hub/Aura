@@ -144,6 +144,7 @@ export default function MatchFinder() {
   }, [userId, user]);
 
   useEffect(() => {
+    if (!user?.verificationStatus || user.verificationStatus !== 'approved') return undefined;
     // Persistent by design now (not time-bounded like Mood Chat/Daily
     // Question) — a matching pool that resets every 24h can leave the
     // deck empty during low-traffic hours, which defeats the point of a
@@ -271,8 +272,14 @@ export default function MatchFinder() {
     setRemovePhoto(true);
   };
 
+  const verificationExpiresAt = user?.verificationExpiresAt?.toMillis
+    ? user.verificationExpiresAt.toMillis()
+    : Number(user?.verificationExpiresAt || 0);
+  const verifiedForMatch = user?.verificationStatus === 'approved'
+    && verificationExpiresAt > Date.now()
+    && user?.verifiedSex;
   const canSaveProfile = displayName.trim() && bio.trim() && hobbies.trim() && lookingFor.trim()
-    && age && Number(age) >= MIN_MATCH_AGE && ageConsent && gender && avatarColor && user?.verified === true && !saving;
+    && age && Number(age) >= MIN_MATCH_AGE && ageConsent && gender && avatarColor && verifiedForMatch && gender === user.verifiedSex && !saving;
 
   const saveProfile = async () => {
     if (!userId || !canSaveProfile) return;
@@ -502,7 +509,21 @@ export default function MatchFinder() {
     .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
 
   if (loading || !user) return <PageSkeleton />;
-
+  if (!verifiedForMatch) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <TopBar title={t('match_finder')} onBack={() => navigate(-1)} />
+          <section className="aura-card" role="alert">
+            <h2>Verification required</h2>
+            <p className="aura-muted">Match Finder requires an approved identity verification, verified sex/gender, and a current verification that expires after 12 months.</p>
+            <button type="button" className="aura-btn aura-btn-secondary" onClick={() => navigate('/login')}>Complete verification</button>
+          </section>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="aura-page">
       <div className="aura-shell">

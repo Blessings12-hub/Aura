@@ -76,15 +76,16 @@ function validAge(data) {
 // A client-side age check is never real security on its own — this is
 // what actually stops an under-18 profile from being written, regardless
 // of what number the client happens to send.
-function validMatchAge(uid, data) {
-  // verified is checked against the user's OWN account doc (server-set
-  // only, see users/{uid} above), not anything the client sends here —
-  // matchProfiles/userIdentities payloads never carry a verified field at
-  // all, so there's nothing to fake in the request itself.
+  function validMatchAge(uid, data) {
   let userPath = /databases/$(database)/documents/users/$(uid);
-  let isVerified = exists(userPath) && get(userPath).data.get('verified', false) == true;
-  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true && isVerified;
-}
+  let account = get(userPath).data;
+  let isVerified = exists(userPath)
+    && account.get('verificationStatus', '') == 'approved'
+    && account.get('verificationExpiresAt', 0) > request.time;
+  return data.age is int && data.age >= 18 && data.ageConfirmed18 == true
+    && isVerified
+    && data.get('gender', '') == account.get('verifiedSex', '');
+  }
 
 // Caps how long a public text field is allowed to be. Uses .get(field, '')
 // instead of a presence check so it's safe to call even on documents where
@@ -146,6 +147,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isOwner(uid) && validAge(request.resource.data)
                     && !('verified' in request.resource.data)
+                    && !('verificationStatus' in request.resource.data)
+                    && !('verifiedSex' in request.resource.data)
+                    && !('verifiedBirthDate' in request.resource.data)
+                    && !('verificationExpiresAt' in request.resource.data)
                     && !('banned' in request.resource.data);
       // The !('verified' in ...) || (unchanged) clause is what actually
       // makes `verified` server-only: a client update() sends the FULL
@@ -168,6 +173,14 @@ service cloud.firestore {
       allow update: if (isOwner(uid) && validAge(request.resource.data)
                         && (!('verified' in request.resource.data)
                             || request.resource.data.verified == resource.data.get('verified', false))
+                        && (!('verificationStatus' in request.resource.data)
+                            || request.resource.data.verificationStatus == resource.data.get('verificationStatus', ''))
+                        && (!('verifiedSex' in request.resource.data)
+                            || request.resource.data.verifiedSex == resource.data.get('verifiedSex', ''))
+                        && (!('verifiedBirthDate' in request.resource.data)
+                            || request.resource.data.verifiedBirthDate == resource.data.get('verifiedBirthDate', ''))
+                        && (!('verificationExpiresAt' in request.resource.data)
+                            || request.resource.data.verificationExpiresAt == resource.data.get('verificationExpiresAt', 0)))
                         && (!('banned' in request.resource.data)
                             || request.resource.data.banned == resource.data.get('banned', false)))
                     || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt']));

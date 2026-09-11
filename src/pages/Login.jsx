@@ -86,7 +86,11 @@ export default function Login() {
       if (uid) {
         try {
           const snap = await getDoc(doc(db, 'users', uid));
-          if (snap.exists()) navigate('/aura');
+          const profile = snap.exists() ? snap.data() : null;
+          const expiresAt = profile?.verificationExpiresAt?.toMillis
+            ? profile.verificationExpiresAt.toMillis()
+            : Number(profile?.verificationExpiresAt || 0);
+          if (profile?.verificationStatus === 'approved' && expiresAt > Date.now()) navigate('/aura');
         } catch (e) {
           // A real failure here (not just "no doc yet") is worth knowing
           // about instead of silently swallowing it — surfacing it in the
@@ -132,7 +136,18 @@ export default function Login() {
         createdAt: existing.exists() ? existing.data().createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }, { merge: true });
-      navigate('/aura');
+      const idToken = await auth.currentUser?.getIdToken(true);
+      const functionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || import.meta.env.SUPABASE_FUNCTIONS_URL;
+      if (!functionsUrl) throw new Error('verification service is not configured');
+      const verificationRes = await fetch(`${functionsUrl}/create-didit-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ purpose: 'account' }),
+      });
+      if (!verificationRes.ok) throw new Error('verification session unavailable');
+      const verification = await verificationRes.json();
+      if (!verification.url) throw new Error('verification URL missing');
+      window.location.href = verification.url;
     } catch (err) {
       console.error(err);
       setError(t('signin_failed'));

@@ -51,8 +51,12 @@ Deno.serve(async (req: Request) => {
   const signatureHeader = req.headers.get("x-signature-simple");
   const body = await req.json().catch(() => ({}));
   const {
-    session_id: sessionId, status, webhook_type: webhookType, timestamp, vendor_data: uid,
+    session_id: sessionId, status, webhook_type: webhookType, timestamp, vendor_data: vendorData,
+    decision, verification_data: verificationData,
   } = body;
+  let vendor: { uid: string; purpose?: string } | null = null;
+  try { vendor = JSON.parse(String(vendorData)); } catch { vendor = vendorData ? { uid: String(vendorData) } : null; }
+  const uid = vendor?.uid;
 
   if (!timestampHeader || !signatureHeader) {
     return new Response("Missing signature headers", { status: 401 });
@@ -77,10 +81,26 @@ Deno.serve(async (req: Request) => {
     return new Response("ignored", { status: 200 });
   }
 
+  const verifiedSex = verificationData?.sex ?? verificationData?.gender ?? decision?.sex ?? decision?.gender;
+  const birthDate = verificationData?.date_of_birth ?? verificationData?.birth_date ?? decision?.date_of_birth;
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setUTCFullYear(expiresAt.getUTCFullYear() + 1);
   if (status === "Approved") {
-    await db.doc(`users/${uid}`).set({ verified: true, verifiedAt: new Date().toISOString() }, { merge: true });
-  } else if (status === "Declined") {
-    await db.doc(`users/${uid}`).set({ verified: false, verifiedAt: new Date().toISOString() }, { merge: true });
+    await db.doc(`users/${uid}`).set({
+      verified: true,
+      verificationStatus: "approved",
+      verifiedAt: now.toISOString(),
+      verificationExpiresAt: expiresAt.getTime(),
+      ...(verifiedSex ? { verifiedSex: String(verifiedSex) } : {}),
+      ...(birthDate ? { verifiedBirthDate: String(birthDate) } : {}),
+    }, { merge: true });
+  } else if (["Declined", "Expired", "Abandoned"].includes(String(status))) {
+    await db.doc(`users/${uid}`).set({
+      verified: false,
+      verificationStatus: "declined",
+      verifiedAt: now.toISOString(),
+    }, { merge: true });
   }
   // Any other status ("In Review", "In Progress") — deliberately no-op.
 
