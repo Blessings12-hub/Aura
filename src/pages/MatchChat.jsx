@@ -5,7 +5,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, deleteDoc, getDoc, updateDoc, writeBatch, onSnapshot, query, orderBy, where, limit, Timestamp,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import {
   Send, Video, Phone, X, PhoneIncoming, Mic, Square, Paperclip, Download, FileText,
   Check, CheckCheck, Reply, Pin, Trash2, Sticker as StickerIcon,

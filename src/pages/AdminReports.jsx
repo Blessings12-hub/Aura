@@ -5,7 +5,6 @@ import {
   collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, Timestamp,
 } from '../lib/appwriteFirestoreCompat';
 import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
-import { db } from '../firebase';
 import {
   databases, databaseId, APPWRITE_COLLECTIONS, Query, subscribeToCollection,
 } from '../lib/appwriteClient';

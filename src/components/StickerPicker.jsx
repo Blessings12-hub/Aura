@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, deleteDoc, doc, query, orderBy, Timestamp,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import {
   Plus, X, Trash2, Camera, Upload, Square as StopIcon,
 } from 'lucide-react';

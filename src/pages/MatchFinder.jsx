@@ -5,11 +5,12 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, setDoc, updateDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, deleteDoc, deleteField, limit,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
-import { auth, db } from '../firebase';
+import { db } from '../firebase';
+import { getCurrentAccount } from '../lib/appwriteClient';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
@@ -54,9 +55,10 @@ export default function MatchFinder() {
     setVerifyError('');
     setVerifying(true);
     try {
-      if (!auth.currentUser) throw new Error('not signed in');
-      await setDoc(doc(db, 'verificationRequests', auth.currentUser.uid), {
-        uid: auth.currentUser.uid,
+    const currentAccount = await getCurrentAccount();
+    if (!currentAccount) throw new Error('not signed in');
+    await setDoc(doc(db, 'verificationRequests', currentAccount.$id), {
+      uid: currentAccount.$id,
         age: Number(age || user?.age || 0),
         gender: gender || user?.gender || '',
         status: 'pending',

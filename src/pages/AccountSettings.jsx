@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { account } from '../lib/appwriteClient';
 import {
   doc, getDoc, deleteDoc, collection, query, where, getDocs,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import { useNavigate } from 'react-router-dom';
 import { Download, Trash2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 

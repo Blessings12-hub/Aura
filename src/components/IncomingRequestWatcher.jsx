@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from '../lib/appwriteFirestoreCompat';
 import { db } from '../firebase';
 import { useIncomingRequests } from '../hooks/useIncomingRequests';
 import { pushAuraNotification } from '../notifications/NotificationManager';

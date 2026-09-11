@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from '../lib/appwriteFirestoreCompat';
 import { db } from '../firebase';
 
 // Checks for an /admins/{uid} doc for the current user. There's no

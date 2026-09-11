@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, query, orderBy, updateDoc, Timestamp, getDoc,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import { Send, Video, X, PhoneIncoming } from 'lucide-react';
 import { db } from '../firebase';
 import { subscribe } from '../lib/subscribe';

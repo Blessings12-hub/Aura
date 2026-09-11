@@ -5,7 +5,7 @@ import { doc, onSnapshot } from '../lib/appwriteFirestoreCompat';
 import {
   PhoneOff, ShieldAlert, Mic, MicOff, Video, VideoOff, RefreshCw, Phone, User,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useVideoCall } from '../hooks/useVideoCall';

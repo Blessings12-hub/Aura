@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from './appwriteFirestoreCompat';
 import { db } from '../firebase';
 import { todayKey } from '../constants/dailyQuestions';
 

@@ -8,7 +8,7 @@
 // block button happened to be on.
 import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp,
-} from 'firebase/firestore';
+} from './appwriteFirestoreCompat';
 import { db } from '../firebase';
 import {
   databases, databaseId, APPWRITE_COLLECTIONS, ID, requireAppwrite,

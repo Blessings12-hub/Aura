@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, Timestamp, doc, deleteDoc,
   writeBatch, updateDoc, deleteField,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X, Heart,
 } from 'lucide-react';

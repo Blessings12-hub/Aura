@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   collection, query, where, onSnapshot,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import { db } from '../firebase';
 
 // Live view of every request that is genuinely waiting on ME to respond,

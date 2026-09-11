@@ -1,4 +1,4 @@
-import { doc, increment, setDoc } from 'firebase/firestore';
+import { doc, increment, setDoc } from './appwriteFirestoreCompat';
 import { db } from '../firebase';
 import { todayKey } from '../constants/dailyQuestions';
 
