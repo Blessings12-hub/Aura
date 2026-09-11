@@ -16,7 +16,6 @@ export default function TopBar({ title, subtitle, onBack, right = null, showLogo
   const handleLogout = async () => {
     if (!window.confirm('Log out of Aura? You can always come back anonymously again.')) return;
     try { await signOut(auth); } catch (e) { console.error('sign out failed', e); }
-    localStorage.removeItem('aura_userId');
     navigate('/');
   };
 

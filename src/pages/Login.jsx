@@ -43,13 +43,11 @@ export default function Login() {
       const uid = result.user.uid;
       const snap = await getDoc(doc(db, 'users', uid));
       if (snap.exists()) {
-        localStorage.setItem('aura_userId', uid);
         navigate('/aura');
       } else {
         // Signed in fine, but this Google account was never linked to an
         // Aura profile before — nothing to recover, so just let them
         // continue into the normal sign-up form with this new identity.
-        localStorage.setItem('aura_userId', uid);
         setError('That Google account isn\'t linked to an existing Aura profile yet — continue below to set one up.');
       }
     } catch (err) {
@@ -83,13 +81,11 @@ export default function Login() {
           return;
         }
       }
-      const storedId = localStorage.getItem('aura_userId');
-      // Only worth checking "are they already onboarded" if the uid we
-      // have now matches what's stored — otherwise this is a fresh session
-      // and they need to fill out the form.
-      if (storedId && storedId === uid) {
+      // Firebase Auth is the identity source; a profile check is only made
+      // after the session has been restored or created.
+      if (uid) {
         try {
-          const snap = await getDoc(doc(db, 'users', storedId));
+          const snap = await getDoc(doc(db, 'users', uid));
           if (snap.exists()) navigate('/aura');
         } catch (e) {
           // A real failure here (not just "no doc yet") is worth knowing
@@ -122,16 +118,10 @@ export default function Login() {
     if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
     try {
-      let uid = localStorage.getItem('aura_userId');
+      let uid = auth.currentUser?.uid;
       if (!uid) {
-        const existing = auth.currentUser;
-        if (existing) {
-          uid = existing.uid;
-        } else {
-          const cred = await signInAnonymously(auth);
-          uid = cred.user.uid;
-        }
-        localStorage.setItem('aura_userId', uid);
+        const cred = await signInAnonymously(auth);
+        uid = cred.user.uid;
       }
       const userRef = doc(db, 'users', uid);
       const existing = await getDoc(userRef);

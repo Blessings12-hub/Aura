@@ -48,7 +48,6 @@ export function useCurrentUser({ redirectIfMissing = true } = {}) {
         }
       }
 
-      localStorage.setItem('aura_userId', uid);
       setUserId(uid);
 
       if (unsubDoc) unsubDoc();

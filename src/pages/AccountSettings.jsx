@@ -114,7 +114,6 @@ export default function AccountSettings() {
       // "ghost" auth session that could still sign back in with nothing
       // to show for it.
       if (auth.currentUser) await deleteUser(auth.currentUser);
-      localStorage.removeItem('aura_userId');
       navigate('/');
     } catch (e) {
       console.error('account deletion failed', e);

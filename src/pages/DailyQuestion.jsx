@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, Timestamp, doc, deleteDoc,
-  onSnapshot, writeBatch, updateDoc, deleteField,
+  writeBatch, updateDoc, deleteField,
 } from 'firebase/firestore';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X, Heart,
