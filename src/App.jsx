@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './notifications/NotificationManager';
 import PresenceRoot from './context/PresenceRoot';
@@ -36,7 +37,8 @@ const AccountSettings = lazy(() => import('./pages/AccountSettings'));
 
 export default function App() {
   return (
-    <ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
       <NotificationProvider>
         <AuthGate>
           <PresenceRoot>
@@ -65,6 +67,7 @@ export default function App() {
           </PresenceRoot>
         </AuthGate>
       </NotificationProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </AppErrorBoundary>
   );
 }
