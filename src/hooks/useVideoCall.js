@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc,
   getDocs, serverTimestamp, query, orderBy,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import { db } from '../firebase';
 
 // STUN alone only works when at least one side has a directly reachable
