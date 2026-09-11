@@ -62,9 +62,12 @@ export async function upsertDocument(collectionId, documentId, data, permissions
       // Another tab/request may have created the same deterministic document
       // between the update and create calls. Retry the update instead of
       // surfacing Appwrite's duplicate-document error to the user.
+      const responseText = typeof createError?.response === 'string'
+        ? createError.response
+        : JSON.stringify(createError?.response || '');
       const isDuplicate = createError?.code === 409
         || createError?.type === 'document_already_exists'
-        || /already exists/i.test(createError?.message || createError?.response || '');
+        || /already exists|document_already_exists/i.test(`${createError?.message || ''} ${responseText}`);
       if (isDuplicate) {
         return databases.updateDocument(databaseId, collectionId, documentId, data);
       }

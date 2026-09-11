@@ -62,7 +62,12 @@ function toQueries(constraints = []) {
 
 function snapshot(document) {
   const data = document?.data || {};
-  return { id: document.$id, exists: () => Boolean(document), data: () => data, ref: document.$id };
+  return {
+    id: document?.$id || null,
+    exists: () => Boolean(document),
+    data: () => data,
+    ref: document?.$id || null,
+  };
 }
 function querySnapshot(result) {
   const docs = (result.documents || []).map(snapshot);
