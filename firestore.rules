@@ -139,6 +139,28 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // MANUAL VERIFICATION — users may submit/read their own request;
+    // only allowlisted admins may review it. Documents and ID images are
+    // intentionally not stored here; reviewers use an approved private
+    // process outside the public profile data model.
+    // ------------------------------------------------------------------
+    match /verificationRequests/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.status == 'pending';
+      allow update: if (isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId'])
+        && request.resource.data.status == 'pending')
+        || (isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewerId'])
+        && request.resource.data.status in ['approved', 'declined']);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ------------------------------------------------------------------
     // USERS — public-safe profile (avatarColor only). Age/gender live in
     // userIdentities, NOT here, so they are never broadcast to a general
     // "list all users" style query. Only the owner can write their doc.
@@ -180,10 +202,10 @@ service cloud.firestore {
                         && (!('verifiedBirthDate' in request.resource.data)
                             || request.resource.data.verifiedBirthDate == resource.data.get('verifiedBirthDate', ''))
                         && (!('verificationExpiresAt' in request.resource.data)
-                            || request.resource.data.verificationExpiresAt == resource.data.get('verificationExpiresAt', 0)))
+                            || request.resource.data.verificationExpiresAt == resource.data.get('verificationExpiresAt', 0))
                         && (!('banned' in request.resource.data)
                             || request.resource.data.banned == resource.data.get('banned', false)))
-                    || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt']));
+                    || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt', 'verified', 'verificationStatus', 'verifiedSex', 'verifiedAt', 'verificationExpiresAt']));
       // Was `if false` — meaning nobody, not even the account's own
       // owner, could ever delete it. That made a genuine self-service
       // "delete my account" feature impossible at the rules level,

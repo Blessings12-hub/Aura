@@ -22,6 +22,7 @@ export default function AdminReports() {
   const { userId, loading } = useCurrentUser();
   const { isAdmin, checked } = useIsAdmin(userId);
   const [reports, setReports] = useState([]);
+  const [verificationRequests, setVerificationRequests] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [bannedStatus, setBannedStatus] = useState({}); // { [uid]: true | false }
@@ -36,6 +37,37 @@ export default function AdminReports() {
     );
     return () => unsub();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    const q = query(collection(db, 'verificationRequests'), orderBy('submittedAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setVerificationRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, () => setLoadError('Verification requests could not be loaded.'));
+    return () => unsub();
+  }, [isAdmin]);
+
+  const reviewVerification = async (request, status) => {
+    setBusyId(request.id);
+    try {
+      await updateDoc(doc(db, 'verificationRequests', request.id), {
+        status,
+        reviewedAt: Timestamp.now(),
+        reviewerId: userId,
+      });
+      await updateDoc(doc(db, 'users', request.id), {
+        verified: status === 'approved',
+        verificationStatus: status,
+        verifiedSex: request.gender || '',
+        verifiedAt: Timestamp.now(),
+        verificationExpiresAt: Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      });
+    } catch (err) {
+      setLoadError(`Couldn't update verification. (${err?.code || 'unknown'})`);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const markReviewed = async (id) => {
     setBusyId(id);
@@ -109,6 +141,16 @@ export default function AdminReports() {
       <div className="aura-shell">
         <TopBar title={t('admin_reports')} subtitle={`${reports.length} total`} onBack={() => navigate(-1)} />
         {loadError && <p className="aura-login-error" data-testid="admin-reports-error">{loadError}</p>}
+        <section className="aura-card" style={{ marginBottom: 16 }} data-testid="verification-review-queue">
+          <h2 style={{ marginTop: 0 }}>Manual verification requests</h2>
+          <p className="aura-muted">Review the user&apos;s submitted age and gender using your approved manual process. Do not store identity documents in Aura.</p>
+          {verificationRequests.filter((r) => r.status === 'pending').length === 0 ? <p className="aura-muted">No pending verification requests.</p> : verificationRequests.filter((r) => r.status === 'pending').map((r) => (
+            <div key={r.id} className="aura-row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--aura-border)', padding: '12px 0' }}>
+              <div><strong>{r.id.slice(0, 10)}</strong><div className="aura-muted">Age {r.age || '—'} · {r.gender || '—'}</div></div>
+              <div className="aura-row"><button type="button" className="aura-btn aura-btn-secondary" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'declined')}>Decline</button><button type="button" className="aura-btn" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'approved')}>Approve</button></div>
+            </div>
+          ))}
+        </section>
         {reports.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}>
             <p className="aura-muted">{t('admin_no_reports')}</p>
