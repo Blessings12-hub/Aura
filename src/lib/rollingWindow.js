@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from './appwriteFirestoreCompat';
 
 /**
  * Firestore Timestamp for "24 hours ago from right now" — used as a

@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, setDoc, getDoc, query, orderBy, Timestamp, where, updateDoc, deleteDoc,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import {
   Video, MessageCircle, Repeat, X,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';

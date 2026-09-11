@@ -1,27 +1,21 @@
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { auth } from '../firebase';
+import { ensureAnonymousSession } from '../lib/appwriteClient';
 
 export function useAuthUid() {
   const [uid, setUid] = useState(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUid(user.uid);
-        setReady(true);
-      } else {
-        try {
-          const cred = await signInAnonymously(auth);
-          setUid(cred.user.uid);
-        } catch (e) {
-          console.error('anon signin failed', e);
-        }
-        setReady(true);
-      }
-    });
-    return () => unsub();
+    let active = true;
+    ensureAnonymousSession()
+      .then((session) => {
+        if (active) setUid(session.$id);
+      })
+      .catch((error) => console.error('Appwrite session failed', error))
+      .finally(() => {
+        if (active) setReady(true);
+      });
+    return () => { active = false; };
   }, []);
 
   return { uid, ready };

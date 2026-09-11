@@ -74,7 +74,7 @@ export async function ensureAnonymousSession() {
   return account.createAnonymousSession();
 }
 
-export function subscribeToDocument(collectionId, documentId, onData, onError) {
+export function subscribeToDocument(collectionId, documentId, onData, _onError) {
   requireAppwrite();
   return appwriteClient.subscribe(
     `databases.${databaseId}.collections.${collectionId}.documents.${documentId}`,

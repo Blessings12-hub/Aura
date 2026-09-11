@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot } from '../lib/appwriteFirestoreCompat';
 import {
   PhoneOff, ShieldAlert, Mic, MicOff, Video, VideoOff, RefreshCw, Phone, User,
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useVideoCall } from '../hooks/useVideoCall';

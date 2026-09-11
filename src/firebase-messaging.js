@@ -1,34 +1,25 @@
-// src/firebase-messaging.js
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { app } from './firebase';
+import { account } from './lib/appwriteClient';
 
-let messaging;
-function getMessagingInstance() {
-  if (!messaging) messaging = getMessaging(app);
-  return messaging;
-}
-
+/**
+ * Appwrite does not use Firebase Cloud Messaging. Aura keeps notification
+ * permission as an optional browser capability while in-app notifications
+ * remain the source of truth.
+ */
 export async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return null;
-  return navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  return null;
 }
 
 export async function requestNotificationPermission() {
   if (!('Notification' in window)) return null;
-
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return null;
-
-  const registration = await registerServiceWorker();
-
-  const token = await getToken(getMessagingInstance(), {
-    vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-    serviceWorkerRegistration: registration || undefined
-  });
-
-  return token;
+  try {
+    return await account.get();
+  } catch {
+    return null;
+  }
 }
 
-export function listenForForegroundMessages(callback) {
-  return onMessage(getMessagingInstance(), callback);
+export function listenForForegroundMessages() {
+  return () => {};
 }

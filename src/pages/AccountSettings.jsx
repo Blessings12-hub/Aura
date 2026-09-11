@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { deleteUser, linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { account } from '../lib/appwriteClient';
 import {
   doc, getDoc, deleteDoc, collection, query, where, getDocs,
-} from 'firebase/firestore';
+} from '../lib/appwriteFirestoreCompat';
 import { useNavigate } from 'react-router-dom';
 import { Download, Trash2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { auth, db } from '../firebase';
+import { db } from '../lib/appwriteFirestoreCompat';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 
@@ -26,9 +26,7 @@ export default function AccountSettings() {
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [linking, setLinking] = useState(false);
-  const [linkedEmail, setLinkedEmail] = useState(
-    auth.currentUser?.providerData?.find((p) => p.providerId === 'google.com')?.email || null,
-  );
+  const linkedEmail = null;
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
 
@@ -44,21 +42,8 @@ export default function AccountSettings() {
   // half of this — signing in with the same Google account there resolves
   // straight back to this account instead of creating a new one.
   const handleLinkGoogle = async () => {
-    setError('');
-    setLinking(true);
-    try {
-      const result = await linkWithPopup(auth.currentUser, new GoogleAuthProvider());
-      setLinkedEmail(result.user.email);
-    } catch (e) {
-      if (e?.code === 'auth/credential-already-in-use') {
-        setError('That Google account is already linked to a different Aura account. Sign in with it from the Login screen instead to recover that one.');
-      } else if (e?.code !== 'auth/popup-closed-by-user') {
-        console.error('link account failed', e);
-        setError('Could not link that Google account. Please try again.');
-      }
-    } finally {
-      setLinking(false);
-    }
+    setError('Appwrite account recovery uses email and password. Sign out and create an email/password account from the Appwrite console or recovery flow.');
+    setLinking(false);
   };
 
   const gatherAccountData = async () => {
@@ -109,11 +94,7 @@ export default function AccountSettings() {
         deleteDoc(doc(db, 'pushTokens', userId)).catch(() => {}),
         deleteDoc(doc(db, 'users', userId)),
       ]);
-      // Removes the underlying anonymous Firebase Auth account itself —
-      // without this, deleting the Firestore docs above would leave a
-      // "ghost" auth session that could still sign back in with nothing
-      // to show for it.
-      if (auth.currentUser) await deleteUser(auth.currentUser);
+      await account.delete();
       navigate('/');
     } catch (e) {
       console.error('account deletion failed', e);
