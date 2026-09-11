@@ -23,14 +23,9 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
-    host: 'localhost',
+    host: '0.0.0.0',
     port: 5173,
-    strictPort: true,
-    hmr: {
-      host: 'localhost',
-      protocol: 'ws',
-      clientPort: 5173
-    }
+    strictPort: true
   }
   };
 });
