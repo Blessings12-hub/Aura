@@ -11,16 +11,6 @@
          Login.jsx's console.error(err) will be visible there. -->
     <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
     <script>eruda.init();</script>
-    <!-- Sentry error monitoring — loaded first so it can catch errors from
-         everything that loads after it. Loader Script approach (not npm)
-         since there's no local CLI here to regenerate package-lock.json
-         for a new dependency. Get your own script tag from:
-         Sentry -> Settings -> Projects -> (your project) -> SDK Setup -> Loader Script.
-         Replace ___YOUR_PUBLIC_KEY___ below with the real key from that page. -->
-    <script
-      src="https://js.sentry-cdn.com/___YOUR_PUBLIC_KEY___.min.js"
-      crossorigin="anonymous"
-    ></script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/icon-192.png" />

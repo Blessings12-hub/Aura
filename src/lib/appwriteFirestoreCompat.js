@@ -50,7 +50,11 @@ function toQueries(constraints = []) {
       const operator = { '==': 'equal', '>': 'greaterThan', '>=': 'greaterThanEqual', '<': 'lessThan', '<=': 'lessThanEqual' }[constraint.operator];
       return operator ? [AppwriteQuery[operator](constraint.field, constraint.value)] : [];
     }
-    if (constraint.type === 'orderBy') return [AppwriteQuery.orderAsc(constraint.field)];
+    if (constraint.type === 'orderBy') {
+      return [constraint.direction === 'desc'
+        ? AppwriteQuery.orderDesc(constraint.field)
+        : AppwriteQuery.orderAsc(constraint.field)];
+    }
     if (constraint.type === 'limit') return [AppwriteQuery.limit(constraint.value)];
     return [];
   });

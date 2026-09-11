@@ -10,7 +10,7 @@ import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
 import { db } from '../lib/appwriteFirestoreCompat';
-import { getCurrentAccount } from '../lib/appwriteClient';
+import { APPWRITE_COLLECTIONS, getCurrentAccount } from '../lib/appwriteClient';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
@@ -179,7 +179,7 @@ export default function MatchFinder() {
   useEffect(() => {
     if (!userId) return undefined;
     const unsubA = subscribe(
-      query(collection(db, 'matchPairs'), where('userA', '==', userId)),
+      query(collection(db, APPWRITE_COLLECTIONS.matchPairs), where('userA', '==', userId)),
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
@@ -189,7 +189,7 @@ export default function MatchFinder() {
       'match pairs (as userA)',
     );
     const unsubB = subscribe(
-      query(collection(db, 'matchPairs'), where('userB', '==', userId)),
+      query(collection(db, APPWRITE_COLLECTIONS.matchPairs), where('userB', '==', userId)),
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
@@ -387,7 +387,7 @@ export default function MatchFinder() {
     setActionError('');
     setPendingActions((prev) => ({ ...prev, [id]: true }));
     try {
-      const ref = doc(db, 'matchPairs', id);
+      const ref = doc(db, APPWRITE_COLLECTIONS.matchPairs, id);
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         await setDoc(ref, {

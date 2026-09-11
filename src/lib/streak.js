@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc } from './appwriteFirestoreCompat';
+import { doc, getDoc, setDoc } from './appwriteFirestoreCompat';
 import { db } from './appwriteFirestoreCompat';
 import { todayKey } from '../constants/dailyQuestions';
 
@@ -38,7 +38,7 @@ export async function recordDailyAnswerStreak(userId, day = todayKey()) {
   const dailyStreak = isConsecutive ? (data.dailyStreak || 0) + 1 : 1;
   const dailyStreakBest = Math.max(dailyStreak, data.dailyStreakBest || 0);
 
-  await updateDoc(ref, { dailyStreak, dailyStreakBest, dailyStreakLastDate: day });
+  await setDoc(ref, { dailyStreak, dailyStreakBest, dailyStreakLastDate: day }, { merge: true });
   return { dailyStreak, dailyStreakBest };
 }
 
@@ -70,6 +70,6 @@ export async function recordAppStreak(userId, day = todayKey()) {
   const appStreak = isConsecutive ? (data.appStreak || 0) + 1 : 1;
   const appStreakBest = Math.max(appStreak, data.appStreakBest || 0);
 
-  await updateDoc(ref, { appStreak, appStreakBest, appStreakLastDate: day });
+  await setDoc(ref, { appStreak, appStreakBest, appStreakLastDate: day }, { merge: true });
   return { appStreak, appStreakBest };
 }
