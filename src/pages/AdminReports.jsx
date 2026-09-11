@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, Timestamp,
+  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, Timestamp,
 } from 'firebase/firestore';
 import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
 import { db } from '../firebase';
+import {
+  databases, databaseId, APPWRITE_COLLECTIONS, Query, subscribeToCollection,
+} from '../lib/appwriteClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import TopBar from '../components/TopBar';
@@ -27,15 +30,19 @@ export default function AdminReports() {
   const [busyId, setBusyId] = useState(null);
   const [bannedStatus, setBannedStatus] = useState({}); // { [uid]: true | false }
 
+  // Reports now live in Appwrite. There's no single onSnapshot equivalent,
+  // so this does one initial listDocuments() then keeps the list fresh via
+  // subscribeToCollection (which re-lists on every realtime event on this
+  // collection — fine at report volumes, would need pagination at scale).
   useEffect(() => {
     if (!isAdmin) return undefined;
-    const q = query(collection(db, 'reports'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(
-      q,
-      (snap) => setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => setLoadError('Reports could not be loaded. Check your connection and try again.'),
-    );
-    return () => unsub();
+    let active = true;
+    const queries = [Query.orderDesc('createdAt'), Query.limit(100)];
+    const applyResult = (result) => { if (active) setReports(result.documents); };
+    const onLoadError = () => { if (active) setLoadError('Reports could not be loaded. Check your connection and try again.'); };
+    databases.listDocuments(databaseId, APPWRITE_COLLECTIONS.reports, queries).then(applyResult).catch(onLoadError);
+    const unsub = subscribeToCollection(APPWRITE_COLLECTIONS.reports, queries, applyResult, onLoadError);
+    return () => { active = false; unsub(); };
   }, [isAdmin]);
 
   useEffect(() => {
@@ -72,7 +79,10 @@ export default function AdminReports() {
   const markReviewed = async (id) => {
     setBusyId(id);
     try {
-      await updateDoc(doc(db, 'reports', id), { status: 'reviewed', reviewedAt: Timestamp.now() });
+      await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.reports, id, {
+        status: 'reviewed',
+        reviewedAt: new Date().toISOString(),
+      });
     } catch (err) {
       setLoadError(`Couldn't update that report. (${err?.code || 'unknown'})`);
     } finally {
@@ -83,7 +93,7 @@ export default function AdminReports() {
   const removeReport = async (id) => {
     setBusyId(id);
     try {
-      await deleteDoc(doc(db, 'reports', id));
+      await databases.deleteDocument(databaseId, APPWRITE_COLLECTIONS.reports, id);
     } catch (err) {
       setLoadError(`Couldn't delete that report. (${err?.code || 'unknown'})`);
     } finally {
@@ -97,7 +107,7 @@ export default function AdminReports() {
   const toggleBan = async (report) => {
     const targetUid = report.reportedId;
     if (!targetUid) return;
-    setBusyId(report.id);
+    setBusyId(report.$id);
     try {
       const snap = await getDoc(doc(db, 'users', targetUid));
       const currentlyBanned = snap.exists() && snap.data()?.banned === true;
@@ -158,7 +168,7 @@ export default function AdminReports() {
         ) : (
           <div className="aura-grid" data-testid="admin-reports-list">
             {reports.map((r) => (
-              <div key={r.id} className="aura-card fade-in" data-testid={`report-${r.id}`}>
+              <div key={r.$id} className="aura-card fade-in" data-testid={`report-${r.$id}`}>
                 <div className="aura-row" style={{ justifyContent: 'space-between' }}>
                   <span className="chip">{r.context || 'unknown'}{r.contextId ? ` • ${r.contextId}` : ''}</span>
                   <span className={`chip${r.status === 'reviewed' ? '' : ' chip--live'}`}>{r.status === 'reviewed' ? t('admin_reviewed') : t('admin_open')}</span>
@@ -169,15 +179,15 @@ export default function AdminReports() {
                   Reporter {r.reporterId?.slice(0, 8)} → Reported {r.reportedId?.slice(0, 8)}
                 </p>
                 <p className="aura-muted" style={{ fontSize: '0.75rem', margin: '2px 0 12px' }}>
-                  {r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString() : ''}
+                  {r.createdAt ? new Date(r.createdAt).toLocaleString() : ''}
                 </p>
                 <div className="aura-row">
                   {r.status !== 'reviewed' && (
-                    <button type="button" className="aura-btn aura-btn-secondary" style={{ flex: 1 }} disabled={busyId === r.id} onClick={() => markReviewed(r.id)} data-testid={`mark-reviewed-${r.id}`}>
+                    <button type="button" className="aura-btn aura-btn-secondary" style={{ flex: 1 }} disabled={busyId === r.$id} onClick={() => markReviewed(r.$id)} data-testid={`mark-reviewed-${r.$id}`}>
                       <Check size={14} /> {t('admin_mark_reviewed')}
                     </button>
                   )}
-                  <button type="button" className="aura-btn aura-btn-secondary" style={{ flex: 1 }} disabled={busyId === r.id} onClick={() => removeReport(r.id)} data-testid={`delete-report-${r.id}`}>
+                  <button type="button" className="aura-btn aura-btn-secondary" style={{ flex: 1 }} disabled={busyId === r.$id} onClick={() => removeReport(r.$id)} data-testid={`delete-report-${r.$id}`}>
                     <Trash2 size={14} /> {t('delete')}
                   </button>
                 </div>
@@ -185,9 +195,9 @@ export default function AdminReports() {
                   type="button"
                   className="aura-btn"
                   style={{ width: '100%', marginTop: 8, background: bannedStatus[r.reportedId] ? undefined : '#ef4444', color: bannedStatus[r.reportedId] ? undefined : '#fff' }}
-                  disabled={busyId === r.id || !r.reportedId}
+                  disabled={busyId === r.$id || !r.reportedId}
                   onClick={() => toggleBan(r)}
-                  data-testid={`toggle-ban-${r.id}`}
+                  data-testid={`toggle-ban-${r.$id}`}
                 >
                   {bannedStatus[r.reportedId] ? <ShieldOff size={14} /> : <Ban size={14} />}
                   {' '}
