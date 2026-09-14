@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      appwrite:
-        specifier: ^27.0.0
-        version: 27.0.0
       firebase:
         specifier: ^12.19.0
         version: 12.19.0
