@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, deleteDoc, doc, query, orderBy, Timestamp,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import {
   Plus, X, Trash2, Camera, Upload, Square as StopIcon,
 } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { db } from '../lib/firestoreClient';
 import { subscribe } from '../lib/subscribe';
 import {
   makeStickerDataUrl, readAnimatedStickerDataUrl, blobToStickerDataUrl,
