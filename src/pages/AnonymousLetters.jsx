@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   collection, doc, setDoc, updateDoc, query, where, orderBy, limit, getDocs, onSnapshot,
   runTransaction, Timestamp,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import { Mail, Send, Inbox } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { db } from '../lib/firestoreClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';

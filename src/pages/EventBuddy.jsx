@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, setDoc, getDoc, query, orderBy, Timestamp, where, updateDoc, deleteDoc, limit,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import { CalendarHeart, MessageCircle, Check, X } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { db } from '../lib/firestoreClient';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';

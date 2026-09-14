@@ -3,9 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, query, orderBy, updateDoc, Timestamp, getDoc,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import { Send, Video, X, PhoneIncoming } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { db } from '../lib/firestoreClient';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';

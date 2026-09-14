@@ -6,11 +6,11 @@ import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, orderBy, where, Timestamp, doc, deleteDoc,
   onSnapshot, writeBatch, limit,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import {
   Send, Mic, Square, Reply, Trash2, Sticker as StickerIcon, X,
 } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { db } from '../lib/firestoreClient';
 import { subscribe } from '../lib/subscribe';
 import { MOODS } from '../constants/moods';
 import { useCurrentUser } from '../hooks/useCurrentUser';
