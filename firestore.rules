@@ -283,10 +283,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    // voiceUrl is now a Supabase Storage URL (see
-                    // uploadVoiceNote in chatMedia.js), not embedded
-                    // base64 — this cap is sized for a URL, not audio data.
-                    && validText(request.resource.data.get('voiceUrl', ''), 500)
+                    // Voice notes ship as embedded base64, same as
+                    // stickers/photos below — no Storage bucket on this
+                    // plan (see uploadVoiceNote in chatMedia.js).
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
                     // Stickers still ship as embedded base64 — a base64
                     // PNG on fileUrl, capped well under Firestore's 1 MiB
                     // document limit.
@@ -384,17 +384,16 @@ service cloud.firestore {
     }
 
     // matchChats/{pairId}/messages/{id} — only the matched pair can chat.
-    // Voice notes upload to Supabase Storage (see uploadVoiceNote in
-    // chatMedia.js) — voiceUrl below is a short URL, not embedded audio
-    // data. Photos, audio files, and general files still ship as base64
-    // data URLs embedded directly on the message doc (no Firebase Storage
-    // bucket for those), so those fields keep the 900,000-char cap that
-    // keeps a doc well under Firestore's 1 MiB limit.
+    // Voice notes, photos, audio files, and general files all ship as
+    // base64 data URLs embedded directly on the message doc (no Storage
+    // bucket on this plan — see uploadVoiceNote in chatMedia.js), so all
+    // of these fields keep the 900,000-char cap that keeps a doc well
+    // under Firestore's 1 MiB limit.
     match /matchChats/{pairId}/messages/{messageId} {
       allow read: if isParticipantOfPairId(pairId);
       allow create: if isParticipantOfPairId(pairId) && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    && validText(request.resource.data.get('voiceUrl', ''), 500)
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
                     && validText(request.resource.data.get('fileUrl', ''), 900000)
                     && validText(request.resource.data.get('fileName', ''), 200)
                     && validText(request.resource.data.get('fileMime', ''), 100);
@@ -528,10 +527,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
-                    // voiceUrl is now a Supabase Storage URL (see
-                    // uploadVoiceNote in chatMedia.js), not embedded
-                    // base64 — this cap is sized for a URL, not audio data.
-                    && validText(request.resource.data.get('voiceUrl', ''), 500)
+                    // Voice notes ship as embedded base64, same as
+                    // stickers/photos below — no Storage bucket on this
+                    // plan (see uploadVoiceNote in chatMedia.js).
+                    && validText(request.resource.data.get('voiceUrl', ''), 900000)
                     // Stickers still ship as embedded base64 — a base64
                     // PNG on fileUrl, capped well under Firestore's 1 MiB
                     // document limit.
@@ -635,6 +634,21 @@ service cloud.firestore {
     // bypasses these rules entirely, so this being owner-only-read doesn't
     // block it.
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // PRESENCE — heartbeat docs for the online counter and per-room
+    // "who's here" lists. Doc id is either the bare uid (global online
+    // status, see usePresence.js) or "<roomId>-<uid>" (per-room presence,
+    // see useRoomPresence.js) — either way, only the owner (uid field) can
+    // write it, but any signed-in user can read/list so the online count
+    // and room member lists actually work.
+    // ------------------------------------------------------------------
+    match /presence/{presenceId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     match /pushTokens/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && validText(request.resource.data.get('token', ''), 4096);

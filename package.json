@@ -14,7 +14,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "appwrite": "^27.0.0",
     "firebase": "^12.19.0",
     "i18next": "^26.3.3",
     "lucide-react": "^0.460.0",
