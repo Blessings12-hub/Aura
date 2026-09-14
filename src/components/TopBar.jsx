@@ -1,6 +1,6 @@
 import { ArrowLeft, Moon, Sun, Bell, BellRing, LogOut, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { account } from '../lib/appwriteClient';
+import { signOutFirebase } from '../lib/firebaseClient';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from './LanguageSwitcher';
@@ -14,7 +14,7 @@ export default function TopBar({ title, subtitle, onBack, right = null, showLogo
 
   const handleLogout = async () => {
     if (!window.confirm('Log out of Aura? You can always come back anonymously again.')) return;
-    try { await account.deleteSession('current'); } catch (e) { console.error('sign out failed', e); }
+    try { await signOutFirebase(); } catch (e) { console.error('sign out failed', e); }
     navigate('/');
   };
 
