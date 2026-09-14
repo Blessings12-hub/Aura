@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { account } from '../lib/appwriteClient';
+import { linkGoogleAccount, deleteCurrentFirebaseUser } from '../lib/firebaseClient';
 import {
-  doc, getDoc, deleteDoc, collection, query, where, getDocs,
-} from '../lib/appwriteFirestoreCompat';
+  doc, getDoc, deleteDoc, collection, query, where, getDocs, db,
+} from '../lib/firestoreClient';
 import { useNavigate } from 'react-router-dom';
 import { Download, Trash2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { db } from '../lib/appwriteFirestoreCompat';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 
@@ -26,7 +25,7 @@ export default function AccountSettings() {
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [linking, setLinking] = useState(false);
-  const linkedEmail = null;
+  const [linkedEmail, setLinkedEmail] = useState(user?.linkedEmail || null);
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
 
@@ -42,8 +41,19 @@ export default function AccountSettings() {
   // half of this — signing in with the same Google account there resolves
   // straight back to this account instead of creating a new one.
   const handleLinkGoogle = async () => {
-    setError('Appwrite account recovery uses email and password. Sign out and create an email/password account from the Appwrite console or recovery flow.');
-    setLinking(false);
+    setError('');
+    setLinking(true);
+    try {
+      const linkedUser = await linkGoogleAccount();
+      setLinkedEmail(linkedUser.email || 'your Google account');
+    } catch (e) {
+      console.error('Google link failed', e);
+      setError(e?.code === 'auth/credential-already-in-use'
+        ? 'That Google account is already linked to a different Aura account.'
+        : 'Could not link your Google account. Please try again.');
+    } finally {
+      setLinking(false);
+    }
   };
 
   const gatherAccountData = async () => {
@@ -94,7 +104,7 @@ export default function AccountSettings() {
         deleteDoc(doc(db, 'pushTokens', userId)).catch(() => {}),
         deleteDoc(doc(db, 'users', userId)),
       ]);
-      await account.delete();
+      await deleteCurrentFirebaseUser();
       navigate('/');
     } catch (e) {
       console.error('account deletion failed', e);

@@ -2,9 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
-import { account, databases, databaseId, APPWRITE_COLLECTIONS, ensureAnonymousSession, ownerPermissions } from '../lib/appwriteClient';
+import {
+  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured,
+} from '../lib/firebaseClient';
+import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
-import { ensureFirebaseSession, firebaseConfigured } from '../lib/firebaseClient';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const MIN_AGE = 16;
@@ -31,43 +33,46 @@ export default function Login() {
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
-  // Settings. Anonymous accounts have no password and no way to sign back
-  // in on their own; if someone never linked a Google account first,
-  // there is genuinely nothing to recover here — that limitation is real,
-  // not a bug in this flow, and is explained in the UI below.
+  // Settings. Firebase resolves this straight back to the same uid if
+  // this Google account was linked before (see linkGoogleAccount in
+  // firebaseClient.js); if it was never linked, Firebase silently creates
+  // a brand-new account instead, so a missing users/{uid} doc here means
+  // "genuinely nothing to recover", not an error.
   const handleRecover = async () => {
     setError('');
     setRecovering(true);
     try {
-      const session = await account.createEmailPasswordSession(window.prompt('Email') || '', window.prompt('Password') || '');
-      const profile = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, session.userId);
-      if (profile) navigate('/aura', { replace: true });
+      const user = await signInWithGoogleRecovery();
+      const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
+      if (snap.exists()) {
+        navigate('/aura', { replace: true });
+      } else {
+        setError('No previous Aura account is linked to that Google account.');
+      }
     } catch (err) {
       console.error('account recovery failed', err);
-      setError('Could not recover that account. Check your Appwrite email/password session.');
+      setError('Could not recover an account with that Google sign-in.');
     } finally { setRecovering(false); }
   };
 
   // Single source of truth for "is Firebase Auth actually ready yet".
-  // Previously this page had two separate effects: one that read Firestore
-  // immediately using whatever uid happened to be in localStorage (with the
-  // failure silently swallowed by .catch(() => {})), and a second, unrelated
-  // effect that handled anonymous sign-in. Because the Firestore read didn't
-  // wait for the sign-in/session-restore to actually finish, it could fire
-  // while request.auth was still null server-side, get rejected by the
-  // security rules, and silently fail — leaving an already-onboarded person
-  // stuck looking at the login form again instead of being sent to Home.
+  // Waits for sign-in/session-restore to actually finish before reading
+  // Firestore, so this can't race request.auth being null server-side and
+  // get silently rejected by security rules.
   useEffect(() => {
     let active = true;
     async function checkProfile() {
+      if (!firebaseConfigured) return;
       try {
-        const session = await ensureAnonymousSession();
-        const profile = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, session.$id);
+        const user = await ensureFirebaseSession();
+        const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
+        if (!snap.exists()) return;
+        const profile = snap.data();
         const expiresAt = Number(profile.verificationExpiresAt || 0);
         if (active && profile.verificationStatus === 'approved' && expiresAt > Date.now()) navigate('/aura/match', { replace: true });
         if (active && profile.verificationStatus === 'pending') setVerificationPending(true);
       } catch (e) {
-        if (e?.code !== 404) console.error('Appwrite profile check failed', e);
+        console.error('Firebase profile check failed', e);
       }
     }
     checkProfile();
@@ -94,29 +99,18 @@ export default function Login() {
     if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
     try {
-      const session = await ensureAnonymousSession();
-      const firebaseUser = firebaseConfigured ? await ensureFirebaseSession() : null;
-      const uid = session.$id;
+      const user = await ensureFirebaseSession();
+      const uid = user.uid;
       const now = new Date().toISOString();
       const profile = {
         age: String(Number(age)), gender, avatarColor, createdAt: now, updatedAt: now,
-        firebaseUid: firebaseUser?.uid || '', verificationStatus: 'pending', verified: false,
+        verificationStatus: 'pending', verified: false,
       };
-      const permissions = ownerPermissions(uid);
-      try {
-        await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, uid);
-        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile, permissions);
-      } catch (lookupError) {
-        if (lookupError?.code !== 404) throw lookupError;
-        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.users, uid, profile, permissions);
-      }
+      await setDoc(doc(db, COLLECTIONS.users, uid), profile, { merge: true });
+
       const request = { uid, age: String(Number(age)), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '' };
-      try {
-        await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request, permissions);
-      } catch (lookupError) {
-        if (lookupError?.code !== 404) throw lookupError;
-        await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.verificationRequests, uid, request, permissions);
-      }
+      await setDoc(doc(db, COLLECTIONS.verificationRequests, uid), request, { merge: true });
+
       navigate('/aura/match', { replace: true });
     } catch (err) {
       console.error(err);

@@ -2,12 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, Timestamp,
-} from '../lib/appwriteFirestoreCompat';
+  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, Timestamp, COLLECTIONS, db,
+} from '../lib/firestoreClient';
 import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
-import {
-  databases, databaseId, APPWRITE_COLLECTIONS, Query, subscribeToCollection,
-} from '../lib/appwriteClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import TopBar from '../components/TopBar';
@@ -29,19 +26,13 @@ export default function AdminReports() {
   const [busyId, setBusyId] = useState(null);
   const [bannedStatus, setBannedStatus] = useState({}); // { [uid]: true | false }
 
-  // Reports now live in Appwrite. There's no single onSnapshot equivalent,
-  // so this does one initial listDocuments() then keeps the list fresh via
-  // subscribeToCollection (which re-lists on every realtime event on this
-  // collection — fine at report volumes, would need pagination at scale).
   useEffect(() => {
     if (!isAdmin) return undefined;
-    let active = true;
-    const queries = [Query.orderDesc('createdAt'), Query.limit(100)];
-    const applyResult = (result) => { if (active) setReports(result.documents); };
-    const onLoadError = () => { if (active) setLoadError('Reports could not be loaded. Check your connection and try again.'); };
-    databases.listDocuments(databaseId, APPWRITE_COLLECTIONS.reports, queries).then(applyResult).catch(onLoadError);
-    const unsub = subscribeToCollection(APPWRITE_COLLECTIONS.reports, queries, applyResult, onLoadError);
-    return () => { active = false; unsub(); };
+    const q = query(collection(db, COLLECTIONS.reports), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setReports(snap.docs.map((d) => ({ $id: d.id, id: d.id, ...d.data() })));
+    }, () => setLoadError('Reports could not be loaded. Check your connection and try again.'));
+    return () => unsub();
   }, [isAdmin]);
 
   useEffect(() => {
@@ -78,7 +69,7 @@ export default function AdminReports() {
   const markReviewed = async (id) => {
     setBusyId(id);
     try {
-      await databases.updateDocument(databaseId, APPWRITE_COLLECTIONS.reports, id, {
+      await updateDoc(doc(db, COLLECTIONS.reports, id), {
         status: 'reviewed',
         reviewedAt: new Date().toISOString(),
       });
@@ -92,7 +83,7 @@ export default function AdminReports() {
   const removeReport = async (id) => {
     setBusyId(id);
     try {
-      await databases.deleteDocument(databaseId, APPWRITE_COLLECTIONS.reports, id);
+      await deleteDoc(doc(db, COLLECTIONS.reports, id));
     } catch (err) {
       setLoadError(`Couldn't delete that report. (${err?.code || 'unknown'})`);
     } finally {

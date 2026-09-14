@@ -5,12 +5,13 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, doc, setDoc, updateDoc, getDoc, query, orderBy, onSnapshot, Timestamp, where, deleteDoc, deleteField, limit,
-} from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
 import {
   Heart, Lock, Sparkles, X, Camera, Trash2, Check, MessageCircle,
 } from 'lucide-react';
-import { db } from '../lib/appwriteFirestoreCompat';
-import { APPWRITE_COLLECTIONS, getCurrentAccount } from '../lib/appwriteClient';
+import { db } from '../lib/firestoreClient';
+import { getCurrentFirebaseUser } from '../lib/firebaseClient';
+import { COLLECTIONS } from '../lib/firestoreClient';
 import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { resizePhotoToDataUrl } from '../lib/photoUpload';
@@ -55,7 +56,7 @@ export default function MatchFinder() {
     setVerifyError('');
     setVerifying(true);
     try {
-    const currentAccount = await getCurrentAccount();
+    const currentAccount = await getCurrentFirebaseUser();
     if (!currentAccount) throw new Error('not signed in');
     await setDoc(doc(db, 'verificationRequests', currentAccount.$id), {
       uid: currentAccount.$id,
@@ -179,7 +180,7 @@ export default function MatchFinder() {
   useEffect(() => {
     if (!userId) return undefined;
     const unsubA = subscribe(
-      query(collection(db, APPWRITE_COLLECTIONS.matchPairs), where('userA', '==', userId)),
+      query(collection(db, COLLECTIONS.matchPairs), where('userA', '==', userId)),
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: true, theirId: data.userB }; });
@@ -189,7 +190,7 @@ export default function MatchFinder() {
       'match pairs (as userA)',
     );
     const unsubB = subscribe(
-      query(collection(db, APPWRITE_COLLECTIONS.matchPairs), where('userB', '==', userId)),
+      query(collection(db, COLLECTIONS.matchPairs), where('userB', '==', userId)),
       (snap) => {
         const map = {};
         snap.docs.forEach((d) => { const data = d.data(); map[d.id] = { ...data, isInitiator: false, theirId: data.userA }; });
@@ -387,7 +388,7 @@ export default function MatchFinder() {
     setActionError('');
     setPendingActions((prev) => ({ ...prev, [id]: true }));
     try {
-      const ref = doc(db, APPWRITE_COLLECTIONS.matchPairs, id);
+      const ref = doc(db, COLLECTIONS.matchPairs, id);
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         await setDoc(ref, {
