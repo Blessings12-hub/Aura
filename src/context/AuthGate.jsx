@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ensureAnonymousSession, appwriteConfigured } from '../lib/appwriteClient';
+import { ensureFirebaseSession, firebaseConfigured } from '../lib/firebaseClient';
 import SplashScreen from '../components/SplashScreen';
 
 export default function AuthGate({ children }) {
@@ -8,7 +9,10 @@ export default function AuthGate({ children }) {
 
   useEffect(() => {
     let active = true;
-    ensureAnonymousSession()
+    Promise.all([
+      ensureAnonymousSession(),
+      firebaseConfigured ? ensureFirebaseSession() : Promise.resolve(null),
+    ])
       .catch((error) => { if (active) setFatalError(error); })
       .finally(() => { if (active) setReady(true); });
     return () => { active = false; };

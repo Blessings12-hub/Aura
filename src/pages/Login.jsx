@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { account, databases, databaseId, APPWRITE_COLLECTIONS, ensureAnonymousSession, ownerPermissions } from '../lib/appwriteClient';
 import { AVATAR_COLORS } from '../constants/moods';
+import { ensureFirebaseSession, firebaseConfigured } from '../lib/firebaseClient';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const MIN_AGE = 16;
@@ -94,11 +95,12 @@ export default function Login() {
     setSubmitting(true);
     try {
       const session = await ensureAnonymousSession();
+      const firebaseUser = firebaseConfigured ? await ensureFirebaseSession() : null;
       const uid = session.$id;
       const now = new Date().toISOString();
       const profile = {
         age: String(Number(age)), gender, avatarColor, createdAt: now, updatedAt: now,
-        verificationStatus: 'pending', verified: false,
+        firebaseUid: firebaseUser?.uid || '', verificationStatus: 'pending', verified: false,
       };
       const permissions = ownerPermissions(uid);
       try {

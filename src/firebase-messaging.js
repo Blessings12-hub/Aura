@@ -1,25 +1,18 @@
-import { account } from './lib/appwriteClient';
+import { listenForFirebaseMessages, registerFirebaseMessaging } from './lib/firebaseClient';
 
-/**
- * Appwrite does not use Firebase Cloud Messaging. Aura keeps notification
- * permission as an optional browser capability while in-app notifications
- * remain the source of truth.
- */
 export async function registerServiceWorker() {
-  return null;
+  if (!('serviceWorker' in navigator)) return null;
+  return navigator.serviceWorker.register('/firebase-messaging-sw.js');
 }
 
 export async function requestNotificationPermission() {
   if (!('Notification' in window)) return null;
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return null;
-  try {
-    return await account.get();
-  } catch {
-    return null;
-  }
+  await registerServiceWorker();
+  return registerFirebaseMessaging();
 }
 
-export function listenForForegroundMessages() {
-  return () => {};
+export function listenForForegroundMessages(callback) {
+  let unsubscribe;
+  listenForFirebaseMessages(callback).then((cleanup) => { unsubscribe = cleanup; });
+  return () => unsubscribe?.();
 }
