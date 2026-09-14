@@ -8,11 +8,8 @@
 // block button happened to be on.
 import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp,
-} from './appwriteFirestoreCompat';
-import { db } from './appwriteFirestoreCompat';
-import {
-  databases, databaseId, APPWRITE_COLLECTIONS, ID, requireAppwrite,
-} from './appwriteClient';
+  addDoc, COLLECTIONS, db,
+} from './firestoreClient';
 
 const blockDocId = (blockerId, blockedId) => `${blockerId}_${blockedId}`;
 
@@ -31,17 +28,11 @@ export async function unblockUser(blockerId, blockedId) {
 // context/contextId identify where the report was filed from (e.g.
 // context: 'matchChat', contextId: the pairId) so a reviewer looking at the
 // reports collection has enough to investigate without any extra reads.
-//
-// Reports now live in Appwrite, not Firestore (blocks/blockUser above are
-// unchanged and still Firestore — this only moves reportUser). A reporter
-// only ever needs to CREATE here, never read/update their own report, so
-// no per-document permissions are passed — the "Users: Create only" role
-// on the reports collection in the Appwrite console is what makes this
-// write-only for regular users.
+// A reporter only ever needs to CREATE here, never read/update their own
+// report — enforced in firestore.rules (create-only for non-admins).
 export async function reportUser(reporterId, reportedId, { context, contextId, reason, details } = {}) {
   if (!reporterId || !reportedId || reportedId === reporterId || !reason) return;
-  requireAppwrite();
-  await databases.createDocument(databaseId, APPWRITE_COLLECTIONS.reports, ID.unique(), {
+  await addDoc(collection(db, COLLECTIONS.reports), {
     reporterId,
     reportedId,
     context: context || 'unknown',

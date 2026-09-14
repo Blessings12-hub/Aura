@@ -1,10 +1,11 @@
 // Shared helpers for sending voice notes, pictures, audio files, and
 // generic files inside chats.
 //
-// Voice notes upload to a private Appwrite Storage bucket. Vercel serves the
-// static frontend; Appwrite owns authenticated media and application data.
-// Pictures, live stickers, and generic file attachments remain compact data
-// URLs until their chat records are migrated to Appwrite Databases.
+// Everything ships as an embedded base64 data URL directly on the message
+// document — there's no Storage bucket on this plan (Firebase Storage
+// needs the paid Blaze plan as of Feb 2026; Appwrite has been removed
+// entirely — see CHANGES.md). Voice notes used to upload to a bucket;
+// they now follow the same inline pattern as photos/stickers/files below.
 
 // MediaRecorder's actual output codec depends entirely on what the
 // browser supports — same reasoning as MoodChat.jsx's voice notes.
@@ -23,25 +24,24 @@ export function pickSupportedVoiceMimeType() {
 
 export const MAX_RECORDING_SECONDS = 300;
 
-// Raw byte ceiling for the recorded blob before upload. Configure the same
-// limit on the private Appwrite bucket; client checks are only fast-fail UX.
-export const MAX_VOICE_BLOB_BYTES = 8 * 1024 * 1024;
+// Raw byte ceiling for the recorded blob before it's converted to base64 —
+// same budget as other chat attachments (readFileAsDataUrl below), sized
+// to stay under Firestore's 1 MiB document limit after base64 inflation.
+export const MAX_VOICE_BLOB_BYTES = 650 * 1024;
 
-// Uploads a recorded voice note to a private Appwrite Storage bucket.
-// The returned URL is a preview URL; Appwrite permissions remain the source
-// of truth, so the bucket must not be configured for public access.
+// Converts a recorded voice note straight to a base64 data URL — no
+// upload, nothing persisted outside the message document itself.
 export async function uploadVoiceNote(blob, mimeType, uid) {
-  const { ID, requireAppwrite, storage } = await import('./appwriteClient');
-  requireAppwrite();
+  void uid; // kept in the signature for call-site compatibility; unused now that nothing is uploaded anywhere.
   if (blob.size > MAX_VOICE_BLOB_BYTES) {
-    throw new Error(`That recording is too large to send (max ${Math.round(MAX_VOICE_BLOB_BYTES / 1024 / 1024)}MB).`);
+    throw new Error(`That recording is too large to send (max ${Math.round(MAX_VOICE_BLOB_BYTES / 1024)}KB — there's no cloud storage on this plan, so recordings travel as part of the message itself).`);
   }
-  const bucketId = import.meta.env.VITE_APPWRITE_MEDIA_BUCKET_ID;
-  if (!bucketId) throw new Error('Voice notes need VITE_APPWRITE_MEDIA_BUCKET_ID configured.');
-  const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-  const file = new File([blob], `${uid}-${Date.now()}.${ext}`, { type: mimeType });
-  const uploaded = await storage.createFile(bucketId, ID.unique(), file);
-  return storage.getFileView(bucketId, uploaded.$id).toString();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that recording.'));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(new File([blob], `voice.${mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm'}`, { type: mimeType }));
+  });
 }
 
 // Live stickers (short looping video clips, TikTok-style) — same
@@ -66,10 +66,10 @@ export const MAX_LIVE_STICKER_SECONDS = 5;
 // Firestore hard-caps a document at 1 MiB. Base64 inflates raw bytes by
 // ~33%, and the message doc also carries a few other small fields (userId,
 // timestamps, reply/pin metadata later on) — 900,000 characters (~660KB
-// raw) leaves comfortable headroom. Used for fileUrl (stickers/images) —
-// voiceUrl no longer shares this cap now that it's a short Supabase
-// Storage URL instead of embedded base64 (see firestore.rules, which now
-// checks voiceUrl against a much smaller URL-appropriate length).
+// raw) leaves comfortable headroom. Used for fileUrl (stickers/images) and
+// voiceUrl (voice notes, capped separately and more tightly at the raw-byte
+// level by MAX_VOICE_BLOB_BYTES above, so it comfortably fits under this
+// same char budget after base64 inflation).
 export const MAX_DATA_URL_CHARS = 900000;
 
 // Raw byte ceiling checked *before* reading a picked file, so a large
