@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { doc, getDoc } from '../lib/appwriteFirestoreCompat';
-import { db } from '../lib/appwriteFirestoreCompat';
+import { doc, getDoc } from '../lib/firestoreClient';
+import { db } from '../lib/firestoreClient';
 
 // Checks for an /admins/{uid} doc for the current user. There's no
 // self-service way to get one — see the comment on the admins collection

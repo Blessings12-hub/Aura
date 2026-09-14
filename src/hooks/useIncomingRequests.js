@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   collection, query, where, onSnapshot,
-} from '../lib/appwriteFirestoreCompat';
-import { db } from '../lib/appwriteFirestoreCompat';
+} from '../lib/firestoreClient';
+import { db } from '../lib/firestoreClient';
 
 // Live view of every request that is genuinely waiting on ME to respond,
 // across the three activities that use a request/accept flow. This is what
