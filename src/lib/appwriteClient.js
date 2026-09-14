@@ -53,7 +53,7 @@ export async function listCollection(collectionId, queries = []) {
 export async function upsertDocument(collectionId, documentId, data, permissions) {
   requireAppwrite();
   try {
-    return await databases.updateDocument(databaseId, collectionId, documentId, data);
+    return await databases.updateDocument(databaseId, collectionId, documentId, data, permissions);
   } catch (error) {
     if (error?.code !== 404) throw error;
     try {
