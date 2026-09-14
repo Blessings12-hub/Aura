@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
-import { APPWRITE_COLLECTIONS, databases, databaseId, requireAppwrite, upsertDocument } from '../lib/appwriteClient';
+import {
+  doc, getDoc, upsertDocument, COLLECTIONS, db,
+} from '../lib/firestoreClient';
 
 const HEARTBEAT_MS = 25_000;
 
@@ -9,8 +11,7 @@ export function usePresence(uid) {
     let active = true;
     const publish = async (state = 'online') => {
       try {
-        requireAppwrite();
-        await upsertDocument(APPWRITE_COLLECTIONS.presence, uid, {
+        await upsertDocument(COLLECTIONS.presence, uid, {
           uid,
           state,
           lastChanged: Date.now(),
@@ -40,17 +41,17 @@ export function useUserStatus(uid, onChange) {
     let active = true;
     const read = async () => {
       try {
-        requireAppwrite();
-        const document = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.presence, uid);
-        if (active) onChange(document);
+        const snap = await getDoc(doc(db, COLLECTIONS.presence, uid));
+        if (active) onChange(snap.exists() ? snap.data() : { state: 'offline', lastChanged: null });
       } catch (error) {
-        if (active && error?.code !== 404) console.error(`presence: failed to read ${uid}`, error);
-        if (active) onChange({ state: 'offline', lastChanged: null });
+        if (active) {
+          console.error(`presence: failed to read ${uid}`, error);
+          onChange({ state: 'offline', lastChanged: null });
+        }
       }
     };
     read();
-    const unsubscribe = databases ? undefined : undefined;
     const timer = window.setInterval(read, HEARTBEAT_MS);
-    return () => { window.clearInterval(timer); unsubscribe?.(); };
+    return () => { window.clearInterval(timer); };
   }, [uid, onChange]);
 }

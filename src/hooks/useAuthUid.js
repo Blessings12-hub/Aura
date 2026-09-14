@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ensureAnonymousSession } from '../lib/appwriteClient';
+import { ensureFirebaseSession } from '../lib/firebaseClient';
 
 export function useAuthUid() {
   const [uid, setUid] = useState(null);
@@ -7,11 +7,11 @@ export function useAuthUid() {
 
   useEffect(() => {
     let active = true;
-    ensureAnonymousSession()
-      .then((session) => {
-        if (active) setUid(session.$id);
+    ensureFirebaseSession()
+      .then((user) => {
+        if (active) setUid(user.uid);
       })
-      .catch((error) => console.error('Appwrite session failed', error))
+      .catch((error) => console.error('Firebase session failed', error))
       .finally(() => {
         if (active) setReady(true);
       });

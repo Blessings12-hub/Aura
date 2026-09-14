@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { databases, databaseId, APPWRITE_COLLECTIONS, getCurrentAccount, subscribeToDocument } from '../lib/appwriteClient';
+import { getCurrentFirebaseUser } from '../lib/firebaseClient';
+import {
+  doc, getDoc, onSnapshot, COLLECTIONS, db,
+} from '../lib/firestoreClient';
 
 export function useCurrentUser({ redirectIfMissing = true } = {}) {
   const navigate = useNavigate();
@@ -14,24 +17,30 @@ export function useCurrentUser({ redirectIfMissing = true } = {}) {
     let active = true;
     async function load() {
       try {
-        const account = await getCurrentAccount();
-        if (!account) throw new Error('No Appwrite session');
+        const account = await getCurrentFirebaseUser();
+        if (!account) throw new Error('No Firebase session');
         if (!active) return;
         setUserId(account.$id);
-        const apply = (document) => {
+        const ref = doc(db, COLLECTIONS.users, account.$id);
+        const apply = (snap) => {
           if (!active) return;
-          setUser({ id: document.$id, ...document });
+          if (!snap.exists()) {
+            setUser(null);
+            setLoading(false);
+            if (redirectIfMissing) navigate('/login', { replace: true });
+            return;
+          }
+          setUser({ id: snap.id, ...snap.data() });
           setLoading(false);
         };
         try {
-          const document = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, account.$id);
-          apply(document);
+          apply(await getDoc(ref));
         } catch (error) {
           setUser(null);
           setLoading(false);
           if (redirectIfMissing) navigate('/login', { replace: true });
         }
-        unsubscribe = subscribeToDocument(APPWRITE_COLLECTIONS.users, account.$id, apply, setAuthError);
+        unsubscribe = onSnapshot(ref, apply, setAuthError);
       } catch (error) {
         if (!active) return;
         setAuthError(error);
