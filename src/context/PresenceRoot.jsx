@@ -3,7 +3,8 @@ import { useAuthUid } from '../hooks/useAuthUid';
 import { usePresence } from '../hooks/usePresence';
 import IncomingRequestWatcher from '../components/IncomingRequestWatcher';
 import { recordAppStreak } from '../lib/streak';
-import { account, APPWRITE_COLLECTIONS, databases, databaseId, requireAppwrite } from '../lib/appwriteClient';
+import { signOutFirebase } from '../lib/firebaseClient';
+import { doc, getDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 
 export default function PresenceRoot({ children }) {
   const { uid } = useAuthUid();
@@ -21,11 +22,11 @@ export default function PresenceRoot({ children }) {
     let active = true;
     const readBan = async () => {
       try {
-        requireAppwrite();
-        const profile = await databases.getDocument(databaseId, APPWRITE_COLLECTIONS.users, uid);
+        const snap = await getDoc(doc(db, COLLECTIONS.users, uid));
+        const profile = snap.exists() ? snap.data() : null;
         if (active) setBanInfo(profile?.banned === true ? { reason: profile.banReason || null } : null);
       } catch (error) {
-        if (active && error?.code !== 404) console.error('ban status lookup failed', error);
+        if (active) console.error('ban status lookup failed', error);
       }
     };
     readBan();
@@ -39,7 +40,7 @@ export default function PresenceRoot({ children }) {
         <div>
           <h1 style={{ marginBottom: 8 }}>This account has been suspended</h1>
           <p className="aura-muted">{banInfo.reason || "This account was suspended for violating Aura's community guidelines."}</p>
-          <button type="button" className="aura-btn aura-btn-secondary" style={{ marginTop: 16 }} onClick={async () => { await account.deleteSession('current'); window.location.href = '/'; }}>
+          <button type="button" className="aura-btn aura-btn-secondary" style={{ marginTop: 16 }} onClick={async () => { await signOutFirebase(); window.location.href = '/'; }}>
             Sign out
           </button>
         </div>
