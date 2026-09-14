@@ -1,4 +1,4 @@
-import { onSnapshot as fsOnSnapshot } from './appwriteFirestoreCompat';
+import { onSnapshot as fsOnSnapshot } from './firestoreClient';
 
 export function subscribe(query, onData, onError, label = 'firestore subscription') {
   return fsOnSnapshot(

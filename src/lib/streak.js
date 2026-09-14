@@ -1,5 +1,5 @@
-import { doc, getDoc, setDoc } from './appwriteFirestoreCompat';
-import { db } from './appwriteFirestoreCompat';
+import { doc, getDoc, setDoc } from './firestoreClient';
+import { db } from './firestoreClient';
 import { todayKey } from '../constants/dailyQuestions';
 
 /** Same YYYY-MM-DD format as todayKey, for the day before `date`. */

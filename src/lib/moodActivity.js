@@ -1,5 +1,5 @@
-import { doc, increment, setDoc } from './appwriteFirestoreCompat';
-import { db } from './appwriteFirestoreCompat';
+import { doc, increment, setDoc } from './firestoreClient';
+import { db } from './firestoreClient';
 import { todayKey } from '../constants/dailyQuestions';
 
 /**
