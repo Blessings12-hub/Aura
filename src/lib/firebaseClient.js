@@ -4,6 +4,8 @@ import {
   onAuthStateChanged,
   signInAnonymously,
   signOut,
+  setPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   linkWithPopup,
   signInWithPopup,
@@ -31,11 +33,86 @@ export function requireFirebase() {
   return firebaseAuth;
 }
 
-export async function ensureFirebaseSession() {
+// ---------------------------------------------------------------------------
+// ONE session, ever.
+//
+// The old version of ensureFirebaseSession() checked `auth.currentUser` and,
+// if it was null, immediately called signInAnonymously(). On a cold load,
+// currentUser is null for everybody for the first few hundred milliseconds
+// while Firebase restores the saved session out of IndexedDB — and in that
+// window PresenceRoot, useCurrentUser (on whatever page mounted), Login.jsx
+// and React StrictMode's double-mount ALL called this function at once. Each
+// one saw currentUser === null and each one started its own sign-in.
+//
+// Two things went wrong as a result, and they're the two errors in the
+// console:
+//
+//   * "AbortError: The user aborted a request." — each new sign-in attempt
+//     cancels the in-flight auth/token requests started by the previous one.
+//     Five racing callers = a burst of aborted requests, one logged per
+//     cancelled call.
+//
+//   * "FirebaseError: Missing or insufficient permissions." — Firestore
+//     reads that were already in flight were signed with a uid that the
+//     race had just thrown away (or with no uid at all, because auth hadn't
+//     landed yet). firestore.rules requires request.auth != null on
+//     essentially every collection, so those reads are rejected.
+//
+// The fix is to make this function idempotent: wait for Firebase's own
+// restore to finish FIRST, only sign in anonymously if there's genuinely
+// nobody, and cache the promise so that every caller — however many there
+// are, however early they run — awaits the exact same sign-in.
+// ---------------------------------------------------------------------------
+let sessionPromise = null;
+
+function waitForInitialAuth(auth) {
+  return new Promise((resolve, reject) => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => { unsubscribe(); resolve(user); },
+      (error) => { unsubscribe(); reject(error); },
+    );
+  });
+}
+
+export function ensureFirebaseSession() {
   const auth = requireFirebase();
-  if (auth.currentUser) return auth.currentUser;
-  const result = await signInAnonymously(auth);
-  return result.user;
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+
+  if (!sessionPromise) {
+    sessionPromise = (async () => {
+      // Keep the anonymous uid across reloads. Without this, a browser that
+      // can't use the default IndexedDB persistence silently falls back to
+      // in-memory, which means a brand-new uid on every refresh and a
+      // users/{uid} doc that never exists — which the app reads as "not
+      // registered" and bounces to /login forever.
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch {
+        // Private mode / storage blocked. Firebase falls back on its own;
+        // the session just won't survive a reload, which is not fatal.
+      }
+
+      const restored = await waitForInitialAuth(auth);
+      if (restored) return restored;
+
+      const result = await signInAnonymously(auth);
+      return result.user;
+    })();
+
+    // If sign-in genuinely fails (offline, bad config), clear the cache so a
+    // later attempt can retry instead of being stuck on a rejected promise.
+    sessionPromise.catch(() => { sessionPromise = null; });
+  }
+
+  return sessionPromise;
+}
+
+// Call this after anything that deliberately ends the current session, so
+// the next ensureFirebaseSession() starts a fresh one instead of handing
+// back the old, now-invalid user.
+function resetSessionCache() {
+  sessionPromise = null;
 }
 
 // Drop-in replacement for Appwrite's getCurrentAccount() — same `.$id`
@@ -56,6 +133,7 @@ export function observeFirebaseAuth(callback) {
 
 export async function signOutFirebase() {
   if (firebaseAuth) await signOut(firebaseAuth);
+  resetSessionCache();
 }
 
 // Links a Google account to the CURRENT anonymous session, so the same
@@ -64,9 +142,10 @@ export async function signOutFirebase() {
 // button in Account Settings.
 export async function linkGoogleAccount() {
   const auth = requireFirebase();
-  if (!auth.currentUser) throw new Error('No active session to link.');
+  const current = auth.currentUser || (await ensureFirebaseSession());
+  if (!current) throw new Error('No active session to link.');
   const provider = new GoogleAuthProvider();
-  const result = await linkWithPopup(auth.currentUser, provider);
+  const result = await linkWithPopup(current, provider);
   return result.user;
 }
 
@@ -80,6 +159,7 @@ export async function signInWithGoogleRecovery() {
   const auth = requireFirebase();
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(auth, provider);
+  resetSessionCache();
   return result.user;
 }
 
@@ -87,6 +167,7 @@ export async function deleteCurrentFirebaseUser() {
   const auth = requireFirebase();
   if (!auth.currentUser) return;
   await deleteUser(auth.currentUser);
+  resetSessionCache();
 }
 
 export async function registerFirebaseMessaging() {
