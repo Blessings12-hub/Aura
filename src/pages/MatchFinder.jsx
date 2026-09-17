@@ -19,6 +19,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { AVATAR_COLORS } from '../constants/moods';
+import { submitIdentityDocument } from '../lib/verificationService';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -51,25 +52,29 @@ export default function MatchFinder() {
   const [age, setAge] = useState('');
   const [ageConsent, setAgeConsent] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [verificationFile, setVerificationFile] = useState(null);
   const [verifyError, setVerifyError] = useState('');
+  const [verifyMessage, setVerifyMessage] = useState('');
   const handleVerify = async () => {
     setVerifyError('');
+    setVerifyMessage('');
+    if (!verificationFile) {
+      setVerifyError('Choose a clear photo of a government-issued ID first.');
+      return;
+    }
+    if (!userId) {
+      setVerifyError('Your Firebase session is still loading. Please try again.');
+      return;
+    }
     setVerifying(true);
     try {
-    const currentAccount = await getCurrentFirebaseUser();
-    if (!currentAccount) throw new Error('not signed in');
-    await setDoc(doc(db, 'verificationRequests', currentAccount.$id), {
-      uid: currentAccount.$id,
-        age: Number(age || user?.age || 0),
-        gender: gender || user?.gender || '',
-        status: 'pending',
-        submittedAt: Timestamp.now(),
-        reviewedAt: null,
-        reviewerId: null,
-      }, { merge: true });
+      const result = await submitIdentityDocument({ userId, file: verificationFile });
+      setVerifyMessage(result.dateOfBirth
+        ? 'Document received. Your age and gender will be reviewed securely before Match Finder unlocks.'
+        : 'Document received. A reviewer will finish the verification before Match Finder unlocks.');
     } catch (err) {
-      console.error('manual verification submission failed', err);
-      setVerifyError('Could not submit your verification request. Please try again.');
+      console.error('identity verification submission failed', err);
+      setVerifyError(err?.message || 'Could not submit your verification request. Please try again.');
     } finally {
       setVerifying(false);
     }
@@ -505,21 +510,6 @@ export default function MatchFinder() {
     .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
 
   if (loading || !user) return <PageSkeleton />;
-  if (!verifiedForMatch) {
-    return (
-      <div className="aura-page">
-        <div className="aura-shell">
-          <TopBar title={t('match_finder')} onBack={() => navigate(-1)} />
-          <section className="aura-card" role="alert">
-            <h2>Verification required</h2>
-            <p className="aura-muted">Match Finder requires an approved identity verification, verified sex/gender, and a current verification that expires after 12 months.</p>
-            <button type="button" className="aura-btn aura-btn-secondary" onClick={() => navigate('/login')}>Complete verification</button>
-          </section>
-        </div>
-      </div>
-    );
-  }
-  
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -532,6 +522,28 @@ export default function MatchFinder() {
             <p className="aura-login-error" style={{ margin: '0 0 10px' }} data-testid="match-profile-required-hint">
               {t('save_profile_before_matching')}
             </p>
+          )}
+
+          {!verifiedForMatch && (
+            <div className="aura-card" style={{ borderColor: '#f59e0b', margin: '10px 0' }} data-testid="match-verify-card">
+              <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Verify your age to use Match Finder</p>
+              <p className="aura-muted" style={{ margin: '0 0 10px', fontSize: '0.85rem' }}>
+                Upload a clear ID photo. The image is processed in memory for OCR and is not stored; a reviewer approves the result before matching is enabled.
+              </p>
+              <input
+                className="aura-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+                disabled={verifying}
+                data-testid="match-verification-file"
+              />
+              <button type="button" className="aura-btn aura-btn-secondary" onClick={handleVerify} disabled={verifying || !verificationFile} data-testid="match-verify-btn">
+                {verifying ? 'Submitting securely…' : 'Submit verification'}
+              </button>
+              {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
+              {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
+            </div>
           )}
 
           <div className="profile-editor__photo-row">
@@ -551,25 +563,6 @@ export default function MatchFinder() {
           {photoError && <p className="aura-login-error" style={{ margin: '6px 0 0' }}>{photoError}</p>}
 
           <input className="aura-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('display_name_ph')} maxLength={40} data-testid="match-name" />
-
-          {user?.verified !== true && (
-            <div className="aura-card" style={{ borderColor: '#f59e0b', margin: '10px 0' }} data-testid="match-verify-card">
-              <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Verify your age to use Match Finder</p>
-              <p className="aura-muted" style={{ margin: '0 0 10px', fontSize: '0.85rem' }}>
-                A quick ID check — separate from the self-reported number below, which anyone could otherwise type incorrectly. You'll scan an ID document; it usually only takes a couple of minutes, and you'll be brought right back here.
-              </p>
-              <button
-                type="button"
-                className="aura-btn aura-btn-secondary"
-                onClick={handleVerify}
-                disabled={verifying}
-                data-testid="match-verify-btn"
-              >
-                {verifying ? 'Starting…' : 'Verify my age'}
-              </button>
-              {verifyError && <p className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
-            </div>
-          )}
 
           <div className="aura-row">
             <input className="aura-input" style={{ flex: '1 1 120px' }} type="number" inputMode="numeric" min={MIN_MATCH_AGE} value={age} onChange={(e) => setAge(e.target.value)} placeholder={t('age_placeholder')} data-testid="match-age" />
