@@ -1,60 +1,108 @@
-# Aura — fix for the AbortError storm and "Missing or insufficient permissions"
+# Aura — fix for "Could not sign you in. Please try again."
 
-Drop these 7 files into your repo, replacing the existing ones. Paths are
-relative to the project root, and the folder structure in this zip already
-matches, so you can extract it straight over `Aura-main/`.
+Four files. Paths are relative to the project root and the structure in this
+zip already matches, so you can extract it straight over `Aura-main/`.
 
-## What was actually wrong
+**`firestore.rules` is in here too — you need to redeploy it**, e.g.
+`firebase deploy --only firestore:rules`. The client changes alone will not
+fix the ID-upload path without it.
 
-Both errors came from the same root cause: **nothing waited for Firebase
-Auth**, so several parts of the app each tried to start their own anonymous
-session at the same moment.
+## Are the rules correct?
 
-`src/context/AuthGate.jsx` contained `const [ready] = useState(true)` — a
-leftover from the Appwrite migration. It rendered its children instantly and
-never gated on anything. Meanwhile `ensureFirebaseSession()` checked
-`auth.currentUser`, saw `null` (normal for the first few hundred milliseconds
-while Firebase restores the saved session from IndexedDB), and called
-`signInAnonymously()`. PresenceRoot, useCurrentUser, useOnlineCount, Login and
-React StrictMode's double-mount all did this at once.
+Mostly yes. The structure is sound — default-deny at the bottom, owner checks
+everywhere, admin gated behind a console-only `/admins/{uid}` doc, list
+queries written against the same fields the client filters on. I found three
+problems, only one of which is a real hole in the rules themselves; the other
+two were the client sending payloads the rules were right to reject.
 
-- **AbortError: The user aborted a request.** Each new sign-in cancels the
-  in-flight auth/token requests from the previous one. Several racing callers
-  produce a burst of aborted requests — one logged per cancelled call. The
-  duplicate `getDoc` + `onSnapshot` on the same doc in `useCurrentUser` added
-  more.
-- **FirebaseError: Missing or insufficient permissions.** `firestore.rules`
-  requires `request.auth != null` on essentially every collection. Reads that
-  went out before auth landed (or signed with a uid the race had just thrown
-  away) were rejected. `useOnlineCount` was the most visible one — it queried
-  `presence` the instant Home mounted and retried every 30 seconds.
+### 1. `age` type mismatch — rules were right, client was wrong
 
-Your `firestore.rules` file is fine. It did not need changing.
+`validAge()` required `data.age is int`. Login wrote `String(Number(age))`.
+Every sign-up was rejected.
 
-## The files
+`MatchFinder.jsx:340` already writes `age: numericAge` (a number) to the same
+document, so a number is the correct shape and Login was the odd one out. I
+changed Login to write a number.
 
-| File | Change |
-|---|---|
-| `src/lib/firebaseClient.js` | `ensureFirebaseSession()` now waits for Firebase's own session restore first, only signs in anonymously if nobody is there, and caches the promise so every caller shares one sign-in. Also sets `browserLocalPersistence` so the anonymous uid survives a reload. |
-| `src/context/AuthGate.jsx` | Actually gates now — shows the splash until the session resolves, then publishes the uid through React context. |
-| `src/hooks/useAuthUid.js` | Reads the shared uid from that context instead of starting its own sign-in. |
-| `src/hooks/useCurrentUser.js` | Takes the uid from context; one `onSnapshot` instead of `getDoc` + `onSnapshot`. Return shape unchanged, so no page needs editing. |
-| `src/hooks/useOnlineCount.js` | Waits for a ready session before querying `presence`. Signature unchanged, so `Home.jsx` needs no edit. |
-| `src/hooks/usePresence.js` | Fixes the unmount path, which previously never wrote "offline" (it bailed on its own `active` flag). Quieter about cancelled writes. |
-| `src/lib/quietErrors.js` | **New file.** Narrow helper that recognises abort/cancellation only — permission-denied and other real errors still log loudly. |
-| `src/main.jsx` | Suppresses unhandled-rejection noise from genuinely-aborted requests. Nothing else is filtered. |
+I also widened `validAge()` to accept a numeric string as well. That is
+deliberate, not laziness: an update sends the **full resulting document** to
+the rules, so once the client switched to numbers, any existing account still
+holding a string age would have started failing this check on every later
+write — including the streak counters that run on app open. Accepting both
+shapes fixes new sign-ups without stranding accounts already in your database.
+The 16+ minimum is still enforced on both branches.
 
-No other file needs to change. No dependency changes. No rules redeploy.
+### 2. Login sent admin-only fields — rules were right, client was wrong
 
-## After you deploy
+The payload included `verificationStatus: 'pending'` and `verified: false`,
+but the `users/{uid}` create rule explicitly requires both to be **absent**;
+they are admin-written only, by `AdminReports.reviewVerification`. Removed
+from the Login payload.
 
-Expect the AbortError lines to stop entirely and the permission errors to
-disappear on cold load. If a permission error survives this, it is a real rule
-mismatch rather than a timing problem — note which collection it names and
-that will point straight at the block in `firestore.rules`.
+Worth knowing for the future: `setDoc(..., { merge: true })` on a document
+that does not exist yet is still evaluated as a **create** by security rules.
+The merge flag does not get you onto the update branch.
 
-One thing I could not verify from the code alone: whether Anonymous sign-in is
-actually enabled in your Firebase console (Authentication → Sign-in method).
-If it is off, `signInAnonymously()` fails and you would now see the "could not
-start a session" screen from AuthGate rather than a silent failure. Worth
-confirming before assuming the patch is at fault.
+Nothing is lost by dropping `'pending'` here — the `verificationRequests/{uid}`
+document written on the very next line already carries `status: 'pending'`,
+which is where both the admin review queue and the pending banner read it.
+I repointed Login's pending banner at that document, since
+`users/{uid}.verificationStatus` could never have been `'pending'`.
+
+### 3. The OCR write-back was genuinely missing from the rules
+
+This one is a real gap. `submitIdentityDocument()` writes `ocrStatus`,
+`ocrDateOfBirth` and `ocrConfidence` back to `verificationRequests/{uid}`, but
+the owner's update rule had:
+
+```
+.hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId'])
+```
+
+None of the three `ocr*` keys were in that list, so **every ID upload died
+with permission-denied** — and since it runs inside Login's single try/catch,
+it showed up as the same generic sign-in banner instead of a verification
+error. I added the three keys. They're safe for the owner to set: they are the
+OCR *result*, and `status` is still pinned to `'pending'` on that branch, so a
+client still cannot approve itself. Only the `isAdmin()` branch can move status
+to approved or declined.
+
+The client write also now sends `uid` and `status` alongside, so it works
+whether the request document already exists or not.
+
+### 4. A smaller one, defensive
+
+`validMatchAge()` defaulted `verificationExpiresAt` to the integer `0` and
+compared it with `request.time`, a timestamp. That is a type error rather than
+a clean `false`. AdminReports writes the field as a `Timestamp`, so I changed
+the default to `request.time`, which denies cleanly when the field is missing.
+Same outcome, easier to read in the rules playground.
+
+## Also fixed in the client
+
+- **Login's "already verified, skip to Match Finder" redirect never fired.**
+  It read `firebaseAuth.currentUser` directly, which is normally `null` on a
+  cold load, and bailed out. It now awaits the session.
+- **The same check compared a Firestore `Timestamp` using `Number(...)`,**
+  which gives `NaN`, and `NaN > Date.now()` is always false — so even an
+  approved account failed it. Now uses `toMillis()`.
+- **The error banner now includes the Firebase error code.** The generic
+  message hid which step failed, which is painful to debug from a phone.
+- **`submitIdentityDocument` no longer throws just because auth hasn't
+  finished restoring,** and reports what `/api/verify-document` actually said
+  instead of one flat message.
+
+## Two things I could not verify from the code
+
+- Whether Anonymous sign-in is enabled in your Firebase console
+  (Authentication → Sign-in method), and whether your deployed domain is in
+  the authorised domains list. If either is off, `ensureFirebaseSession()`
+  throws before Firestore is touched. With the new error code in the banner
+  you'd see something like `auth/operation-not-allowed` or
+  `auth/unauthorized-domain`, which tells you immediately.
+- Whether `OCR_SPACE_API_KEY` is set in your Vercel environment. Without it
+  `/api/verify-document` returns 500, which now surfaces as "OCR verification
+  is not configured yet" rather than a sign-in failure.
+
+Apply this on top of the earlier auth-race patch, not instead of it — they fix
+different things.

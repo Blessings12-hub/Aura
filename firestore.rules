@@ -65,8 +65,19 @@ function isOwner(uid) {
 // from ever being written, on both the initial write and any later update.
 // If MIN_AGE changes in Login.jsx, update the literal below to match.
 // ------------------------------------------------------------------
+//
+// FIXED: this used to be int-only. Login.jsx wrote age as a string, so every
+// sign-up was rejected — but simply switching the client to a number (which
+// it now does, matching what MatchFinder already wrote) would have broken
+// every EXISTING account: an update sends the full resulting document, so an
+// account whose stored age is still the old string would have failed this
+// check on any later write, including the streak counters that run on app
+// open. Accepting both shapes fixes new sign-ups without stranding anyone
+// already in the database. The minimum is still enforced either way.
 function validAge(data) {
-  return !('age' in data) || (data.age is int && data.age >= 16);
+  return !('age' in data)
+    || (data.age is int && data.age >= 16)
+    || (data.age is string && data.age.matches('^[0-9]{1,3}$') && int(data.age) >= 16);
 }
 
 // Match Finder specifically requires 18+, plus an explicit consent flag
@@ -76,12 +87,20 @@ function validAge(data) {
 // A client-side age check is never real security on its own — this is
 // what actually stops an under-18 profile from being written, regardless
 // of what number the client happens to send.
+//
+// FIXED (defensively): the expiry check used to default to the integer 0 when
+// verificationExpiresAt was absent — `0 > request.time` compares an int with
+// a timestamp, which is a type error rather than a clean false, and a rule
+// that errors is harder to read in the rules playground than one that simply
+// denies. AdminReports writes this field as a Timestamp, so defaulting to
+// request.time keeps the comparison timestamp-to-timestamp and evaluates to
+// false when the field is missing, which is the intended outcome.
   function validMatchAge(uid, data) {
   let userPath = /databases/$(database)/documents/users/$(uid);
   let account = get(userPath).data;
   let isVerified = exists(userPath)
     && account.get('verificationStatus', '') == 'approved'
-    && account.get('verificationExpiresAt', 0) > request.time;
+    && account.get('verificationExpiresAt', request.time) > request.time;
   return data.age is int && data.age >= 18 && data.ageConfirmed18 == true
     && isVerified
     && data.get('gender', '') == account.get('verifiedSex', '');
@@ -150,9 +169,20 @@ service cloud.firestore {
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
         && request.resource.data.status == 'pending';
+      // FIXED: the allowlist below was missing ocrStatus / ocrDateOfBirth /
+      // ocrConfidence, which is exactly what submitIdentityDocument() writes
+      // back after /api/verify-document returns. Every ID upload therefore
+      // died with permission-denied on that final write — and because it runs
+      // inside Login's one try/catch, it surfaced as the generic
+      // "Could not sign you in." banner rather than a verification error.
+      //
+      // These three are safe for the owner to set: they're the OCR *result*,
+      // and `status` is still pinned to 'pending' on this branch, so a client
+      // still cannot approve itself. Only the isAdmin() branch below can move
+      // status to approved/declined.
       allow update: if (isOwner(uid)
         && request.resource.data.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId', 'ocrStatus', 'ocrDateOfBirth', 'ocrConfidence'])
         && request.resource.data.status == 'pending')
         || (isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewerId'])
