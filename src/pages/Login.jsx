@@ -7,6 +7,7 @@ import {
 } from '../lib/firebaseClient';
 import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
+import { submitIdentityDocument } from '../lib/verificationService';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const MIN_AGE = 16;
@@ -30,6 +31,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationFile, setVerificationFile] = useState(null);
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
@@ -110,6 +112,9 @@ export default function Login() {
 
       const request = { uid, age: String(Number(age)), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '' };
       await setDoc(doc(db, COLLECTIONS.verificationRequests, uid), request, { merge: true });
+      if (verificationFile) {
+        await submitIdentityDocument({ userId: uid, file: verificationFile });
+      }
 
       navigate('/aura/match', { replace: true });
     } catch (err) {
@@ -186,6 +191,20 @@ export default function Login() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="aura-field">
+            <label className="aura-field-label" htmlFor="login-verification-file">Identity verification (optional now)</label>
+            <input
+              id="login-verification-file"
+              className="aura-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => setVerificationFile(event.target.files?.[0] || null)}
+              disabled={submitting}
+              data-testid="login-verification-file"
+            />
+            <span className="aura-field-hint">A clear government ID photo starts the review. It is processed in memory and not stored.</span>
           </div>
 
           <div className="aura-field">
