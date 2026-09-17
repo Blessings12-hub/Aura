@@ -644,8 +644,13 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /presence/{presenceId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
-      allow update: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.get('lastChanged', null) != null;
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.get('lastChanged', null) != null;
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
