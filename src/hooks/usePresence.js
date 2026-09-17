@@ -32,7 +32,12 @@ export function usePresence(uid) {
     };
     publish();
     timer = window.setInterval(() => publish(), HEARTBEAT_MS);
-    const markOffline = () => { publish('offline'); };
+    const markOffline = () => {
+      // Do not start a network write while the page is already being torn down.
+      // Firebase aborts that request and browsers report it as a noisy error.
+      if (document.visibilityState === 'hidden') return;
+      publish('offline');
+    };
     window.addEventListener('pagehide', markOffline);
     window.addEventListener('beforeunload', markOffline);
     return () => {
