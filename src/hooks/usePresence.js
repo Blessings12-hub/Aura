@@ -9,7 +9,10 @@ export function usePresence(uid) {
   useEffect(() => {
     if (!uid) return undefined;
     let active = true;
+    let permissionDenied = false;
+    let timer;
     const publish = async (state = 'online') => {
+      if (!active || permissionDenied) return;
       try {
         await upsertDocument(COLLECTIONS.presence, uid, {
           uid,
@@ -17,11 +20,18 @@ export function usePresence(uid) {
           lastChanged: Date.now(),
         });
       } catch (error) {
-        if (active) console.error('presence heartbeat failed', error);
+        if (error?.code === 'permission-denied') {
+          permissionDenied = true;
+          if (timer) window.clearInterval(timer);
+          // Presence is optional; do not flood the console when the deployed
+          // Firebase rules have not yet been updated for this collection.
+          return;
+        }
+        if (active) console.warn('[v0] presence unavailable', error);
       }
     };
     publish();
-    const timer = window.setInterval(() => publish(), HEARTBEAT_MS);
+    timer = window.setInterval(() => publish(), HEARTBEAT_MS);
     const markOffline = () => { publish('offline'); };
     window.addEventListener('pagehide', markOffline);
     window.addEventListener('beforeunload', markOffline);
