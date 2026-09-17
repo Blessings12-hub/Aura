@@ -7,6 +7,7 @@ import PresenceRoot from './context/PresenceRoot';
 import AuthGate from './context/AuthGate';
 import OfflineBanner from './components/OfflineBanner';
 import PageSkeleton from './components/PageSkeleton';
+import RequireLogin from './components/RequireLogin';
 // Login and Home stay as regular (non-lazy) imports — they're the two
 // screens almost every visit starts on, so there's nothing to gain from
 // splitting them out; it would just add a network round-trip to the very
@@ -36,6 +37,8 @@ const AdminReports = lazy(() => import('./pages/AdminReports'));
 const AccountSettings = lazy(() => import('./pages/AccountSettings'));
 
 export default function App() {
+  const protectedElement = (element) => <RequireLogin>{element}</RequireLogin>;
+
   return (
     <AppErrorBoundary>
       <ThemeProvider>
@@ -48,20 +51,20 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Login />} />
                   <Route path="/login" element={<Login />} />
-                  <Route path="/aura" element={<Home />} />
-                  <Route path="/aura/chat" element={<MoodChat />} />
-                  <Route path="/aura/match" element={<MatchFinder />} />
-                  <Route path="/aura/match/chat/:matchId" element={<MatchChat />} />
-                  <Route path="/aura/match/call/:matchId" element={<MatchCall />} />
-                  <Route path="/aura/question" element={<DailyQuestion />} />
-                  <Route path="/aura/swap" element={<SkillSwap />} />
-                  <Route path="/aura/swap/chat/:swapId" element={<SkillSwapChat />} />
-                  <Route path="/aura/swap/call/:swapId" element={<SkillSwapCall />} />
-                  <Route path="/aura/event" element={<EventBuddy />} />
-                  <Route path="/aura/event/chat/:eventId" element={<EventChat />} />
-                  <Route path="/aura/letters" element={<AnonymousLetters />} />
-                  <Route path="/aura/admin/reports" element={<AdminReports />} />
-                  <Route path="/aura/settings" element={<AccountSettings />} />
+                  <Route path="/aura" element={protectedElement(<Home />)} />
+                  <Route path="/aura/chat" element={protectedElement(<MoodChat />)} />
+                  <Route path="/aura/match" element={protectedElement(<MatchFinder />)} />
+                  <Route path="/aura/match/chat/:matchId" element={protectedElement(<MatchChat />)} />
+                  <Route path="/aura/match/call/:matchId" element={protectedElement(<MatchCall />)} />
+                  <Route path="/aura/question" element={protectedElement(<DailyQuestion />)} />
+                  <Route path="/aura/swap" element={protectedElement(<SkillSwap />)} />
+                  <Route path="/aura/swap/chat/:swapId" element={protectedElement(<SkillSwapChat />)} />
+                  <Route path="/aura/swap/call/:swapId" element={protectedElement(<SkillSwapCall />)} />
+                  <Route path="/aura/event" element={protectedElement(<EventBuddy />)} />
+                  <Route path="/aura/event/chat/:eventId" element={protectedElement(<EventChat />)} />
+                  <Route path="/aura/letters" element={protectedElement(<AnonymousLetters />)} />
+                  <Route path="/aura/admin/reports" element={protectedElement(<AdminReports />)} />
+                  <Route path="/aura/settings" element={protectedElement(<AccountSettings />)} />
                 </Routes>
               </Suspense>
             </BrowserRouter>

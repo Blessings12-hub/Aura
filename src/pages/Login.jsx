@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import {
-  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured,
+  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured, firebaseAuth,
 } from '../lib/firebaseClient';
 import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
@@ -66,7 +66,8 @@ export default function Login() {
     async function checkProfile() {
       if (!firebaseConfigured) return;
       try {
-        const user = await ensureFirebaseSession();
+        const user = firebaseAuth?.currentUser;
+        if (!user) return;
         const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
         if (!snap.exists()) return;
         const profile = snap.data();
