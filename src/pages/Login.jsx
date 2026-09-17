@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import {
-  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured, firebaseAuth,
+  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured,
 } from '../lib/firebaseClient';
 import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
@@ -61,19 +61,49 @@ export default function Login() {
   // Waits for sign-in/session-restore to actually finish before reading
   // Firestore, so this can't race request.auth being null server-side and
   // get silently rejected by security rules.
+  //
+  // Two fixes in here:
+  //
+  //   1. This used to read firebaseAuth.currentUser directly and bail out
+  //      when it was null — which it usually was on a cold load, so the
+  //      "you're already verified, go straight to Match Finder" redirect
+  //      almost never fired. ensureFirebaseSession() waits properly.
+  //
+  //   2. verificationExpiresAt is written by the admin screen as a Firestore
+  //      Timestamp (Timestamp.fromMillis(...)), but this compared it with
+  //      Number(...), which on a Timestamp object gives NaN — and NaN is
+  //      never greater than Date.now(), so an approved account still failed
+  //      the check. toMillis() is the right reader.
+  //
+  // The "pending" flag now comes from verificationRequests/{uid}, not from
+  // users/{uid}. users/{uid}.verificationStatus is admin-written only (see
+  // firestore.rules), so it is never 'pending' — that state only ever lives
+  // on the request document.
   useEffect(() => {
     let active = true;
     async function checkProfile() {
       if (!firebaseConfigured) return;
       try {
-        const user = firebaseAuth?.currentUser;
-        if (!user) return;
+        const user = await ensureFirebaseSession();
+        if (!user || !active) return;
+
         const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
-        if (!snap.exists()) return;
-        const profile = snap.data();
-        const expiresAt = Number(profile.verificationExpiresAt || 0);
-        if (active && profile.verificationStatus === 'approved' && expiresAt > Date.now()) navigate('/aura/match', { replace: true });
-        if (active && profile.verificationStatus === 'pending') setVerificationPending(true);
+        if (active && snap.exists()) {
+          const profile = snap.data();
+          const expiresAt = profile.verificationExpiresAt;
+          const expiresMs = typeof expiresAt?.toMillis === 'function'
+            ? expiresAt.toMillis()
+            : Number(expiresAt || 0);
+          if (profile.verificationStatus === 'approved' && expiresMs > Date.now()) {
+            navigate('/aura/match', { replace: true });
+            return;
+          }
+        }
+
+        const requestSnap = await getDoc(doc(db, COLLECTIONS.verificationRequests, user.uid));
+        if (active && requestSnap.exists() && requestSnap.data().status === 'pending') {
+          setVerificationPending(true);
+        }
       } catch (e) {
         console.error('Firebase profile check failed', e);
       }
@@ -105,22 +135,47 @@ export default function Login() {
       const user = await ensureFirebaseSession();
       const uid = user.uid;
       const now = new Date().toISOString();
+
+      // Two things changed in this payload, and each one on its own was
+      // enough to make every single sign-in fail with permission-denied:
+      //
+      //   * `age` was written as String(Number(age)) — a string. validAge()
+      //     in firestore.rules requires `data.age is int`. MatchFinder
+      //     already writes a number here, so a number is the correct shape;
+      //     Login was the odd one out.
+      //
+      //   * `verificationStatus` and `verified` were included, but the
+      //     users/{uid} create rule explicitly requires both to be ABSENT
+      //     (they're admin-written only — see AdminReports.reviewVerification).
+      //     Note that setDoc(..., { merge: true }) on a document that doesn't
+      //     exist yet still counts as a *create* to security rules, so the
+      //     merge flag didn't get around it.
+      //
+      // 'pending' is not lost by dropping it here: the verificationRequests
+      // document written on the next line already carries status: 'pending',
+      // which is where the review queue and the pending banner both read it.
       const profile = {
-        age: String(Number(age)), gender, avatarColor, createdAt: now, updatedAt: now,
-        verificationStatus: 'pending', verified: false,
+        age: Number(age), gender, avatarColor, createdAt: now, updatedAt: now,
       };
       await setDoc(doc(db, COLLECTIONS.users, uid), profile, { merge: true });
 
-      const request = { uid, age: String(Number(age)), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '' };
+      const request = {
+        uid, age: Number(age), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '',
+      };
       await setDoc(doc(db, COLLECTIONS.verificationRequests, uid), request, { merge: true });
+
       if (verificationFile) {
         await submitIdentityDocument({ userId: uid, file: verificationFile });
       }
 
       navigate('/aura/match', { replace: true });
     } catch (err) {
-      console.error(err);
-      setError(t('signin_failed'));
+      console.error('sign-in failed', err);
+      // The generic banner hid which step actually failed, which made this
+      // very hard to diagnose from a phone. The Firebase error code is short
+      // and non-sensitive, so showing it costs nothing and saves a lot of
+      // guesswork.
+      setError(err?.code ? `${t('signin_failed')} (${err.code})` : t('signin_failed'));
     } finally {
       setSubmitting(false);
     }
