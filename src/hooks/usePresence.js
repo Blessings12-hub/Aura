@@ -49,19 +49,28 @@ export function useUserStatus(uid, onChange) {
   useEffect(() => {
     if (!uid) return undefined;
     let active = true;
+    let permissionDenied = false;
+    let timer;
     const read = async () => {
+      if (!active || permissionDenied) return;
       try {
         const snap = await getDoc(doc(db, COLLECTIONS.presence, uid));
         if (active) onChange(snap.exists() ? snap.data() : { state: 'offline', lastChanged: null });
       } catch (error) {
+        if (error?.code === 'permission-denied') {
+          permissionDenied = true;
+          if (timer) window.clearInterval(timer);
+          if (active) onChange({ state: 'offline', lastChanged: null });
+          return;
+        }
         if (active) {
-          console.error(`presence: failed to read ${uid}`, error);
+          console.warn('[v0] presence read unavailable', error);
           onChange({ state: 'offline', lastChanged: null });
         }
       }
     };
     read();
-    const timer = window.setInterval(read, HEARTBEAT_MS);
-    return () => { window.clearInterval(timer); };
+    timer = window.setInterval(read, HEARTBEAT_MS);
+    return () => { active = false; window.clearInterval(timer); };
   }, [uid, onChange]);
 }
