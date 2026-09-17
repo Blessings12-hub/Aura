@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import {
   doc, getDoc, upsertDocument, COLLECTIONS, db,
 } from '../lib/firestoreClient';
+import { isCancellation } from '../lib/quietErrors';
 
 const HEARTBEAT_MS = 25_000;
 
@@ -11,8 +12,14 @@ export function usePresence(uid) {
     let active = true;
     let permissionDenied = false;
     let timer;
-    const publish = async (state = 'online') => {
-      if (!active || permissionDenied) return;
+
+    // `force` lets the unmount path write "offline" after the effect has
+    // already flipped `active` to false. Without it the old cleanup called
+    // publish('offline') and publish immediately returned on the !active
+    // check — so leaving a page never actually marked anyone offline, and
+    // the online count stayed inflated until the 75s window expired.
+    const publish = async (state = 'online', force = false) => {
+      if ((!active && !force) || permissionDenied) return;
       try {
         await upsertDocument(COLLECTIONS.presence, uid, {
           uid,
@@ -27,25 +34,32 @@ export function usePresence(uid) {
           // Firebase rules have not yet been updated for this collection.
           return;
         }
-        if (active) console.warn('[v0] presence unavailable', error);
+        // A write cancelled by navigation is not a failure worth reporting.
+        if (isCancellation(error)) return;
+        if (active) console.warn('[presence] unavailable', error);
       }
     };
+
     publish();
     timer = window.setInterval(() => publish(), HEARTBEAT_MS);
+
     const markOffline = () => {
-      // Do not start a network write while the page is already being torn down.
-      // Firebase aborts that request and browsers report it as a noisy error.
+      // Do not start a network write while the page is already being torn
+      // down. Firebase aborts that request and browsers report it as a noisy
+      // error.
       if (document.visibilityState === 'hidden') return;
       publish('offline');
     };
+
     window.addEventListener('pagehide', markOffline);
     window.addEventListener('beforeunload', markOffline);
+
     return () => {
       active = false;
       window.clearInterval(timer);
       window.removeEventListener('pagehide', markOffline);
       window.removeEventListener('beforeunload', markOffline);
-      publish('offline');
+      publish('offline', true);
     };
   }, [uid]);
 }
@@ -68,8 +82,9 @@ export function useUserStatus(uid, onChange) {
           if (active) onChange({ state: 'offline', lastChanged: null });
           return;
         }
+        if (isCancellation(error)) return;
         if (active) {
-          console.warn('[v0] presence read unavailable', error);
+          console.warn('[presence] read unavailable', error);
           onChange({ state: 'offline', lastChanged: null });
         }
       }
