@@ -143,10 +143,22 @@ export default function AdminReports() {
         {loadError && <p className="aura-login-error" data-testid="admin-reports-error">{loadError}</p>}
         <section className="aura-card" style={{ marginBottom: 16 }} data-testid="verification-review-queue">
           <h2 style={{ marginTop: 0 }}>Manual verification requests</h2>
-          <p className="aura-muted">Review the user&apos;s submitted age and gender using your approved manual process. Do not store identity documents in Aura.</p>
+          <p className="aura-muted">Everything here already went through automatic checking (see api/verify-document.js) and came back inconclusive — no confident read, a flagged concern, or the AI service unavailable. Review the printed document detail below against the person&apos;s self-reported age/gender.</p>
           {verificationRequests.filter((r) => r.status === 'pending').length === 0 ? <p className="aura-muted">No pending verification requests.</p> : verificationRequests.filter((r) => r.status === 'pending').map((r) => (
             <div key={r.id} className="aura-row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--aura-border)', padding: '12px 0' }}>
-              <div><strong>{r.id.slice(0, 10)}</strong><div className="aura-muted">Age {r.age || '—'} · {r.gender || '—'}</div></div>
+              <div>
+                <strong>{r.id.slice(0, 10)}</strong>
+                <div className="aura-muted">Self-reported: age {r.age || '—'} · {r.gender || '—'}</div>
+                <div className="aura-muted" style={{ fontSize: '0.82rem' }}>
+                  Document read: DOB {r.ocrDateOfBirth || '—'}{typeof r.ocrAge === 'number' ? ` (~age ${r.ocrAge})` : ''} · confidence {typeof r.ocrConfidence === 'number' ? `${Math.round(r.ocrConfidence * 100)}%` : '—'}
+                  {typeof r.ocrAge === 'number' && r.age && r.ocrAge !== Number(r.age) && (
+                    <strong style={{ color: '#ef4444' }}> · mismatch vs. self-reported age</strong>
+                  )}
+                </div>
+                {Array.isArray(r.ocrConcerns) && r.ocrConcerns.length > 0 && (
+                  <div className="aura-muted" style={{ fontSize: '0.82rem' }}>Flagged: {r.ocrConcerns.join(', ')}</div>
+                )}
+              </div>
               <div className="aura-row"><button type="button" className="aura-btn aura-btn-secondary" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'declined')}>Decline</button><button type="button" className="aura-btn" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'approved')}>Approve</button></div>
             </div>
           ))}

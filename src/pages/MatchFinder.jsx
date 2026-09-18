@@ -55,6 +55,28 @@ export default function MatchFinder() {
   const [verificationFile, setVerificationFile] = useState(null);
   const [verifyError, setVerifyError] = useState('');
   const [verifyMessage, setVerifyMessage] = useState('');
+  // The live status of this person's OWN verificationRequests/{uid} doc —
+  // separate from user.verificationStatus, which only ever reflects the
+  // last COMPLETED review. This tracks a request that's still 'pending'
+  // (submitted, AI inconclusive, waiting on a human) or was 'declined', so
+  // the gate below can say something more useful than a blank form.
+  const [requestStatus, setRequestStatus] = useState(null);
+  const [requestDeclineReason, setRequestDeclineReason] = useState('');
+  useEffect(() => {
+    if (!userId) return undefined;
+    const unsubscribe = onSnapshot(
+      doc(db, COLLECTIONS.verificationRequests, userId),
+      (snap) => {
+        if (!snap.exists()) { setRequestStatus(null); return; }
+        const data = snap.data();
+        setRequestStatus(data.status || null);
+        setRequestDeclineReason(data.declineReason || '');
+      },
+      () => {}, // No existing request yet reads as permission-denied under
+      // some rule orderings — treated the same as "nothing submitted".
+    );
+    return unsubscribe;
+  }, [userId]);
   const handleVerify = async () => {
     setVerifyError('');
     setVerifyMessage('');
@@ -66,12 +88,31 @@ export default function MatchFinder() {
       setVerifyError('Your Firebase session is still loading. Please try again.');
       return;
     }
+    if (!age || Number(age) < MIN_MATCH_AGE) {
+      setVerifyError(`Enter your age above (${MIN_MATCH_AGE}+) before submitting a document — it's checked against what's printed on the ID.`);
+      return;
+    }
+    if (!gender) {
+      setVerifyError('Choose a gender above before submitting a document.');
+      return;
+    }
     setVerifying(true);
     try {
-      const result = await submitIdentityDocument({ userId, file: verificationFile });
-      setVerifyMessage(result.dateOfBirth
-        ? 'Document received. Your age and gender will be reviewed securely before Match Finder unlocks.'
-        : 'Document received. A reviewer will finish the verification before Match Finder unlocks.');
+      const result = await submitIdentityDocument({
+        userId, file: verificationFile, age: Number(age), gender,
+      });
+      // The server (see api/verify-document.js) may have already decided —
+      // Groq's vision check often resolves in a few seconds — so reflect
+      // whatever came back rather than always saying "we'll be in touch".
+      // The onSnapshot listener above will also pick this up, but showing
+      // it immediately avoids a UI that looks stuck while that arrives.
+      if (result.status === 'approved') {
+        setVerifyMessage("You're verified! Match Finder is unlocking now.");
+      } else if (result.status === 'declined') {
+        setVerifyError(result.declineReason || 'This document was declined. You can try again with a clearer photo.');
+      } else {
+        setVerifyMessage('Document received. A reviewer will finish checking it shortly — this page will unlock automatically once approved.');
+      }
     } catch (err) {
       console.error('identity verification submission failed', err);
       setVerifyError(err?.message || 'Could not submit your verification request. Please try again.');
@@ -79,6 +120,7 @@ export default function MatchFinder() {
       setVerifying(false);
     }
   };
+
 
   const [gender, setGender] = useState('');
   const [avatarColor, setAvatarColor] = useState('');
@@ -164,7 +206,17 @@ export default function MatchFinder() {
       (err) => setLoadError(`Profiles could not be loaded. (${err?.code || 'unknown'}: ${err?.message || err})`),
       'match profiles',
     );
-  }, []);
+    // FIXED: this effect had an empty dependency array, so React only ever
+    // evaluated the `user?.verificationStatus` check ONCE, using whatever
+    // `user` was on the very first render — which is null before
+    // useCurrentUser's Firestore read finishes. That meant the check almost
+    // always failed on mount and, because the deps never changed, never ran
+    // again: an account that got verified AFTER this component's first
+    // render would never see the deck load without a full page reload.
+    // Depending on the two fields the check actually reads makes this
+    // effect re-run exactly when the answer to "should I be subscribed"
+    // could have changed.
+  }, [user?.verificationStatus, user?.verificationExpiresAt]);
 
   // Once profiles have loaded, prefill the bio/hobbies/lookingFor fields
   // from the person's own existing card, if they already posted one — same
@@ -510,6 +562,94 @@ export default function MatchFinder() {
     .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
 
   if (loading || !user) return <PageSkeleton />;
+
+  // TIGHTENED: this used to be a soft nag — a card wedged into the profile
+  // editor while the deck, matches, and every other section still rendered
+  // underneath it. An unverified person could browse cards, view matches,
+  // and do everything except click Save. Now nothing past this point
+  // renders at all until verifiedForMatch is true — the error state is the
+  // WHOLE page, not a banner alongside it. This only gates Match Finder:
+  // Mood Chat, Daily Question, Skill Swap, Event Buddy, and Letters never
+  // call useCurrentUser's verification fields and are unaffected.
+  if (!verifiedForMatch) {
+    return (
+      <div className="aura-page">
+        <div className="aura-shell">
+          <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
+          <div className="aura-card aura-section fade-in" data-testid="match-verify-gate">
+            <h2 className="aura-title">Verify your age to use Match Finder</h2>
+            <p className="aura-muted" style={{ margin: '0 0 12px' }}>
+              Match Finder connects you with real people, so it's the one activity on Aura that requires age verification. Upload a clear photo of a government-issued ID — it's checked automatically and usually confirmed within a few seconds; anything unclear goes to a human reviewer. The image itself is never stored.
+            </p>
+
+            {requestStatus === 'pending' && (
+              <p role="alert" className="aura-login-error" data-testid="match-verify-pending" style={{ margin: '0 0 12px' }}>
+                Your document is being reviewed. This page will unlock automatically once it's approved — no need to resubmit or refresh.
+              </p>
+            )}
+            {requestStatus === 'declined' && (
+              <p role="alert" className="aura-login-error" data-testid="match-verify-declined" style={{ margin: '0 0 12px' }}>
+                {requestDeclineReason || 'Your last submission was declined.'} You can try again below with a clearer photo.
+              </p>
+            )}
+            {!requestStatus && (
+              <p role="alert" className="aura-login-error" data-testid="match-verify-required" style={{ margin: '0 0 12px' }}>
+                You haven&apos;t submitted a verification document yet — Match Finder stays locked until you do.
+              </p>
+            )}
+
+            <div className="aura-field">
+              <label className="aura-field-label" htmlFor="match-age-gate">{t('age')}</label>
+              <input
+                id="match-age-gate"
+                className="aura-input"
+                type="number"
+                inputMode="numeric"
+                min={MIN_MATCH_AGE}
+                value={age}
+                placeholder={t('age_placeholder')}
+                onChange={(e) => setAge(e.target.value)}
+                data-testid="match-verify-age-input"
+              />
+            </div>
+            <div className="aura-field">
+              <span className="aura-field-label">{t('gender')}</span>
+              <div className="aura-segmented" role="radiogroup" aria-label={t('gender')}>
+                {GENDER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={gender === opt.value}
+                    onClick={() => setGender(opt.value)}
+                    className={`aura-segmented-option${gender === opt.value ? ' is-active' : ''}`}
+                    data-testid={`match-verify-gender-${opt.value.replace(/\s+/g, '-').toLowerCase()}`}
+                  >
+                    {t(opt.labelKey)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <input
+              className="aura-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+              disabled={verifying}
+              data-testid="match-verification-file"
+            />
+            <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerify} disabled={verifying || !verificationFile} data-testid="match-verify-btn">
+              {verifying ? 'Checking…' : 'Submit verification'}
+            </button>
+            {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
+            {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="aura-page">
       <div className="aura-shell">
@@ -522,28 +662,6 @@ export default function MatchFinder() {
             <p className="aura-login-error" style={{ margin: '0 0 10px' }} data-testid="match-profile-required-hint">
               {t('save_profile_before_matching')}
             </p>
-          )}
-
-          {!verifiedForMatch && (
-            <div className="aura-card" style={{ borderColor: '#f59e0b', margin: '10px 0' }} data-testid="match-verify-card">
-              <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Verify your age to use Match Finder</p>
-              <p className="aura-muted" style={{ margin: '0 0 10px', fontSize: '0.85rem' }}>
-                Upload a clear ID photo. The image is processed in memory for OCR and is not stored; a reviewer approves the result before matching is enabled.
-              </p>
-              <input
-                className="aura-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
-                disabled={verifying}
-                data-testid="match-verification-file"
-              />
-              <button type="button" className="aura-btn aura-btn-secondary" onClick={handleVerify} disabled={verifying || !verificationFile} data-testid="match-verify-btn">
-                {verifying ? 'Submitting securely…' : 'Submit verification'}
-              </button>
-              {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
-              {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
-            </div>
           )}
 
           <div className="profile-editor__photo-row">

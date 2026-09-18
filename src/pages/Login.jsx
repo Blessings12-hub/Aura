@@ -146,29 +146,44 @@ export default function Login() {
       //
       //   * `verificationStatus` and `verified` were included, but the
       //     users/{uid} create rule explicitly requires both to be ABSENT
-      //     (they're admin-written only — see AdminReports.reviewVerification).
-      //     Note that setDoc(..., { merge: true }) on a document that doesn't
-      //     exist yet still counts as a *create* to security rules, so the
-      //     merge flag didn't get around it.
-      //
-      // 'pending' is not lost by dropping it here: the verificationRequests
-      // document written on the next line already carries status: 'pending',
-      // which is where the review queue and the pending banner both read it.
+      //     (they're admin/server-written only). Note that
+      //     setDoc(..., { merge: true }) on a document that doesn't exist
+      //     yet still counts as a *create* to security rules, so the merge
+      //     flag didn't get around it.
       const profile = {
         age: Number(age), gender, avatarColor, createdAt: now, updatedAt: now,
       };
       await setDoc(doc(db, COLLECTIONS.users, uid), profile, { merge: true });
 
-      const request = {
-        uid, age: Number(age), gender, status: 'pending', submittedAt: now, reviewedAt: '', reviewerId: '',
-      };
-      await setDoc(doc(db, COLLECTIONS.verificationRequests, uid), request, { merge: true });
-
+      // Verification only matters for Match Finder — the rest of Aura is
+      // anonymous by design (see MatchFinder.jsx's hard gate for the actual
+      // enforcement). This upload is a convenience for someone who already
+      // knows they want Match Finder and would rather not do it twice; the
+      // server creates the verificationRequests record itself now, so there
+      // is nothing else to write here. Skipping this is completely fine —
+      // Match Finder will ask again when they get there.
       if (verificationFile) {
-        await submitIdentityDocument({ userId: uid, file: verificationFile });
+        try {
+          await submitIdentityDocument({
+            userId: uid, file: verificationFile, age: Number(age), gender,
+          });
+        } catch (verifyErr) {
+          // A failed verification attempt should never block account
+          // creation — the account itself is fine either way, and Match
+          // Finder will offer another chance to submit.
+          console.error('identity verification submission failed', verifyErr);
+        }
       }
 
-      navigate('/aura/match', { replace: true });
+      // FIXED: this used to navigate('/aura/match', ...) unconditionally —
+      // every new sign-up, verified or not, was dropped straight into Match
+      // Finder specifically, skipping the activity hub entirely. Nothing
+      // about that was intentional: handleRecover (above) already sends a
+      // returning user to '/aura', the hub, and that's the correct landing
+      // spot for a brand-new account too. Match Finder's own gate (see
+      // MatchFinder.jsx) handles asking for verification if and when the
+      // person actually opens it.
+      navigate('/aura', { replace: true });
     } catch (err) {
       console.error('sign-in failed', err);
       // The generic banner hid which step actually failed, which made this
@@ -250,7 +265,7 @@ export default function Login() {
           </div>
 
           <div className="aura-field">
-            <label className="aura-field-label" htmlFor="login-verification-file">Identity verification (optional now)</label>
+            <label className="aura-field-label" htmlFor="login-verification-file">Match Finder ID verification (optional now)</label>
             <input
               id="login-verification-file"
               className="aura-input"
@@ -260,7 +275,7 @@ export default function Login() {
               disabled={submitting}
               data-testid="login-verification-file"
             />
-            <span className="aura-field-hint">A clear government ID photo starts the review. It is processed in memory and not stored.</span>
+            <span className="aura-field-hint">Only needed if you plan to use Match Finder — the rest of Aura stays anonymous. A clear ID photo is checked automatically and usually confirmed within a few seconds; unclear cases go to a human reviewer. The image itself is never stored.</span>
           </div>
 
           <div className="aura-field">
