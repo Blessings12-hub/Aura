@@ -1,150 +1,108 @@
-# Aura — fix the login redirect, hard-gate Match Finder, add AI document review
+# Aura — selfie fast-path verification (Match Finder + Login)
 
-Six files. Extract over `Aura-main/`. Apply on top of the two earlier
-patches (auth-race fix, login/rules fix) — this doesn't re-touch anything
-those already fixed.
+Six files, one new component, one new endpoint. Extract over `Aura-main/`,
+on top of the three earlier patches. No firestore.rules changes this time
+— both new endpoints use the Firebase Admin SDK like verify-document.js
+already does, so they're not subject to the rules at all.
 
-**You need two things in Vercel before this works:**
-- `GROQ_API_KEY` — free account at console.groq.com. Check
-  console.groq.com/settings/limits for your account's current free-tier
-  rate limits; they're not fixed and I'm not going to quote a number I
-  can't verify is still accurate by the time you read this.
-- `OCR_SPACE_API_KEY` — you should already have this from the earlier
-  Firebase+OCR.space migration.
+You already have `GROQ_API_KEY` set from the last patch — nothing new
+needed in Vercel for this one.
 
-`firestore.rules` is one of the six files — redeploy it:
-`firebase deploy --only firestore:rules`.
+## What this is
 
----
+A fast, conservative first pass modeled on what Roblox actually does
+(estimate first, fall back to full verification for anyone it can't
+confidently call) — not a replacement for the ID document check, which
+remains the authoritative fallback exactly as before.
 
-## 1. Why login went straight to Match Finder
+**It can only ever approve, never decline.** A face-based estimate from a
+general vision model is a weaker signal than a printed date of birth, and
+it's documented to be least accurate exactly at the 13-20 boundary that
+matters here — with accuracy that isn't uniform across demographics either.
+Letting a bad read wrongly approve someone would be a real problem; letting
+a bad read wrongly decline a genuine adult would just be adding a failure
+mode with no benefit, since the document upload is always sitting right
+there as a fallback. So a low-confidence or ambiguous selfie just falls
+through silently to "please use the ID upload instead" — nothing is
+recorded that an admin would mistake for a real pending case.
 
-`handleLogin` in `Login.jsx` ended with:
+**The approval bar sits well above 18, not at 18** (`MIN_ESTIMATED_AGE = 23`
+in `api/verify-selfie.js`) — deliberately, to absorb estimation error in the
+direction that matters. A model that's off by a few years will sometimes
+read a genuine 18-year-old as visually 15 (harmless — falls through to the
+document flow), but it would just as often read a genuine 15-year-old as
+visually 19 if the bar sat right at 18. Requiring a confident read
+comfortably above the line makes that specific failure much less likely, at
+the cost of sending more real adults to the ID upload than strictly
+necessary. That trade is intentional given what's on the other side of it.
 
-```js
-navigate('/aura/match', { replace: true });
-```
+**No liveness detection** — this was flagged in the conversation that led
+here and is still true. A live camera capture (not a file picker) is a
+small mitigation, not a fix; nothing here proves it wasn't a photo held up
+to another screen. That gap is exactly what paid vendors like Persona/Yoti
+are selling, and there's no free equivalent.
 
-Unconditional — every new sign-up, verified or not, skipped the activity hub
-entirely and landed in the one activity that actually requires 18+ and ID
-verification. Nothing decided this on purpose: `handleRecover`, right above
-it, already sends a returning user to `/aura` (the hub). `/aura/match` was
-almost certainly a leftover from testing Match Finder specifically.
+## How the pieces fit together
 
-Fixed: new sign-ups now land on `/aura`, same as recovery. One line.
+- **`api/verify-selfie.js`** (new) — the endpoint. Verifies the caller's
+  Firebase ID token, requires the self-reported age to already be 18+
+  (selfie fast-track was never meant to override what someone already told
+  the app about themselves — under-18 self-reports are routed straight to
+  the document flow, which would decline them anyway), sends the photo to
+  Groq with a prompt scoped to visual age estimation only — explicitly told
+  not to comment on race, ethnicity, or gender — and only writes anything
+  to Firestore (via the Admin SDK) on a confident approval. Shares its rate
+  limit (60s cooldown, 6 attempts) with the document endpoint on the same
+  `verificationRequests/{uid}` document, so alternating between the two
+  doesn't double the effective budget.
 
-## 2. Scope decision, per your answers
+- **`src/components/SelfieVerification.jsx`** (new) — the camera UI, built
+  once and used from both pages. Handles `getUserMedia`, a live preview,
+  capture-and-submit, and releasing the camera on unmount or navigation.
+  Needs nothing back from its parent: an approval is written server-side
+  and picked up automatically by the Firestore listeners that already exist
+  elsewhere (`useCurrentUser`'s listener on `users/{uid}`, and MatchFinder's
+  own listener on `verificationRequests/{uid}`) — this component only
+  reports its own local status message.
 
-Verification is required for Match Finder only. Mood Chat, Daily Question,
-Skill Swap, Event Buddy, and Letters are untouched — they never read
-`user.verificationStatus` and nothing in this patch changes that. Once
-someone submits a document, they're blocked until it's actually approved —
-submitting alone doesn't let them in.
+- **`src/lib/verificationService.js`** — added `submitSelfieCheck` and
+  `captureVideoFrameAsBase64` alongside the existing `submitIdentityDocument`.
+  Selfies are resized smaller than ID photos (900px vs 1400px) since a face
+  doesn't need the resolution small printed text does.
 
-## 3. Match Finder now hard-gates, not just nags
+- **`src/pages/MatchFinder.jsx`** — the hard gate now offers the selfie
+  check first, with the ID upload underneath as the option that "always
+  works, no camera needed."
 
-Before: an unverified person could browse the deck, view profiles, and see
-matches — only clicking "Save profile" was blocked. The "verify" prompt was
-a card wedged into the middle of a fully-functional page.
+- **`src/pages/Login.jsx`** — this is the part worth reading closely, because
+  it's not just "add the same widget." Verification used to be offered
+  *inside* the signup form, before the account existed. That's fine for the
+  ID upload (which never touched Firestore from the client anyway once the
+  last patch moved everything server-side) — but it would have been a real
+  bug for the selfie check specifically: if someone ran it *before* clicking
+  "Sign in", the server would create `users/{uid}` immediately with only
+  verification fields on it — no `age`/`gender`/`avatarColor`/`createdAt`,
+  which every other page's `useCurrentUser` hook treats as "this account is
+  real and complete." That could have let someone into the anonymous
+  activities with a half-written profile before they'd actually finished
+  signing up.
 
-Now: `MatchFinder.jsx` returns a dedicated blocking screen — no deck, no
-profile editor, nothing else — until `verifiedForMatch` is true. The screen
-shows one of three states, read live from `verificationRequests/{uid}`:
-nothing submitted (error: submit a document), pending (your existing
-attempt is being reviewed, unlocks automatically), or declined (with the
-reason, and another chance to submit). This is the literal "bring an error
-until they submit their documents" you asked for, now enforced as a real
-gate instead of a suggestion.
-
-**Also fixed while I was in there:** the deck-loading effect had an empty
-dependency array (`useEffect(..., [])`) but read `user?.verificationStatus`
-inside it. Since deps never changed, React only ever evaluated that check
-using whatever `user` was on the component's very first render — which is
-`null` before the profile finishes loading. So the deck subscription almost
-never started, even for an already-approved account, and never retried once
-`user` actually arrived. This would have undermined the new hard gate too
-(approved users landing on a page that hard-gates correctly but then never
-loads any cards). Fixed by depending on the two fields the check reads.
-
-## 4. AI document review — Groq vision, OCR.space as a second read
-
-`api/verify-document.js` is a full rewrite. What changed:
-
-**All Firestore writes moved server-side.** Previously the client wrote its
-own `pending` request doc, then separately wrote back an "OCR result" it
-claimed to have gotten. Nothing stopped a browser from just lying about
-that second write — `setDoc({ ocrConfidence: 1, ocrDateOfBirth: '1990-01-01' })`
-would have sailed straight through the rules as they were. Now the client's
-only job is to POST the image, its own claimed age/gender, and its Firebase
-ID token; the server does the entire lifecycle — create the pending record,
-run both checks, decide, write the result — via the Firebase Admin SDK,
-which isn't subject to `firestore.rules` at all. `firestore.rules` now
-rejects a client trying to write `verificationRequests` directly (`allow
-create: if false`), so the API route is the only path in besides an admin's
-manual override. This is the literal "tighten the rules" — not adding more
-allowed fields, removing the client's write access entirely.
-
-**Groq does the automatic review.** `meta-llama/llama-4-scout-17b-16e-instruct`
-looks at the ID photo and returns structured JSON: does this look like a
-real government ID, what date of birth is printed on it, anything that
-looks off (blurry, cropped, edited-looking), and how confident it is in that
-date specifically. It's deliberately instructed to comment only on printed
-text and document condition — never on the person's appearance, race, or
-gender. That's not a new restriction so much as staying consistent with how
-the app already worked: `verifiedSex` has only ever mirrored the
-self-reported gender from signup, and inferring gender from a photo would be
-a different, much less reliable, and more invasive thing to build than
-reading a printed date. I didn't build that, and I don't think you want it.
-
-**Only a confident, clean Groq read decides automatically.** Approved
-requires the model to recognize it as a government ID, extract a date,
-confidence ≥ 0.55, and zero flagged concerns, and the computed age is 18+.
-Declined is the mirror case — same confidence bar, but under 18, or the
-image clearly isn't an ID at all. Anything murkier — no date found, low
-confidence, a flagged concern, or Groq not configured/erroring — stays
-`pending` for a human, exactly like the original OCR.space-only version did.
-OCR.space still runs in parallel on every submission as a second, independent
-read of the printed date; it's shown to the human reviewer for cross-checking
-but never drives an automatic decision by itself, since (as the file's own
-original comment already said) plain-text regex extraction alone isn't
-reliable enough for that.
-
-**Admin Reports now shows what the AI saw**, for the cases that do land in
-front of a human: the document's read DOB, computed age, confidence
-percentage, and any flagged concerns, plus a mismatch warning if the
-document's computed age disagrees with what the person typed at signup.
-Previously that screen showed only the self-reported age/gender with nothing
-to check it against — approving was closer to a rubber stamp than a review.
-
-**A lightweight cooldown and attempt cap** (60 seconds between submissions,
-6 attempts before it's locked to manual-only) stop someone from burning
-through your Groq/OCR.space free-tier quota by resubmitting rapidly. These
-are deliberately conservative guesses, not tuned to a specific published
-limit — see the note at the top of `api/verify-document.js`.
-
-**The client-side image is now resized before upload** (`verificationService.js`),
-same idea as the existing avatar-photo resizer but larger — 1400px on the
-long edge, since small printed text like a date of birth needs to survive
-the resize. A real phone photo of an ID is commonly 3-8MB raw; unresized,
-that regularly exceeded Vercel's default ~4.5MB function body limit and
-failed silently before either OCR.space or Groq ever saw it. This also cuts
-your OCR.space/Groq bandwidth per submission.
+  Fixed by moving verification to a new step *after* signup completes:
+  `handleLogin` now creates the full profile doc first, then shows a
+  "You're in! Want to unlock Match Finder too?" screen with the same selfie
+  check + ID upload, with a "Continue to Aura" button to skip it. By the
+  time either verification path can run, `users/{uid}` is guaranteed to
+  already have every field it should. This is also, incidentally, a better
+  signup flow — the initial form is shorter, and verification is presented
+  once the person already has something to lose by not finishing it.
 
 ## Files
 
 | File | What changed |
 |---|---|
-| `src/pages/Login.jsx` | Routing fix (1 line) + calls the unified `submitIdentityDocument` with age/gender instead of writing `verificationRequests` itself + copy update on the optional upload field |
-| `src/pages/MatchFinder.jsx` | Hard verification gate replaces the inline nag; fixed the stale-closure deck-loading bug; reads live request status; passes age/gender into verification |
-| `src/lib/verificationService.js` | Resizes the ID photo client-side; no longer writes Firestore itself; sends age/gender to the server |
-| `api/verify-document.js` | Full rewrite — server-authoritative Firestore writes, Groq vision auto-review, OCR.space as a secondary cross-check, rate limiting |
-| `src/pages/AdminReports.jsx` | Shows the AI's extracted DOB/age/confidence/concerns for whatever still needs a human |
-| `firestore.rules` | `verificationRequests` locked to server-only writes (admin SDK bypasses rules) plus admin manual override — client `create` is now `if false` |
-
-## One thing worth deciding later, not done here
-
-Home.jsx's activity list doesn't show any indicator that Match Finder needs
-verification — someone taps it from the hub with no warning and lands
-straight on the gate screen. That's a small, contained change (one line in
-Home.jsx plus a locale string) if you want it; I left it out to keep this
-patch to what you asked for.
+| `api/verify-selfie.js` | New — Groq-based selfie fast path |
+| `api/verify-document.js` | Tiny rename for consistency: `reviewerId: 'ai:groq'` → `'ai:groq-document'`, added `verificationMethod: 'document'` |
+| `src/components/SelfieVerification.jsx` | New — shared camera capture widget |
+| `src/lib/verificationService.js` | Added `submitSelfieCheck` / `captureVideoFrameAsBase64` |
+| `src/pages/MatchFinder.jsx` | Gate now offers selfie check + ID upload together |
+| `src/pages/Login.jsx` | Verification moved to a new post-signup step, for the partial-account reason above |
