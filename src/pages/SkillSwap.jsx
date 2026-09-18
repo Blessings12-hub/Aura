@@ -12,6 +12,7 @@ import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useRoomPresence } from '../hooks/useRoomPresence';
 import { last24HoursTimestamp } from '../lib/rollingWindow';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
@@ -26,6 +27,7 @@ export default function SkillSwap() {
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { count: onlineCount, error: presenceError } = useRoomPresence('skill-swap', userId, { color: user?.avatarColor });
   const [skill, setSkill] = useState('');
   const [want, setWant] = useState('');
   const [items, setItems] = useState([]);
@@ -202,7 +204,7 @@ export default function SkillSwap() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={t('skill_swap')} subtitle={t('skill_swap_desc')} onBack={() => navigate(-1)} />
+        <TopBar title={t('skill_swap')} subtitle={`${t('skill_swap_desc')} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}`} onBack={() => navigate(-1)} />
 
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('post_swap')}</h2>

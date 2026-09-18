@@ -7,6 +7,7 @@ import {
 import { Mail, Send, Inbox } from 'lucide-react';
 import { db } from '../lib/firestoreClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useRoomPresence } from '../hooks/useRoomPresence';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
@@ -29,6 +30,7 @@ import PageSkeleton from '../components/PageSkeleton';
 export default function AnonymousLetters() {
   const navigate = useNavigate();
   const { user, userId, loading } = useCurrentUser();
+  const { count: onlineCount, error: presenceError } = useRoomPresence('anonymous-letters', userId, { color: user?.avatarColor });
 
   const [myLetters, setMyLetters] = useState([]);
   const [pendingReply, setPendingReply] = useState(null); // a letter I've claimed but not yet replied to
@@ -174,7 +176,7 @@ export default function AnonymousLetters() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title="Anonymous Letters" subtitle="Write one, or answer a stranger's" onBack={() => navigate('/aura')} />
+        <TopBar title="Anonymous Letters" subtitle={`Write one, or answer a stranger's • ${presenceError ? 'presence unavailable' : `${onlineCount} online now`}`} onBack={() => navigate('/aura')} />
 
         {error && <p className="aura-login-error" style={{ marginTop: 12 }}>{error}</p>}
 

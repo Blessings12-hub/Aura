@@ -32,6 +32,7 @@ export default function Login() {
   const [recovering, setRecovering] = useState(false);
   const [verificationPending, setVerificationPending] = useState(false);
   const [verificationFile, setVerificationFile] = useState(null);
+  const [verificationMessage, setVerificationMessage] = useState('');
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
@@ -128,7 +129,10 @@ export default function Login() {
   const handleLogin = async () => {
     setError('');
     setAgeTouched(true);
-    if (!age || !gender) { setError(t('fill_required')); return; }
+    if (!age || !gender || !verificationFile) {
+      setError('Enter your age, choose a gender, and upload a clear government-issued ID.');
+      return;
+    }
     if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
     try {
@@ -162,17 +166,21 @@ export default function Login() {
       // server creates the verificationRequests record itself now, so there
       // is nothing else to write here. Skipping this is completely fine —
       // Match Finder will ask again when they get there.
-      if (verificationFile) {
-        try {
-          await submitIdentityDocument({
-            userId: uid, file: verificationFile, age: Number(age), gender,
-          });
-        } catch (verifyErr) {
-          // A failed verification attempt should never block account
-          // creation — the account itself is fine either way, and Match
-          // Finder will offer another chance to submit.
-          console.error('identity verification submission failed', verifyErr);
+      try {
+        const result = await submitIdentityDocument({
+          userId: uid, file: verificationFile, age: Number(age), gender,
+        });
+        if (result.status === 'declined') {
+          setError(result.declineReason || 'That document could not be verified. Try a clearer photo.');
+          return;
         }
+        if (result.status === 'pending') {
+          setVerificationPending(true);
+          setVerificationMessage('Your document is being reviewed. You can use the other Aura activities while a reviewer finishes the check.');
+        }
+      } catch (verifyErr) {
+        setError(verifyErr?.message || 'Could not submit your verification request. Please try again.');
+        return;
       }
 
       // FIXED: this used to navigate('/aura/match', ...) unconditionally —
@@ -265,7 +273,7 @@ export default function Login() {
           </div>
 
           <div className="aura-field">
-            <label className="aura-field-label" htmlFor="login-verification-file">Match Finder ID verification (optional now)</label>
+            <label className="aura-field-label" htmlFor="login-verification-file">Identity verification</label>
             <input
               id="login-verification-file"
               className="aura-input"
@@ -275,7 +283,7 @@ export default function Login() {
               disabled={submitting}
               data-testid="login-verification-file"
             />
-            <span className="aura-field-hint">Only needed if you plan to use Match Finder — the rest of Aura stays anonymous. A clear ID photo is checked automatically and usually confirmed within a few seconds; unclear cases go to a human reviewer. The image itself is never stored.</span>
+            <span className="aura-field-hint">Required once when you enter Aura. Groq checks the document first; unclear or disputed cases stay pending for a human reviewer. The image itself is never stored.</span>
           </div>
 
           <div className="aura-field">
@@ -302,9 +310,9 @@ export default function Login() {
             </div>
           </div>
 
-          {verificationPending && (
+          {(verificationPending || verificationMessage) && (
             <p role="status" className="aura-field-hint" data-testid="verification-pending">
-              Verification is still being reviewed. Keep this page open or return here later; once approved, you&apos;ll continue to Match Finder automatically.
+              {verificationMessage || 'Verification is still being reviewed. You can use Aura while a human reviewer finishes the check.'}
             </p>
           )}
 

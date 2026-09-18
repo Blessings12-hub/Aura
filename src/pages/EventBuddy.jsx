@@ -10,6 +10,7 @@ import { sendNotification } from '../lib/sendNotification';
 import { subscribe } from '../lib/subscribe';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useRoomPresence } from '../hooks/useRoomPresence';
 import { todayKey } from '../constants/dailyQuestions';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
@@ -22,6 +23,7 @@ export default function EventBuddy() {
   const { t } = useTranslation();
   const { user, userId, loading } = useCurrentUser();
   const blockedUsers = useBlockedUsers(userId);
+  const { count: onlineCount, error: presenceError } = useRoomPresence('event-buddy', userId, { color: user?.avatarColor });
   const [eventName, setEventName] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -172,7 +174,7 @@ export default function EventBuddy() {
   return (
     <div className="aura-page">
       <div className="aura-shell">
-        <TopBar title={t('event_buddy')} subtitle={t('event_buddy_desc')} onBack={() => navigate(-1)} />
+        <TopBar title={t('event_buddy')} subtitle={`${t('event_buddy_desc')} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}`} onBack={() => navigate(-1)} />
 
         <div className="aura-card aura-section fade-in">
           <h2 className="aura-title">{t('post_event')}</h2>
