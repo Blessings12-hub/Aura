@@ -166,27 +166,18 @@ service cloud.firestore {
     match /verificationRequests/{uid} {
       allow get: if isOwner(uid) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(uid)
-        && request.resource.data.uid == uid
-        && request.resource.data.status == 'pending';
-      // FIXED: the allowlist below was missing ocrStatus / ocrDateOfBirth /
-      // ocrConfidence, which is exactly what submitIdentityDocument() writes
-      // back after /api/verify-document returns. Every ID upload therefore
-      // died with permission-denied on that final write — and because it runs
-      // inside Login's one try/catch, it surfaced as the generic
-      // "Could not sign you in." banner rather than a verification error.
-      //
-      // These three are safe for the owner to set: they're the OCR *result*,
-      // and `status` is still pinned to 'pending' on this branch, so a client
-      // still cannot approve itself. Only the isAdmin() branch below can move
-      // status to approved/declined.
-      allow update: if (isOwner(uid)
-        && request.resource.data.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId', 'ocrStatus', 'ocrDateOfBirth', 'ocrConfidence'])
-        && request.resource.data.status == 'pending')
-        || (isAdmin()
+      // TIGHTENED: a client can no longer create or update this document at
+      // all, including its own 'pending' status or an OCR/AI result. Every
+      // write now comes from api/verify-document.js using the Firebase Admin
+      // SDK, which isn't subject to these rules in the first place — so this
+      // isn't loosening anything, it's closing the door that used to let a
+      // client forge its own verification result (e.g. writing
+      // ocrConfidence: 1 directly). The owner can still read their own
+      // request to show status, and withdraw it.
+      allow create: if false;
+      allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewerId'])
-        && request.resource.data.status in ['approved', 'declined']);
+        && request.resource.data.status in ['approved', 'declined'];
       allow delete: if isOwner(uid) || isAdmin();
     }
 

@@ -1,108 +1,150 @@
-# Aura — fix for "Could not sign you in. Please try again."
+# Aura — fix the login redirect, hard-gate Match Finder, add AI document review
 
-Four files. Paths are relative to the project root and the structure in this
-zip already matches, so you can extract it straight over `Aura-main/`.
+Six files. Extract over `Aura-main/`. Apply on top of the two earlier
+patches (auth-race fix, login/rules fix) — this doesn't re-touch anything
+those already fixed.
 
-**`firestore.rules` is in here too — you need to redeploy it**, e.g.
-`firebase deploy --only firestore:rules`. The client changes alone will not
-fix the ID-upload path without it.
+**You need two things in Vercel before this works:**
+- `GROQ_API_KEY` — free account at console.groq.com. Check
+  console.groq.com/settings/limits for your account's current free-tier
+  rate limits; they're not fixed and I'm not going to quote a number I
+  can't verify is still accurate by the time you read this.
+- `OCR_SPACE_API_KEY` — you should already have this from the earlier
+  Firebase+OCR.space migration.
 
-## Are the rules correct?
+`firestore.rules` is one of the six files — redeploy it:
+`firebase deploy --only firestore:rules`.
 
-Mostly yes. The structure is sound — default-deny at the bottom, owner checks
-everywhere, admin gated behind a console-only `/admins/{uid}` doc, list
-queries written against the same fields the client filters on. I found three
-problems, only one of which is a real hole in the rules themselves; the other
-two were the client sending payloads the rules were right to reject.
+---
 
-### 1. `age` type mismatch — rules were right, client was wrong
+## 1. Why login went straight to Match Finder
 
-`validAge()` required `data.age is int`. Login wrote `String(Number(age))`.
-Every sign-up was rejected.
+`handleLogin` in `Login.jsx` ended with:
 
-`MatchFinder.jsx:340` already writes `age: numericAge` (a number) to the same
-document, so a number is the correct shape and Login was the odd one out. I
-changed Login to write a number.
-
-I also widened `validAge()` to accept a numeric string as well. That is
-deliberate, not laziness: an update sends the **full resulting document** to
-the rules, so once the client switched to numbers, any existing account still
-holding a string age would have started failing this check on every later
-write — including the streak counters that run on app open. Accepting both
-shapes fixes new sign-ups without stranding accounts already in your database.
-The 16+ minimum is still enforced on both branches.
-
-### 2. Login sent admin-only fields — rules were right, client was wrong
-
-The payload included `verificationStatus: 'pending'` and `verified: false`,
-but the `users/{uid}` create rule explicitly requires both to be **absent**;
-they are admin-written only, by `AdminReports.reviewVerification`. Removed
-from the Login payload.
-
-Worth knowing for the future: `setDoc(..., { merge: true })` on a document
-that does not exist yet is still evaluated as a **create** by security rules.
-The merge flag does not get you onto the update branch.
-
-Nothing is lost by dropping `'pending'` here — the `verificationRequests/{uid}`
-document written on the very next line already carries `status: 'pending'`,
-which is where both the admin review queue and the pending banner read it.
-I repointed Login's pending banner at that document, since
-`users/{uid}.verificationStatus` could never have been `'pending'`.
-
-### 3. The OCR write-back was genuinely missing from the rules
-
-This one is a real gap. `submitIdentityDocument()` writes `ocrStatus`,
-`ocrDateOfBirth` and `ocrConfidence` back to `verificationRequests/{uid}`, but
-the owner's update rule had:
-
-```
-.hasOnly(['uid', 'age', 'gender', 'status', 'submittedAt', 'reviewedAt', 'reviewerId'])
+```js
+navigate('/aura/match', { replace: true });
 ```
 
-None of the three `ocr*` keys were in that list, so **every ID upload died
-with permission-denied** — and since it runs inside Login's single try/catch,
-it showed up as the same generic sign-in banner instead of a verification
-error. I added the three keys. They're safe for the owner to set: they are the
-OCR *result*, and `status` is still pinned to `'pending'` on that branch, so a
-client still cannot approve itself. Only the `isAdmin()` branch can move status
-to approved or declined.
+Unconditional — every new sign-up, verified or not, skipped the activity hub
+entirely and landed in the one activity that actually requires 18+ and ID
+verification. Nothing decided this on purpose: `handleRecover`, right above
+it, already sends a returning user to `/aura` (the hub). `/aura/match` was
+almost certainly a leftover from testing Match Finder specifically.
 
-The client write also now sends `uid` and `status` alongside, so it works
-whether the request document already exists or not.
+Fixed: new sign-ups now land on `/aura`, same as recovery. One line.
 
-### 4. A smaller one, defensive
+## 2. Scope decision, per your answers
 
-`validMatchAge()` defaulted `verificationExpiresAt` to the integer `0` and
-compared it with `request.time`, a timestamp. That is a type error rather than
-a clean `false`. AdminReports writes the field as a `Timestamp`, so I changed
-the default to `request.time`, which denies cleanly when the field is missing.
-Same outcome, easier to read in the rules playground.
+Verification is required for Match Finder only. Mood Chat, Daily Question,
+Skill Swap, Event Buddy, and Letters are untouched — they never read
+`user.verificationStatus` and nothing in this patch changes that. Once
+someone submits a document, they're blocked until it's actually approved —
+submitting alone doesn't let them in.
 
-## Also fixed in the client
+## 3. Match Finder now hard-gates, not just nags
 
-- **Login's "already verified, skip to Match Finder" redirect never fired.**
-  It read `firebaseAuth.currentUser` directly, which is normally `null` on a
-  cold load, and bailed out. It now awaits the session.
-- **The same check compared a Firestore `Timestamp` using `Number(...)`,**
-  which gives `NaN`, and `NaN > Date.now()` is always false — so even an
-  approved account failed it. Now uses `toMillis()`.
-- **The error banner now includes the Firebase error code.** The generic
-  message hid which step failed, which is painful to debug from a phone.
-- **`submitIdentityDocument` no longer throws just because auth hasn't
-  finished restoring,** and reports what `/api/verify-document` actually said
-  instead of one flat message.
+Before: an unverified person could browse the deck, view profiles, and see
+matches — only clicking "Save profile" was blocked. The "verify" prompt was
+a card wedged into the middle of a fully-functional page.
 
-## Two things I could not verify from the code
+Now: `MatchFinder.jsx` returns a dedicated blocking screen — no deck, no
+profile editor, nothing else — until `verifiedForMatch` is true. The screen
+shows one of three states, read live from `verificationRequests/{uid}`:
+nothing submitted (error: submit a document), pending (your existing
+attempt is being reviewed, unlocks automatically), or declined (with the
+reason, and another chance to submit). This is the literal "bring an error
+until they submit their documents" you asked for, now enforced as a real
+gate instead of a suggestion.
 
-- Whether Anonymous sign-in is enabled in your Firebase console
-  (Authentication → Sign-in method), and whether your deployed domain is in
-  the authorised domains list. If either is off, `ensureFirebaseSession()`
-  throws before Firestore is touched. With the new error code in the banner
-  you'd see something like `auth/operation-not-allowed` or
-  `auth/unauthorized-domain`, which tells you immediately.
-- Whether `OCR_SPACE_API_KEY` is set in your Vercel environment. Without it
-  `/api/verify-document` returns 500, which now surfaces as "OCR verification
-  is not configured yet" rather than a sign-in failure.
+**Also fixed while I was in there:** the deck-loading effect had an empty
+dependency array (`useEffect(..., [])`) but read `user?.verificationStatus`
+inside it. Since deps never changed, React only ever evaluated that check
+using whatever `user` was on the component's very first render — which is
+`null` before the profile finishes loading. So the deck subscription almost
+never started, even for an already-approved account, and never retried once
+`user` actually arrived. This would have undermined the new hard gate too
+(approved users landing on a page that hard-gates correctly but then never
+loads any cards). Fixed by depending on the two fields the check reads.
 
-Apply this on top of the earlier auth-race patch, not instead of it — they fix
-different things.
+## 4. AI document review — Groq vision, OCR.space as a second read
+
+`api/verify-document.js` is a full rewrite. What changed:
+
+**All Firestore writes moved server-side.** Previously the client wrote its
+own `pending` request doc, then separately wrote back an "OCR result" it
+claimed to have gotten. Nothing stopped a browser from just lying about
+that second write — `setDoc({ ocrConfidence: 1, ocrDateOfBirth: '1990-01-01' })`
+would have sailed straight through the rules as they were. Now the client's
+only job is to POST the image, its own claimed age/gender, and its Firebase
+ID token; the server does the entire lifecycle — create the pending record,
+run both checks, decide, write the result — via the Firebase Admin SDK,
+which isn't subject to `firestore.rules` at all. `firestore.rules` now
+rejects a client trying to write `verificationRequests` directly (`allow
+create: if false`), so the API route is the only path in besides an admin's
+manual override. This is the literal "tighten the rules" — not adding more
+allowed fields, removing the client's write access entirely.
+
+**Groq does the automatic review.** `meta-llama/llama-4-scout-17b-16e-instruct`
+looks at the ID photo and returns structured JSON: does this look like a
+real government ID, what date of birth is printed on it, anything that
+looks off (blurry, cropped, edited-looking), and how confident it is in that
+date specifically. It's deliberately instructed to comment only on printed
+text and document condition — never on the person's appearance, race, or
+gender. That's not a new restriction so much as staying consistent with how
+the app already worked: `verifiedSex` has only ever mirrored the
+self-reported gender from signup, and inferring gender from a photo would be
+a different, much less reliable, and more invasive thing to build than
+reading a printed date. I didn't build that, and I don't think you want it.
+
+**Only a confident, clean Groq read decides automatically.** Approved
+requires the model to recognize it as a government ID, extract a date,
+confidence ≥ 0.55, and zero flagged concerns, and the computed age is 18+.
+Declined is the mirror case — same confidence bar, but under 18, or the
+image clearly isn't an ID at all. Anything murkier — no date found, low
+confidence, a flagged concern, or Groq not configured/erroring — stays
+`pending` for a human, exactly like the original OCR.space-only version did.
+OCR.space still runs in parallel on every submission as a second, independent
+read of the printed date; it's shown to the human reviewer for cross-checking
+but never drives an automatic decision by itself, since (as the file's own
+original comment already said) plain-text regex extraction alone isn't
+reliable enough for that.
+
+**Admin Reports now shows what the AI saw**, for the cases that do land in
+front of a human: the document's read DOB, computed age, confidence
+percentage, and any flagged concerns, plus a mismatch warning if the
+document's computed age disagrees with what the person typed at signup.
+Previously that screen showed only the self-reported age/gender with nothing
+to check it against — approving was closer to a rubber stamp than a review.
+
+**A lightweight cooldown and attempt cap** (60 seconds between submissions,
+6 attempts before it's locked to manual-only) stop someone from burning
+through your Groq/OCR.space free-tier quota by resubmitting rapidly. These
+are deliberately conservative guesses, not tuned to a specific published
+limit — see the note at the top of `api/verify-document.js`.
+
+**The client-side image is now resized before upload** (`verificationService.js`),
+same idea as the existing avatar-photo resizer but larger — 1400px on the
+long edge, since small printed text like a date of birth needs to survive
+the resize. A real phone photo of an ID is commonly 3-8MB raw; unresized,
+that regularly exceeded Vercel's default ~4.5MB function body limit and
+failed silently before either OCR.space or Groq ever saw it. This also cuts
+your OCR.space/Groq bandwidth per submission.
+
+## Files
+
+| File | What changed |
+|---|---|
+| `src/pages/Login.jsx` | Routing fix (1 line) + calls the unified `submitIdentityDocument` with age/gender instead of writing `verificationRequests` itself + copy update on the optional upload field |
+| `src/pages/MatchFinder.jsx` | Hard verification gate replaces the inline nag; fixed the stale-closure deck-loading bug; reads live request status; passes age/gender into verification |
+| `src/lib/verificationService.js` | Resizes the ID photo client-side; no longer writes Firestore itself; sends age/gender to the server |
+| `api/verify-document.js` | Full rewrite — server-authoritative Firestore writes, Groq vision auto-review, OCR.space as a secondary cross-check, rate limiting |
+| `src/pages/AdminReports.jsx` | Shows the AI's extracted DOB/age/confidence/concerns for whatever still needs a human |
+| `firestore.rules` | `verificationRequests` locked to server-only writes (admin SDK bypasses rules) plus admin manual override — client `create` is now `if false` |
+
+## One thing worth deciding later, not done here
+
+Home.jsx's activity list doesn't show any indicator that Match Finder needs
+verification — someone taps it from the hub with no warning and lands
+straight on the gate screen. That's a small, contained change (one line in
+Home.jsx plus a locale string) if you want it; I left it out to keep this
+patch to what you asked for.
