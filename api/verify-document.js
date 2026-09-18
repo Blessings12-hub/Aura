@@ -309,8 +309,9 @@ export default async function handler(req, res) {
     ocrConfidence: confidence,
     ocrConcerns: concerns,
     declineReason,
+    verificationMethod: 'document',
     reviewedAt: status === 'pending' ? '' : Timestamp.now(),
-    reviewerId: status === 'pending' ? '' : 'ai:groq',
+    reviewerId: status === 'pending' ? '' : 'ai:groq-document',
   }, { merge: true });
 
   // Mirrors exactly what AdminReports.reviewVerification writes for a manual
