@@ -1,36 +1,74 @@
 // src/lib/verificationService.js
 //
-// Sends the ID document straight to /api/verify-document (a Vercel
-// function, see api/verify-document.js), which relays it to OCR.space and
-// returns the extracted result. The raw image is never persisted anywhere
-// — not Appwrite Storage (removed), not Firebase Storage (needs the paid
-// Blaze plan, see CHANGES.md) — it exists only in memory for the length of
-// this one request. Only the OCR RESULT (dateOfBirth, confidence, status)
-// is saved, onto verificationRequests/{uid} in Firestore.
+// Sends the ID photo to /api/verify-document, which runs it past OCR.space
+// and Groq's vision model and writes the decision straight to Firestore
+// itself (see the header comment in that file for why). This module does
+// two things only: shrink the image so it doesn't blow past Vercel's
+// request-body limit, and make the authenticated request.
+//
+// This file used to ALSO write the OCR result to Firestore itself
+// (setDoc(verificationRequests, { ocrStatus, ... })). That's gone — the
+// server is now the only writer, which is both simpler and closes a real
+// hole: a client could previously fabricate its own "OCR result" by writing
+// directly. See firestore.rules, verificationRequests, for the matching
+// tightening.
 import { ensureFirebaseSession, requireFirebase } from './firebaseClient';
-import { doc, setDoc, COLLECTIONS, db } from './firestoreClient';
 
-function readFileAsBase64(file) {
+// IDs need more resolution than the 320px avatar photo (resizePhotoToDataUrl
+// in photoUpload.js) — small printed text like a date of birth has to stay
+// legible after resizing, both for OCR.space's regex pass and for Groq's
+// vision model. 1400px on the long edge is a reasonable middle ground: a
+// typical 12MP phone photo of an ID (often 6-10MB as JPEG) comes down to
+// somewhere around a few hundred KB at this size and quality, comfortably
+// inside Vercel's default ~4.5MB function body limit even after base64's
+// ~33% size overhead.
+const MAX_DIMENSION = 1400;
+const JPEG_QUALITY = 0.85;
+
+function resizeIdPhoto(file) {
   return new Promise((resolve, reject) => {
+    if (!file || !file.type?.startsWith('image/')) {
+      reject(new Error('Please choose an image file.'));
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1] || '');
-    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not read that image.'));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+        resolve(dataUrl.split(',')[1] || '');
+      };
+      img.src = reader.result;
+    };
     reader.readAsDataURL(file);
   });
 }
 
-export async function submitIdentityDocument({ userId, file }) {
+// age/gender are the values the person entered on the form calling this
+// (Login or MatchFinder) — the server re-validates both and stores them on
+// the request record; nothing here trusts the client's OCR opinion, because
+// there isn't one anymore.
+export async function submitIdentityDocument({
+  userId, file, age, gender,
+}) {
   requireFirebase();
   if (!file || !userId) throw new Error('A verification document is required.');
 
-  // Was `if (!auth.currentUser) throw` — which fired on a cold load simply
-  // because Firebase hadn't finished restoring the session yet. Awaiting the
-  // shared session removes that false failure.
   const user = await ensureFirebaseSession();
   if (!user) throw new Error('You need to be signed in to verify.');
 
   const idToken = await user.getIdToken();
-  const base64 = await readFileAsBase64(file);
+  const fileBase64 = await resizeIdPhoto(file);
 
   const response = await fetch('/api/verify-document', {
     method: 'POST',
@@ -38,13 +76,12 @@ export async function submitIdentityDocument({ userId, file }) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${idToken}`,
     },
-    body: JSON.stringify({ fileBase64: base64, fileName: file.name, mimeType: file.type }),
+    body: JSON.stringify({
+      fileBase64, mimeType: 'image/jpeg', age: Number(age), gender,
+    }),
   });
+
   if (!response.ok) {
-    // Surface what the endpoint actually said instead of a flat message —
-    // "OCR verification is not configured yet" (a missing OCR_SPACE_API_KEY)
-    // and a 404 from running vite without the Vercel functions are very
-    // different problems, and they used to look identical here.
     let detail = '';
     try {
       const body = await response.json();
@@ -54,27 +91,12 @@ export async function submitIdentityDocument({ userId, file }) {
         ? 'the /api/verify-document endpoint was not found — run `vercel dev` rather than `vite` if you are testing locally'
         : `HTTP ${response.status}`;
     }
-    throw new Error(detail || 'OCR verification could not process this document.');
+    throw new Error(detail || 'Verification could not process this document.');
   }
-  const result = await response.json();
 
-  // This write used to send ONLY the three ocr* fields. On an existing
-  // request document that made it an update whose affectedKeys were
-  // ['ocrStatus','ocrDateOfBirth','ocrConfidence'] — none of which were in
-  // the rule's hasOnly() allowlist, so it was rejected with
-  // permission-denied. And on a document that didn't exist yet it counted as
-  // a create, which the rule requires to carry `uid` and status 'pending' —
-  // neither of which were present.
-  //
-  // Sending uid/status alongside satisfies both paths. The matching rules
-  // change adds the three ocr* keys to the owner's allowlist.
-  await setDoc(doc(db, COLLECTIONS.verificationRequests, userId), {
-    uid: userId,
-    status: 'pending',
-    ocrStatus: result.status || 'pending',
-    ocrDateOfBirth: result.dateOfBirth || '',
-    ocrConfidence: Number(result.confidence || 0),
-  }, { merge: true });
-
-  return result;
+  // { status: 'approved' | 'declined' | 'pending', dateOfBirth, confidence,
+  //   concerns, declineReason } — the server has already written this to
+  // Firestore; the caller uses the return value purely to show an
+  // immediate message without waiting on a snapshot listener to catch up.
+  return response.json();
 }
