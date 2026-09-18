@@ -54,6 +54,64 @@ function resizeIdPhoto(file) {
   });
 }
 
+// Turns a captured video frame into a compressed base64 JPEG. Faces don't
+// need the resolution an ID's printed text does, so this stays smaller than
+// resizeIdPhoto — smaller upload, less Groq bandwidth, faster round trip.
+const SELFIE_MAX_DIMENSION = 900;
+const SELFIE_JPEG_QUALITY = 0.85;
+
+export function captureVideoFrameAsBase64(videoEl) {
+  const scale = Math.min(1, SELFIE_MAX_DIMENSION / Math.max(videoEl.videoWidth, videoEl.videoHeight));
+  const w = Math.max(1, Math.round(videoEl.videoWidth * scale));
+  const h = Math.max(1, Math.round(videoEl.videoHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(videoEl, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', SELFIE_JPEG_QUALITY).split(',')[1] || '';
+}
+
+// The fast, conservative first pass described in api/verify-selfie.js — can
+// only ever come back approved or "not confident, use the document upload
+// instead". It never declines anyone and never touches verificationRequests
+// beyond rate-limit bookkeeping unless it approves. See that file for why.
+export async function submitSelfieCheck({
+  userId, fileBase64, age, gender,
+}) {
+  requireFirebase();
+  if (!fileBase64 || !userId) throw new Error('A photo is required.');
+
+  const user = await ensureFirebaseSession();
+  if (!user) throw new Error('You need to be signed in to verify.');
+
+  const idToken = await user.getIdToken();
+  const response = await fetch('/api/verify-selfie', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      fileBase64, mimeType: 'image/jpeg', age: Number(age), gender,
+    }),
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.error || '';
+    } catch {
+      detail = `HTTP ${response.status}`;
+    }
+    throw new Error(detail || 'Could not run the selfie check.');
+  }
+
+  // { approved: boolean, alreadyVerified?: boolean, reason?: 'no_single_face' | 'inconclusive' | 'unavailable' }
+  return response.json();
+}
+
 // age/gender are the values the person entered on the form calling this
 // (Login or MatchFinder) — the server re-validates both and stores them on
 // the request record; nothing here trusts the client's OCR opinion, because
