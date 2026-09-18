@@ -24,6 +24,7 @@ import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ProfileModal from '../components/ProfileModal';
+import SelfieVerification from '../components/SelfieVerification';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 
 const pairId = (a, b) => [a, b].sort().join('_');
@@ -579,7 +580,7 @@ export default function MatchFinder() {
           <div className="aura-card aura-section fade-in" data-testid="match-verify-gate">
             <h2 className="aura-title">Verify your age to use Match Finder</h2>
             <p className="aura-muted" style={{ margin: '0 0 12px' }}>
-              Match Finder connects you with real people, so it's the one activity on Aura that requires age verification. Upload a clear photo of a government-issued ID — it's checked automatically and usually confirmed within a few seconds; anything unclear goes to a human reviewer. The image itself is never stored.
+              Match Finder connects you with real people, so it's the one activity on Aura that requires age verification. Try the quick selfie check below, or upload a clear photo of a government-issued ID — either is checked automatically and usually confirmed within a few seconds; anything unclear goes to a human reviewer. Nothing you submit is stored.
             </p>
 
             {requestStatus === 'pending' && (
@@ -594,7 +595,7 @@ export default function MatchFinder() {
             )}
             {!requestStatus && (
               <p role="alert" className="aura-login-error" data-testid="match-verify-required" style={{ margin: '0 0 12px' }}>
-                You haven&apos;t submitted a verification document yet — Match Finder stays locked until you do.
+                You haven&apos;t completed verification yet — Match Finder stays locked until you do.
               </p>
             )}
 
@@ -631,6 +632,9 @@ export default function MatchFinder() {
               </div>
             </div>
 
+            <SelfieVerification userId={userId} age={age} gender={gender} />
+
+            <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 8px' }}>Or submit an ID document — always works, no camera needed:</p>
             <input
               className="aura-input"
               type="file"

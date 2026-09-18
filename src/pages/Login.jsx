@@ -8,7 +8,9 @@ import {
 import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
 import { submitIdentityDocument } from '../lib/verificationService';
+import { useAuthUid } from '../hooks/useAuthUid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import SelfieVerification from '../components/SelfieVerification';
 
 const MIN_AGE = 16;
 
@@ -22,6 +24,13 @@ const GENDER_OPTIONS = [
 export default function Login() {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  // AuthGate has already established the anonymous session by the time this
+  // page renders (see AuthGate.jsx) — this is just reading that shared uid,
+  // not starting a new sign-in. Needed for the post-signup verification
+  // step below (see justSignedUp) — by then users/{uid} already exists
+  // (handleLogin just created it), so it's safe for the selfie/ID checks to
+  // write verification fields onto it.
+  const { uid: userId } = useAuthUid();
 
   const [age, setAge] = useState('');
   const [ageTouched, setAgeTouched] = useState(false);
@@ -32,7 +41,10 @@ export default function Login() {
   const [recovering, setRecovering] = useState(false);
   const [verificationPending, setVerificationPending] = useState(false);
   const [verificationFile, setVerificationFile] = useState(null);
-  const [verificationMessage, setVerificationMessage] = useState('');
+  const [justSignedUp, setJustSignedUp] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState('');
+  const [verifyError, setVerifyError] = useState('');
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
@@ -129,10 +141,7 @@ export default function Login() {
   const handleLogin = async () => {
     setError('');
     setAgeTouched(true);
-    if (!age || !gender || !verificationFile) {
-      setError('Enter your age, choose a gender, and upload a clear government-issued ID.');
-      return;
-    }
+    if (!age || !gender) { setError(t('fill_required')); return; }
     if (Number(age) < MIN_AGE) { setError(t('age_error')); return; }
     setSubmitting(true);
     try {
@@ -159,39 +168,26 @@ export default function Login() {
       };
       await setDoc(doc(db, COLLECTIONS.users, uid), profile, { merge: true });
 
-      // Verification only matters for Match Finder — the rest of Aura is
-      // anonymous by design (see MatchFinder.jsx's hard gate for the actual
-      // enforcement). This upload is a convenience for someone who already
-      // knows they want Match Finder and would rather not do it twice; the
-      // server creates the verificationRequests record itself now, so there
-      // is nothing else to write here. Skipping this is completely fine —
-      // Match Finder will ask again when they get there.
-      try {
-        const result = await submitIdentityDocument({
-          userId: uid, file: verificationFile, age: Number(age), gender,
-        });
-        if (result.status === 'declined') {
-          setError(result.declineReason || 'That document could not be verified. Try a clearer photo.');
-          return;
-        }
-        if (result.status === 'pending') {
-          setVerificationPending(true);
-          setVerificationMessage('Your document is being reviewed. You can use the other Aura activities while a reviewer finishes the check.');
-        }
-      } catch (verifyErr) {
-        setError(verifyErr?.message || 'Could not submit your verification request. Please try again.');
-        return;
-      }
-
-      // FIXED: this used to navigate('/aura/match', ...) unconditionally —
-      // every new sign-up, verified or not, was dropped straight into Match
-      // Finder specifically, skipping the activity hub entirely. Nothing
-      // about that was intentional: handleRecover (above) already sends a
+      // FIXED (routing bug you reported): this used to navigate straight
+      // to '/aura/match' — every new sign-up, verified or not, skipped the
+      // activity hub entirely. handleRecover (above) already sends a
       // returning user to '/aura', the hub, and that's the correct landing
-      // spot for a brand-new account too. Match Finder's own gate (see
-      // MatchFinder.jsx) handles asking for verification if and when the
-      // person actually opens it.
-      navigate('/aura', { replace: true });
+      // spot for a new account too.
+      //
+      // FIXED (partial-account bug, found while adding the selfie check
+      // here): verification used to be offered INSIDE this same form,
+      // before the account existed yet. If someone ran a selfie check
+      // before clicking this button, the server (see api/verify-selfie.js)
+      // would write verification fields onto users/{uid} immediately —
+      // creating that document early, with none of the profile fields
+      // (age/gender/avatarColor/createdAt) this function is about to write.
+      // Every other page's useCurrentUser hook treats users/{uid} existing
+      // as "this is a real account", so a half-written doc could have let
+      // someone into the anonymous activities with a broken profile before
+      // ever finishing sign-up. Verification now only happens on the step
+      // below, AFTER this write has already created the full profile doc —
+      // so there is no ordering where a partial doc can exist.
+      setJustSignedUp(true);
     } catch (err) {
       console.error('sign-in failed', err);
       // The generic banner hid which step actually failed, which made this
@@ -203,6 +199,83 @@ export default function Login() {
       setSubmitting(false);
     }
   };
+
+  // Runs only from the post-signup step below, once users/{uid} is
+  // guaranteed to already exist (see the FIXED comment in handleLogin).
+  const handleVerifyDocument = async () => {
+    setVerifyError('');
+    setVerifyMessage('');
+    if (!verificationFile) {
+      setVerifyError('Choose a clear photo of a government-issued ID first.');
+      return;
+    }
+    setVerifying(true);
+    try {
+      const result = await submitIdentityDocument({
+        userId, file: verificationFile, age: Number(age), gender,
+      });
+      if (result.status === 'approved') {
+        setVerifyMessage("You're verified! Match Finder is unlocked.");
+      } else if (result.status === 'declined') {
+        setVerifyError(result.declineReason || 'This document was declined. You can try again with a clearer photo.');
+      } else {
+        setVerifyMessage('Document received. A reviewer will finish checking it shortly — Match Finder will unlock automatically once approved.');
+      }
+    } catch (err) {
+      console.error('identity verification submission failed', err);
+      setVerifyError(err?.message || 'Could not submit your verification request. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  if (justSignedUp) {
+    return (
+      <div className="aura-page aura-login-page">
+        <div className="aura-shell aura-login-shell">
+          <div className="aura-card aura-login-card fade-in" data-testid="login-postsignup-card">
+            <div className="aura-login-hero">
+              <h1 className="aura-login-title">You&apos;re in!</h1>
+              <p className="aura-login-copy">Mood Chat, Daily Question, Skill Swap, Event Buddy, and Letters are ready to use right now — no verification needed for those.</p>
+            </div>
+
+            <div className="aura-field">
+              <p className="aura-field-label" style={{ marginBottom: 4 }}>Want to unlock Match Finder too?</p>
+              <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '0 0 10px' }}>
+                It&apos;s the one activity that requires age verification, since it connects you with real people. Totally optional right now — you can always do this later from Match Finder itself.
+              </p>
+
+              <SelfieVerification userId={userId} age={age} gender={gender} />
+
+              <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 8px' }}>Or submit an ID document — always works, no camera needed:</p>
+              <input
+                className="aura-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+                disabled={verifying}
+                data-testid="login-verification-file"
+              />
+              <button type="button" className="aura-btn aura-btn-secondary" style={{ marginTop: 10 }} onClick={handleVerifyDocument} disabled={verifying || !verificationFile} data-testid="login-verify-btn">
+                {verifying ? 'Checking…' : 'Submit verification'}
+              </button>
+              {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
+              {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate('/aura', { replace: true })}
+              className="aura-btn aura-btn-primary aura-login-submit"
+              data-testid="login-continue-btn"
+            >
+              Continue to Aura
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="aura-page aura-login-page">
@@ -273,20 +346,6 @@ export default function Login() {
           </div>
 
           <div className="aura-field">
-            <label className="aura-field-label" htmlFor="login-verification-file">Identity verification</label>
-            <input
-              id="login-verification-file"
-              className="aura-input"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => setVerificationFile(event.target.files?.[0] || null)}
-              disabled={submitting}
-              data-testid="login-verification-file"
-            />
-            <span className="aura-field-hint">Required once when you enter Aura. Groq checks the document first; unclear or disputed cases stay pending for a human reviewer. The image itself is never stored.</span>
-          </div>
-
-          <div className="aura-field">
             <span className="aura-field-label">{t('pick_color')}</span>
             <div role="radiogroup" aria-label={t('pick_color')} className="aura-color-row">
               {AVATAR_COLORS.map((color) => {
@@ -310,9 +369,9 @@ export default function Login() {
             </div>
           </div>
 
-          {(verificationPending || verificationMessage) && (
+          {verificationPending && (
             <p role="status" className="aura-field-hint" data-testid="verification-pending">
-              {verificationMessage || 'Verification is still being reviewed. You can use Aura while a human reviewer finishes the check.'}
+              Verification is still being reviewed. Keep this page open or return here later; once approved, you&apos;ll continue to Match Finder automatically.
             </p>
           )}
 
