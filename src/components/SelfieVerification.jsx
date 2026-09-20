@@ -41,6 +41,32 @@ export default function SelfieVerification({ userId, age, gender }) {
   // navigating away mid-check should never leave the camera light on.
   useEffect(() => () => stopCamera(), []);
 
+  // THE BUG: this used to set videoRef.current.srcObject = stream, then
+  // await videoRef.current.play(), and only THEN call setCameraOn(true).
+  // But the <video> element only exists in the DOM once cameraOn is
+  // already true (see the JSX below) — so at the moment that code ran,
+  // videoRef.current was still null, the `if (videoRef.current)` guard
+  // silently skipped the whole block, and setCameraOn(true) then rendered
+  // a <video> with nothing ever attached to it. getUserMedia had already
+  // succeeded — the permission prompt fired, the stream existed — it just
+  // never reached the screen. A blank box with no visible feed is
+  // indistinguishable from "the camera never opened" to someone using it,
+  // which is exactly the deterministic, every-device, every-time symptom
+  // this was reported as.
+  //
+  // Fixed by doing this in the right order: acquire the stream, THEN flip
+  // cameraOn (which mounts the <video>), and attach the stream in an
+  // effect that runs once that element actually exists.
+  useEffect(() => {
+    if (cameraOn && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch((err) => {
+        console.error('selfie preview play() failed', err);
+        setError('Camera opened but the preview could not start. Please try again.');
+      });
+    }
+  }, [cameraOn]);
+
   const eligible = Number(age) >= MIN_AGE && !!gender;
 
   const startCamera = async () => {
@@ -53,15 +79,17 @@ export default function SelfieVerification({ userId, age, gender }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
       setCameraOn(true);
-    } catch {
-      // Permission denied, no camera present, or an insecure (non-HTTPS)
-      // context — any of these means "fall back to the document upload"
-      // rather than a dead end.
+    } catch (err) {
+      // Distinguishing these matters for anyone debugging this again later
+      // — "permission denied" and "no camera found" need different fixes
+      // than a generic "unavailable" ever suggested.
+      console.error('getUserMedia failed', err?.name, err?.message);
+      if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+        setError('Camera permission was denied. Check your browser/site settings, or use the ID upload below instead.');
+      } else if (err?.name === 'NotFoundError') {
+        setError('No camera was found on this device. Use the ID upload below instead.');
+      }
       setCameraUnavailable(true);
     }
   };
@@ -111,7 +139,7 @@ export default function SelfieVerification({ userId, age, gender }) {
         A live photo can confirm you&apos;re an adult in a few seconds. It only ever approves obvious, confident cases — anything less clear just falls through to the ID upload below, no harm done. The photo is never stored.
       </p>
 
-      {cameraUnavailable && (
+      {cameraUnavailable && !error && (
         <p className="aura-muted" style={{ fontSize: '0.82rem' }}>
           Camera isn&apos;t available here — no problem, use the ID upload below instead.
         </p>
