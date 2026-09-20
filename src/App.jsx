@@ -8,6 +8,7 @@ import AuthGate from './context/AuthGate';
 import OfflineBanner from './components/OfflineBanner';
 import PageSkeleton from './components/PageSkeleton';
 import RequireLogin from './components/RequireLogin';
+import RequireVerifiedAccount from './components/RequireVerifiedAccount';
 // Login and Home stay as regular (non-lazy) imports — they're the two
 // screens almost every visit starts on, so there's nothing to gain from
 // splitting them out; it would just add a network round-trip to the very
@@ -38,6 +39,17 @@ const AccountSettings = lazy(() => import('./pages/AccountSettings'));
 
 export default function App() {
   const protectedElement = (element) => <RequireLogin>{element}</RequireLogin>;
+  // TIGHTENED, per explicit request: verification now gates the whole app,
+  // not just Match Finder. verifiedElement is used for every activity;
+  // Account Settings and Admin Reports stay on the plain protectedElement
+  // (login only) deliberately — an account stuck pending/declined still
+  // needs to reach Settings to do anything about it (link a Google account,
+  // delete the account), and an admin reviewing everyone else's requests
+  // shouldn't be locked out of that screen by their own verification
+  // status. Both pages' own Firestore reads are still governed by
+  // firestore.rules regardless (isAdmin() for the reports queue, isOwner()
+  // for settings), so this isn't loosening any actual data access.
+  const verifiedElement = (element) => <RequireVerifiedAccount>{element}</RequireVerifiedAccount>;
 
   return (
     <AppErrorBoundary>
@@ -51,18 +63,18 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Login />} />
                   <Route path="/login" element={<Login />} />
-                  <Route path="/aura" element={protectedElement(<Home />)} />
-                  <Route path="/aura/chat" element={protectedElement(<MoodChat />)} />
-                  <Route path="/aura/match" element={protectedElement(<MatchFinder />)} />
-                  <Route path="/aura/match/chat/:matchId" element={protectedElement(<MatchChat />)} />
-                  <Route path="/aura/match/call/:matchId" element={protectedElement(<MatchCall />)} />
-                  <Route path="/aura/question" element={protectedElement(<DailyQuestion />)} />
-                  <Route path="/aura/swap" element={protectedElement(<SkillSwap />)} />
-                  <Route path="/aura/swap/chat/:swapId" element={protectedElement(<SkillSwapChat />)} />
-                  <Route path="/aura/swap/call/:swapId" element={protectedElement(<SkillSwapCall />)} />
-                  <Route path="/aura/event" element={protectedElement(<EventBuddy />)} />
-                  <Route path="/aura/event/chat/:eventId" element={protectedElement(<EventChat />)} />
-                  <Route path="/aura/letters" element={protectedElement(<AnonymousLetters />)} />
+                  <Route path="/aura" element={verifiedElement(<Home />)} />
+                  <Route path="/aura/chat" element={verifiedElement(<MoodChat />)} />
+                  <Route path="/aura/match" element={verifiedElement(<MatchFinder />)} />
+                  <Route path="/aura/match/chat/:matchId" element={verifiedElement(<MatchChat />)} />
+                  <Route path="/aura/match/call/:matchId" element={verifiedElement(<MatchCall />)} />
+                  <Route path="/aura/question" element={verifiedElement(<DailyQuestion />)} />
+                  <Route path="/aura/swap" element={verifiedElement(<SkillSwap />)} />
+                  <Route path="/aura/swap/chat/:swapId" element={verifiedElement(<SkillSwapChat />)} />
+                  <Route path="/aura/swap/call/:swapId" element={verifiedElement(<SkillSwapCall />)} />
+                  <Route path="/aura/event" element={verifiedElement(<EventBuddy />)} />
+                  <Route path="/aura/event/chat/:eventId" element={verifiedElement(<EventChat />)} />
+                  <Route path="/aura/letters" element={verifiedElement(<AnonymousLetters />)} />
                   <Route path="/aura/admin/reports" element={protectedElement(<AdminReports />)} />
                   <Route path="/aura/settings" element={protectedElement(<AccountSettings />)} />
                 </Routes>
