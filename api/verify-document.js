@@ -63,11 +63,23 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 
+// FIXED: see the matching comment in api/verify-selfie.js — this was
+// JSON.parse(...) + initializeApp(...) with no try/catch at module scope,
+// so a missing or malformed FIREBASE_SERVICE_ACCOUNT crashed the whole
+// module before the handler existed to catch it, which Vercel returns as
+// a bare 500 with no JSON body. That's why the client showed the literal
+// string "HTTP 500" — there was no body to read a real message from.
+let initError = null;
 if (!getApps().length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  initializeApp({ credential: cert(serviceAccount) });
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    initializeApp({ credential: cert(serviceAccount) });
+  } catch (err) {
+    initError = err;
+    console.error('Firebase admin init failed in verify-document.js', err);
+  }
 }
-const db = getFirestore();
+const db = initError ? null : getFirestore();
 
 // Match Finder's own minimum (see MIN_MATCH_AGE in MatchFinder.jsx) — not
 // the account-wide minimum of 16 used at Login, since this endpoint only
@@ -205,6 +217,23 @@ Rules:
 }
 
 export default async function handler(req, res) {
+  if (initError || !db) {
+    res.status(500).json({ error: 'Server verification setup is broken (Firebase credentials). Check FIREBASE_SERVICE_ACCOUNT in Vercel and the function logs for the exact error.' });
+    return;
+  }
+  try {
+    await handleVerifyDocument(req, res);
+  } catch (err) {
+    // FIXED: see the matching comment in api/verify-selfie.js — nothing
+    // below this point used to be inside a try/catch, so any Firestore
+    // Admin SDK call throwing (permissions, wrong project, etc.) crashed
+    // the function the same opaque way a bad credential did.
+    console.error('verify-document handler failed', err);
+    res.status(500).json({ error: `Verification check failed unexpectedly. (${err?.message || 'unknown error'})` });
+  }
+}
+
+async function handleVerifyDocument(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;

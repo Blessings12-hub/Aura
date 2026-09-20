@@ -43,11 +43,26 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 
+// FIXED: this used to be JSON.parse(...) and initializeApp(...) with no
+// try/catch, at module scope — meaning a missing or malformed
+// FIREBASE_SERVICE_ACCOUNT (the single most common cause of this: Vercel's
+// env var UI mangling the private_key field's embedded newlines when it's
+// pasted in) crashed the ENTIRE module before the handler function below
+// even existed to catch anything. Vercel returns that as a bare 500 with
+// no JSON body, which is exactly why the client showed the unhelpful
+// literal string "HTTP 500" instead of a real message — there was no body
+// for it to read a message out of.
+let initError = null;
 if (!getApps().length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  initializeApp({ credential: cert(serviceAccount) });
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    initializeApp({ credential: cert(serviceAccount) });
+  } catch (err) {
+    initError = err;
+    console.error('Firebase admin init failed in verify-selfie.js', err);
+  }
 }
-const db = getFirestore();
+const db = initError ? null : getFirestore();
 
 const MIN_VERIFY_AGE = 18;
 // How far above MIN_VERIFY_AGE the model's estimate must sit before this
@@ -110,6 +125,31 @@ Rules:
 }
 
 export default async function handler(req, res) {
+  if (initError || !db) {
+    // A clear, actionable message instead of a crash — if this is what's
+    // showing, the fix is in Vercel's environment variables, not the code:
+    // re-paste FIREBASE_SERVICE_ACCOUNT as a single-line JSON string (the
+    // private_key field's \n sequences need to survive intact — copying
+    // out of a text editor that reformats them is the usual culprit).
+    res.status(500).json({ error: 'Server verification setup is broken (Firebase credentials). Check FIREBASE_SERVICE_ACCOUNT in Vercel and the function logs for the exact error.' });
+    return;
+  }
+  try {
+    await handleVerifySelfie(req, res);
+  } catch (err) {
+    // FIXED: previously nothing below this point was inside a try/catch —
+    // any Firestore Admin SDK call throwing (wrong project, missing IAM
+    // permissions on the service account, Firestore not enabled, etc.)
+    // crashed the function the same opaque way a bad credential did. This
+    // is the other half of that fix: whatever goes wrong from here on
+    // now reaches the client as a real, readable message, and the full
+    // error is still logged server-side for the Vercel function log.
+    console.error('verify-selfie handler failed', err);
+    res.status(500).json({ error: `Verification check failed unexpectedly. (${err?.message || 'unknown error'})` });
+  }
+}
+
+async function handleVerifySelfie(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
