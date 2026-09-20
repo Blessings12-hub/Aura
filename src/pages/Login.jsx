@@ -5,7 +5,7 @@ import { Check } from 'lucide-react';
 import {
   ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured,
 } from '../lib/firebaseClient';
-import { doc, getDoc, setDoc, COLLECTIONS, db } from '../lib/firestoreClient';
+import { doc, getDoc, setDoc, onSnapshot, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
 import { submitIdentityDocument } from '../lib/verificationService';
 import { useAuthUid } from '../hooks/useAuthUid';
@@ -27,7 +27,7 @@ export default function Login() {
   // AuthGate has already established the anonymous session by the time this
   // page renders (see AuthGate.jsx) — this is just reading that shared uid,
   // not starting a new sign-in. Needed for the post-signup verification
-  // step below (see justSignedUp) — by then users/{uid} already exists
+  // step below (see showVerificationStep) — by then users/{uid} already exists
   // (handleLogin just created it), so it's safe for the selfie/ID checks to
   // write verification fields onto it.
   const { uid: userId } = useAuthUid();
@@ -39,9 +39,17 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [recovering, setRecovering] = useState(false);
-  const [verificationPending, setVerificationPending] = useState(false);
   const [verificationFile, setVerificationFile] = useState(null);
-  const [justSignedUp, setJustSignedUp] = useState(false);
+  // TIGHTENED, per explicit request: verification now gates the whole app,
+  // not just Match Finder — so this screen is no longer skippable once an
+  // account exists. showVerificationStep covers both a brand-new signup
+  // and a returning account that still isn't approved; either way, the
+  // person sits here until they're verified. requestStatus/declineReason
+  // are read live from verificationRequests/{uid} — the exact same pattern
+  // MatchFinder's own gate uses, so both places behave identically.
+  const [showVerificationStep, setShowVerificationStep] = useState(false);
+  const [requestStatus, setRequestStatus] = useState(null);
+  const [requestDeclineReason, setRequestDeclineReason] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState('');
   const [verifyError, setVerifyError] = useState('');
@@ -75,23 +83,14 @@ export default function Login() {
   // Firestore, so this can't race request.auth being null server-side and
   // get silently rejected by security rules.
   //
-  // Two fixes in here:
-  //
-  //   1. This used to read firebaseAuth.currentUser directly and bail out
-  //      when it was null — which it usually was on a cold load, so the
-  //      "you're already verified, go straight to Match Finder" redirect
-  //      almost never fired. ensureFirebaseSession() waits properly.
-  //
-  //   2. verificationExpiresAt is written by the admin screen as a Firestore
-  //      Timestamp (Timestamp.fromMillis(...)), but this compared it with
-  //      Number(...), which on a Timestamp object gives NaN — and NaN is
-  //      never greater than Date.now(), so an approved account still failed
-  //      the check. toMillis() is the right reader.
-  //
-  // The "pending" flag now comes from verificationRequests/{uid}, not from
-  // users/{uid}. users/{uid}.verificationStatus is admin-written only (see
-  // firestore.rules), so it is never 'pending' — that state only ever lives
-  // on the request document.
+  // TIGHTENED, per explicit request: this used to only redirect an
+  // ALREADY-approved account and otherwise leave the normal signup form
+  // showing — someone with an existing but unverified account would see
+  // the blank sign-up fields again instead of picking up where they left
+  // off. Now an existing account that isn't approved goes straight into
+  // the verification step, prefilled with what's already on file, since
+  // access to the whole app depends on finishing that step, not just
+  // Match Finder.
   useEffect(() => {
     let active = true;
     async function checkProfile() {
@@ -101,21 +100,24 @@ export default function Login() {
         if (!user || !active) return;
 
         const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
-        if (active && snap.exists()) {
+        if (!active) return;
+        if (snap.exists()) {
           const profile = snap.data();
           const expiresAt = profile.verificationExpiresAt;
           const expiresMs = typeof expiresAt?.toMillis === 'function'
             ? expiresAt.toMillis()
             : Number(expiresAt || 0);
           if (profile.verificationStatus === 'approved' && expiresMs > Date.now()) {
-            navigate('/aura/match', { replace: true });
+            navigate('/aura', { replace: true });
             return;
           }
-        }
-
-        const requestSnap = await getDoc(doc(db, COLLECTIONS.verificationRequests, user.uid));
-        if (active && requestSnap.exists() && requestSnap.data().status === 'pending') {
-          setVerificationPending(true);
+          // Account exists but isn't verified yet — prefill from what they
+          // already entered so they aren't asked to redo the signup form,
+          // and go straight to the verification step.
+          if (typeof profile.age === 'number') setAge(String(profile.age));
+          if (profile.gender) setGender(profile.gender);
+          if (profile.avatarColor) setAvatarColor(profile.avatarColor);
+          setShowVerificationStep(true);
         }
       } catch (e) {
         console.error('Firebase profile check failed', e);
@@ -124,6 +126,47 @@ export default function Login() {
     checkProfile();
     return () => { active = false; };
   }, [navigate]);
+
+  // Live status of this account's verificationRequests/{uid} — mirrors
+  // MatchFinder's gate exactly, so "do the same thing for login too" means
+  // the same three states (nothing submitted / pending / declined) render
+  // the same way in both places.
+  useEffect(() => {
+    if (!userId) return undefined;
+    return onSnapshot(
+      doc(db, COLLECTIONS.verificationRequests, userId),
+      (snap) => {
+        if (!snap.exists()) { setRequestStatus(null); return; }
+        const data = snap.data();
+        setRequestStatus(data.status || null);
+        setRequestDeclineReason(data.declineReason || '');
+      },
+      () => {},
+    );
+  }, [userId]);
+
+  // Live listener on the account itself so an approval that lands WHILE
+  // someone is sitting on this screen — the selfie check resolving in a
+  // few seconds, or an admin approving a document minutes/hours later —
+  // continues straight into the app with no manual refresh needed.
+  useEffect(() => {
+    if (!userId || !showVerificationStep) return undefined;
+    return onSnapshot(
+      doc(db, COLLECTIONS.users, userId),
+      (snap) => {
+        if (!snap.exists()) return;
+        const profile = snap.data();
+        const expiresAt = profile.verificationExpiresAt;
+        const expiresMs = typeof expiresAt?.toMillis === 'function'
+          ? expiresAt.toMillis()
+          : Number(expiresAt || 0);
+        if (profile.verificationStatus === 'approved' && expiresMs > Date.now()) {
+          navigate('/aura', { replace: true });
+        }
+      },
+      () => {},
+    );
+  }, [userId, showVerificationStep, navigate]);
 
   // Live inline validation, distinct from the submit-time error banner —
   // shows as soon as the person has touched the field, not only after
@@ -172,22 +215,22 @@ export default function Login() {
       // to '/aura/match' — every new sign-up, verified or not, skipped the
       // activity hub entirely. handleRecover (above) already sends a
       // returning user to '/aura', the hub, and that's the correct landing
-      // spot for a new account too.
+      // spot for a new account too — once they're actually allowed in; see
+      // below, this doesn't navigate anywhere yet.
       //
-      // FIXED (partial-account bug, found while adding the selfie check
-      // here): verification used to be offered INSIDE this same form,
-      // before the account existed yet. If someone ran a selfie check
-      // before clicking this button, the server (see api/verify-selfie.js)
-      // would write verification fields onto users/{uid} immediately —
-      // creating that document early, with none of the profile fields
-      // (age/gender/avatarColor/createdAt) this function is about to write.
-      // Every other page's useCurrentUser hook treats users/{uid} existing
-      // as "this is a real account", so a half-written doc could have let
-      // someone into the anonymous activities with a broken profile before
-      // ever finishing sign-up. Verification now only happens on the step
-      // below, AFTER this write has already created the full profile doc —
-      // so there is no ordering where a partial doc can exist.
-      setJustSignedUp(true);
+      // TIGHTENED, per explicit request: verification is no longer
+      // scoped to Match Finder — nothing past this point is reachable
+      // without it (see RequireVerifiedAccount in App.jsx). This still
+      // waits until AFTER the profile write above, though, for a real bug
+      // reason, not just tidiness: if someone ran the selfie check before
+      // this account existed, the server (api/verify-selfie.js) would
+      // write verification fields onto users/{uid} immediately, creating a
+      // half-written document — verified, but with no age/gender/
+      // avatarColor/createdAt — that every other page's account check
+      // would still treat as "this is a real, complete account". Waiting
+      // until the full profile write above has already happened removes
+      // that ordering entirely.
+      setShowVerificationStep(true);
     } catch (err) {
       console.error('sign-in failed', err);
       // The generic banner hid which step actually failed, which made this
@@ -229,22 +272,34 @@ export default function Login() {
     }
   };
 
-  if (justSignedUp) {
+  if (showVerificationStep) {
     return (
       <div className="aura-page aura-login-page">
         <div className="aura-shell aura-login-shell">
-          <div className="aura-card aura-login-card fade-in" data-testid="login-postsignup-card">
+          <div className="aura-card aura-login-card fade-in" data-testid="login-verification-step">
             <div className="aura-login-hero">
-              <h1 className="aura-login-title">You&apos;re in!</h1>
-              <p className="aura-login-copy">Mood Chat, Daily Question, Skill Swap, Event Buddy, and Letters are ready to use right now — no verification needed for those.</p>
+              <h1 className="aura-login-title">Verify to continue</h1>
+              <p className="aura-login-copy">Every account on Aura needs a quick age check before anything unlocks — Mood Chat, Match Finder, all of it.</p>
             </div>
 
-            <div className="aura-field">
-              <p className="aura-field-label" style={{ marginBottom: 4 }}>Want to unlock Match Finder too?</p>
-              <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '0 0 10px' }}>
-                It&apos;s the one activity that requires age verification, since it connects you with real people. Totally optional right now — you can always do this later from Match Finder itself.
+            {requestStatus === 'pending' && (
+              <p role="alert" className="aura-login-error" data-testid="login-verify-pending" style={{ margin: '0 0 12px' }}>
+                Your document is being reviewed. This continues automatically once it's approved — no need to resubmit or refresh.
               </p>
+            )}
+            {requestStatus === 'declined' && (
+              <p role="alert" className="aura-login-error" data-testid="login-verify-declined" style={{ margin: '0 0 12px' }}>
+                {requestDeclineReason || 'Your last submission was declined.'}
+                {!/under 18/i.test(requestDeclineReason || '') && ' You can try again below with a clearer photo.'}
+              </p>
+            )}
+            {!requestStatus && (
+              <p role="alert" className="aura-login-error" data-testid="login-verify-required" style={{ margin: '0 0 12px' }}>
+                You haven&apos;t completed verification yet — nothing past this screen is accessible until you do.
+              </p>
+            )}
 
+            <div className="aura-field">
               <SelfieVerification userId={userId} age={age} gender={gender} />
 
               <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 8px' }}>Or submit an ID document — always works, no camera needed:</p>
@@ -256,25 +311,17 @@ export default function Login() {
                 disabled={verifying}
                 data-testid="login-verification-file"
               />
-              <button type="button" className="aura-btn aura-btn-secondary" style={{ marginTop: 10 }} onClick={handleVerifyDocument} disabled={verifying || !verificationFile} data-testid="login-verify-btn">
+              <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerifyDocument} disabled={verifying || !verificationFile} data-testid="login-verify-btn">
                 {verifying ? 'Checking…' : 'Submit verification'}
               </button>
               {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
               {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
             </div>
-
-            <button
-              type="button"
-              onClick={() => navigate('/aura', { replace: true })}
-              className="aura-btn aura-btn-primary aura-login-submit"
-              data-testid="login-continue-btn"
-            >
-              Continue to Aura
-            </button>
           </div>
         </div>
       </div>
     );
+
   }
 
   return (
@@ -368,12 +415,6 @@ export default function Login() {
               })}
             </div>
           </div>
-
-          {verificationPending && (
-            <p role="status" className="aura-field-hint" data-testid="verification-pending">
-              Verification is still being reviewed. Keep this page open or return here later; once approved, you&apos;ll continue to Match Finder automatically.
-            </p>
-          )}
 
           {error && (
             <p role="alert" className="aura-login-error" data-testid="login-error">{error}</p>

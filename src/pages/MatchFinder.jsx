@@ -590,7 +590,8 @@ export default function MatchFinder() {
             )}
             {requestStatus === 'declined' && (
               <p role="alert" className="aura-login-error" data-testid="match-verify-declined" style={{ margin: '0 0 12px' }}>
-                {requestDeclineReason || 'Your last submission was declined.'} You can try again below with a clearer photo.
+                {requestDeclineReason || 'Your last submission was declined.'}
+                {!/under 18/i.test(requestDeclineReason || '') && ' You can try again below with a clearer photo.'}
               </p>
             )}
             {!requestStatus && (
