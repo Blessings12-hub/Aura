@@ -11,6 +11,7 @@ import { submitIdentityDocument } from '../lib/verificationService';
 import { useAuthUid } from '../hooks/useAuthUid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import SelfieVerification from '../components/SelfieVerification';
+import PageSkeleton from '../components/PageSkeleton';
 
 const MIN_AGE = 16;
 
@@ -53,6 +54,14 @@ export default function Login() {
   const [verifying, setVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState('');
   const [verifyError, setVerifyError] = useState('');
+  // FIXED: without this, a returning user — whether already verified or
+  // mid-verification — saw the blank signup form flash on screen for a
+  // moment on every visit, before the bootstrap check below redirected
+  // them to /aura or flipped this over to the verification step. Gating
+  // render on this until that check resolves removes the flash; a
+  // brand-new visitor with no account at all resolves this near-instantly
+  // (the check just confirms there's genuinely nothing to find).
+  const [bootstrapping, setBootstrapping] = useState(true);
 
   // Recovers a previous account on a new device/cleared cache — this is
   // the counterpart to the "Link Google account" option in Account
@@ -94,8 +103,8 @@ export default function Login() {
   useEffect(() => {
     let active = true;
     async function checkProfile() {
-      if (!firebaseConfigured) return;
       try {
+        if (!firebaseConfigured) return;
         const user = await ensureFirebaseSession();
         if (!user || !active) return;
 
@@ -114,13 +123,25 @@ export default function Login() {
           // Account exists but isn't verified yet — prefill from what they
           // already entered so they aren't asked to redo the signup form,
           // and go straight to the verification step.
-          if (typeof profile.age === 'number') setAge(String(profile.age));
+          //
+          // FIXED: this used to check `typeof profile.age === 'number'`.
+          // Any account created before an earlier patch fixed Login writing
+          // age as a string still has it stored that way — for those
+          // accounts this check silently failed, age never prefilled, and
+          // SelfieVerification would then show "enter your age above" on a
+          // screen that has no age field to enter it in. Checking for
+          // "present at all", not a specific type, handles both shapes;
+          // Account Settings' new profile editor (see AccountSettings.jsx)
+          // also normalizes it to a real number the next time it's saved.
+          if (profile.age !== undefined && profile.age !== null && profile.age !== '') setAge(String(profile.age));
           if (profile.gender) setGender(profile.gender);
           if (profile.avatarColor) setAvatarColor(profile.avatarColor);
           setShowVerificationStep(true);
         }
       } catch (e) {
         console.error('Firebase profile check failed', e);
+      } finally {
+        if (active) setBootstrapping(false);
       }
     }
     checkProfile();
@@ -271,6 +292,8 @@ export default function Login() {
       setVerifying(false);
     }
   };
+
+  if (bootstrapping) return <PageSkeleton />;
 
   if (showVerificationStep) {
     return (
