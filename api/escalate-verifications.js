@@ -36,7 +36,7 @@
 //      guessing, and will just get picked up again on the NEXT hourly run
 //      (so it isn't stuck — it gets more chances, not zero).
 //   4. Either way — decided or still pending — deletes the stored images
-//      for anything OLDER than 48h regardless of outcome, as a backstop.
+//      for anything OLDER than 24h regardless of outcome, as a backstop.
 //      (Freshly-decided ones are deleted immediately as part of the same
 //      pass; this second sweep only matters for the rare case something
 //      stayed inconclusive across many runs.)
@@ -60,7 +60,14 @@ const db = initError ? null : getFirestore();
 
 const MIN_VERIFY_AGE = 18;
 const ESCALATE_AFTER_MS = 60 * 60 * 1000; // 1 hour
-const IMAGE_TTL_MS = 48 * 60 * 60 * 1000; // 48 hours
+// TIGHTENED, per explicit request to minimize this: was 48h. Normal
+// operation never actually reaches this sweep — a request is either
+// decided within an hour or two (images deleted immediately either way,
+// see below) or picked up again on the very next hourly run. This is
+// purely a backstop for the rare case something stays undecided across
+// many runs (e.g. a Groq outage spanning hours), and 24h is enough slack
+// for that without leaving sensitive photos around for two full days.
+const IMAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MIN_CONFIDENCE = 0.6;
 const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 const BASE_URL = 'https://aura-blush-zeta.vercel.app';
@@ -270,7 +277,7 @@ async function runEscalation() {
     );
   }));
 
-  // Backstop sweep: anything older than 48h gets its images deleted no
+  // Backstop sweep: anything older than 24h gets its images deleted no
   // matter what state it's in. Normal operation should never actually
   // reach this — a request is either decided (images deleted above) or
   // still pending and gets re-tried every hour — but a Groq outage

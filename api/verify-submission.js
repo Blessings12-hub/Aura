@@ -26,7 +26,7 @@
 // all (see firestore.rules). They're temporary: a decision deletes them
 // immediately (here's not where that happens — see AdminReports.jsx for
 // the manual path, api/escalate-verifications.js for the automatic one
-// and its cleanup), and anything older than 48h gets swept regardless, as
+// and its cleanup), and anything older than 24h gets swept regardless, as
 // a backstop.
 //
 // This does NOT use Firebase Storage, and deliberately so — Storage reads
