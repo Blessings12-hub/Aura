@@ -1,132 +1,111 @@
-# Aura — manual review + AI fallback + admin/user notifications
+# Aura — safety hardening + cron secret + admin setup
 
-14 files. This is a genuine architecture change to how verification works,
-not an incremental patch — read the setup steps below before deploying,
-there are four things that need doing outside the code itself.
+Answering your three follow-ups. Files below are the FULL updated set —
+this supersedes the previous zip entirely, apply this one on its own
+rather than layering it on top.
 
-## The new flow, end to end
+---
 
-1. Someone captures a selfie and uploads an ID photo together (no more
-   either/or, no more instant approval — see the "what got removed"
-   section below).
-2. `api/verify-submission.js` stores both images (temporarily — see
-   "image storage" below), creates the pending request, and pushes a
-   notification to every admin.
-3. You review it by hand in Admin Reports — the images are right there
-   now, loaded on demand per request.
-4. If you approve or decline, that's final: the decision is written, the
-   images are deleted immediately, and the applicant gets notified.
-5. If you don't act within an hour, `api/escalate-verifications.js` —
-   triggered hourly by a GitHub Actions workflow, not a Vercel Cron Job,
-   see why below — runs Groq's vision model on both images together
-   (extracting the ID's date of birth AND judging whether the selfie
-   plausibly matches the ID photo), and decides the same way: only a
-   confident, clean read on all counts approves or declines anything.
-   Anything murkier just waits for the next hourly pass, or for you.
+## 1. "Make it safe" — what actually changed
 
-## Setup you need to do — nothing here works until you do these
+**Retention cut from 48h to 24h.** The backstop sweep (for anything that
+somehow stays undecided across many hourly runs) now deletes images after
+24 hours instead of 48. Normal operation never reaches this anyway — a
+request is either decided within an hour or two (images deleted
+immediately either way) or retried every hour until it is.
 
-1. **`CRON_SECRET`** — generate a random secret, add it to Vercel's
-   environment variables, and add the identical value as a GitHub repo
-   secret (Settings → Secrets and variables → Actions → New repository
-   secret), also named `CRON_SECRET`. This is how the hourly job proves
-   it's really your scheduled workflow and not a stranger hitting the
-   endpoint — there's no signed-in user to check a token against here.
+**Explicit informed consent, before anything is even captured.** Both
+Login and Match Finder now show a checkbox — "I understand my selfie and
+ID photo will be stored temporarily so they can be reviewed, and deleted
+as soon as my request is decided" — and the camera/file picker don't even
+appear until it's checked. This isn't just a submit-time disclaimer; the
+consent gate sits before any capture happens at all.
 
-2. **Firestore composite index** — `escalate-verifications.js` queries
-   `verificationRequests` filtering on `status` AND `submittedAt`
-   together, which Firestore requires a composite index for. I've added
-   `firestore.indexes.json` and referenced it from `firebase.json`; run
-   `firebase deploy --only firestore:indexes` (or the plain
-   `firebase deploy --only firestore` you've used for rules before, which
-   picks up both). If you skip this, the endpoint will fail with a clear
-   error containing a direct link to auto-create the index — annoying but
-   not silent.
+**An access log — who looked at whose photos, and when.** New
+`verificationImageAccessLog` collection: every time an admin clicks "View
+photos" in Admin Reports, it's recorded (`adminId`, `subjectUid`,
+`viewedAt`) — before the photos even finish loading, so the access
+attempt itself is what's logged. Write-only from the app's side; nobody
+reads it through the client, it's there for you to check directly in the
+Firebase Console if you ever need to. Each admin can only write a record
+of their own access and can never edit or delete an entry afterward, so
+it can't be tampered with after the fact.
 
-3. **Your own admin push token** — for admin notifications to actually
-   reach you, you (as an admin) need to have opened Aura and had push
-   notifications register at least once, same as any user. If you've never
-   enabled notifications on your own admin account, you won't get pinged —
-   the pending queue is still there to check manually either way.
+**Worth saying plainly: I can hurt harden the engineering, I can't rule on
+the legal question.** These changes reduce the exposure window and add
+accountability, which is what's actually in my control. Whether 24 hours,
+this consent language, and this access log actually satisfy Zambia's Data
+Protection Act (or wherever else your users are) is a real legal
+question — genuinely worth a real check, not something I can certify from
+here.
 
-4. **Deploy `firestore.rules`** as usual — this patch adds a new
-   `verificationImages` collection to it.
+---
 
-## What got removed, and why it had to be all-or-nothing
+## 2. Where to get the cron secret
 
-The old instant "quick check" (a confident selfie alone, approved in
-seconds, no human involved) is gone — you asked for every submission to
-require both a photo and a document. `api/verify-document.js` and
-`api/verify-selfie.js` are the old single-image endpoints this replaces.
+I generated one — cryptographically random, nothing to design yourself:
 
-I didn't just stop calling them from the client — I stubbed them to
-return `410 Gone`. Leaving them live and simply unused would have been a
-real hole: anyone who'd ever inspected the network tab could still POST
-straight to the old endpoints and get the old, weaker instant-approval
-behavior, completely bypassing the new "always reviewed" policy. You can
-delete both files whenever convenient; the stub is a safety net for
-between now and whenever that happens, not a replacement for actually
-deleting them.
+```
+ab52f37977dd9420cef8c4fb8b52d032038a8580be2c21eee4e84b133ba92101
+```
 
-## Image storage — the tradeoff you explicitly chose
+Put this **exact same value** in two places:
 
-Every piece of verification built before this deliberately stored no
-images anywhere. That's reversed here, on your call: `verificationImages/
-{uid}` holds both photos, base64-encoded, in Firestore — NOT Firebase
-Storage, which would need the paid Blaze plan this project has avoided
-everywhere else. Firestore itself is already free at this scale.
+1. **Vercel**: your project → Settings → Environment Variables → Add New
+   → Name: `CRON_SECRET`, Value: the string above → Save → redeploy.
+2. **GitHub**: your repo → Settings → Secrets and variables → Actions →
+   New repository secret → Name: `CRON_SECRET`, Value: the same string →
+   Add secret.
 
-The real constraint that comes with that choice: a Firestore document
-caps out at 1 MiB. Both images are compressed client-side to stay well
-under a combined budget (`MAX_COMBINED_BYTES = 700_000` bytes as a
-server-side backstop, on top of tighter client-side compression than the
-old document-only flow used), and the server rejects an oversized pair
-with a clear "please retake" message rather than letting a raw write fail.
+Both steps are plain web pages, no terminal needed. If you ever want a
+fresh one later, any password generator's "64 random hex characters"
+option works the same way — this isn't a one-time-use value tied to
+anything else, it just needs to match in both places.
 
-Deletion is aggressive on purpose: the moment a decision exists — yours
-or the AI's — the images are deleted in that same operation. A 48-hour
-sweep in the escalation job is a backstop for anything that somehow stays
-undecided that long (a Groq outage spanning many hours, say), not the
-normal path.
+---
 
-Worth being direct about: this is a materially bigger privacy/legal
-surface than anything else in Aura, even temporarily. I can't tell you
-whether 48 hours is the right retention window for wherever your users
-are — that's worth a real check against Zambia's Data Protection Act and
-anywhere else your users are, not something I can rule on.
+## 3. Setting yourself up as an admin
 
-## What quietly also changed
+1. Open **Account Settings** in Aura (this patch adds a new "Your account
+   ID" card at the top of that screen) and copy your account ID.
+2. Go to **console.firebase.google.com** on your phone or computer →
+   select the Aura project → **Firestore Database** → **Data** tab.
+3. If there's no `admins` collection yet, click **Start collection**,
+   name it exactly `admins`.
+4. For the **Document ID**, paste your copied account ID — don't use
+   "Auto-ID", it has to be exactly your ID.
+5. Add any one field to the document — the content doesn't matter, only
+   that the document exists (`firestore.rules`' `isAdmin()` just checks
+   `exists(...)`). A field like `role` (string) = `owner` is fine.
+6. Save. Reload Aura, go to `/aura/admin/reports` — you should now see
+   the review queue.
 
-- **OCR.space is no longer used anywhere.** The old flow ran it alongside
-  Groq as a second, independent read of the printed date. The new
-  escalation flow relies on Groq alone, now doing a richer job (reasoning
-  about both images together, judging a face match) than either signal did
-  alone before. `OCR_SPACE_API_KEY` is now unused — harmless to leave set,
-  fine to remove whenever.
-- **If `GROQ_API_KEY` isn't set**, the escalation job's AI step simply
-  never resolves anything — every request wait­s for manual review
-  indefinitely, with no automatic fallback. Not a crash, just a silent
-  full-manual mode. Worth knowing if requests seem to pile up.
-- Both compression budgets got tighter (ID photo: 1400px/0.85 quality →
-  1100px/0.8; selfie: unchanged resolution, 0.85 → 0.8 quality) — needed
-  headroom for two images to fit in one Firestore document where before
-  there was only ever one.
+**One real risk worth knowing before you rely on this:** Aura signs
+people in anonymously — there's no email or password behind your account
+ID, it's tied to this specific browser/device. If you ever clear this
+browser's storage, or open Aura fresh on a different device, that account
+(and the admin access tied to it) is gone with no recovery path — unless
+you'd linked a Google account first. Account Settings already has a "link
+Google account" option from earlier in this build; worth doing that
+*before* you're depending on admin access, not after you've lost it.
 
-## Files
+---
 
-| File | What it does |
+## Files (complete set, all 15)
+
+| File | |
 |---|---|
-| `api/verify-submission.js` | New — intake: validates, stores both images, creates the pending record, notifies admins. Decides nothing itself. |
-| `api/escalate-verifications.js` | New — the hourly job: AI-decides anything a human hasn't in an hour, deletes images on any decision, 48h backstop sweep, notifies the applicant. |
-| `api/verify-document.js` | Retired — stubbed to 410, was the old document-only instant-ish path |
-| `api/verify-selfie.js` | Retired — stubbed to 410, was the old instant selfie-only fast path |
-| `.github/workflows/verification-escalation.yml` | New — hourly trigger for the escalation endpoint, working around Vercel Hobby's once-a-day Cron Job limit |
-| `firestore.indexes.json` | New — the composite index the escalation query needs |
-| `firebase.json` | References the new indexes file |
-| `firestore.rules` | New `verificationImages` collection — admin-read-only, no client write access at all, server (Admin SDK) only |
-| `src/lib/verificationService.js` | `submitIdentityDocument`/`submitSelfieCheck` replaced with one `submitVerification` taking both images |
-| `src/components/SelfieVerification.jsx` | Reworked from a self-contained submit-and-decide widget into pure camera capture — hands the frame back via `onCapture`, decides nothing |
-| `src/pages/MatchFinder.jsx` | Gate now requires both a captured selfie and an ID file before the submit button enables |
-| `src/pages/Login.jsx` | Same unified requirement in the verification step |
-| `src/pages/AdminReports.jsx` | Pending queue now shows time-since-submission and an on-demand "View photos" button per request; approving/declining now deletes the images and notifies the applicant |
-| `src/pages/AccountSettings.jsx` | Carried forward unchanged from the last patch (age/gender edit card) — included so this zip is complete on its own |
+| `api/verify-submission.js` | Intake — stores both images, notifies admins |
+| `api/escalate-verifications.js` | Hourly AI fallback + 24h backstop sweep (was 48h) |
+| `api/verify-document.js` | Retired, stubbed to 410 |
+| `api/verify-selfie.js` | Retired, stubbed to 410 |
+| `.github/workflows/verification-escalation.yml` | Hourly trigger |
+| `firestore.indexes.json` | Composite index the escalation query needs |
+| `firebase.json` | References the indexes file |
+| `firestore.rules` | `verificationImages` + new `verificationImageAccessLog` |
+| `src/lib/verificationService.js` | Unified `submitVerification` |
+| `src/components/SelfieVerification.jsx` | Capture-only, no independent decide |
+| `src/pages/MatchFinder.jsx` | Consent gate + unified selfie+ID submission |
+| `src/pages/Login.jsx` | Same, in the verification step |
+| `src/pages/AdminReports.jsx` | Photo review + access logging + notify-on-decision |
+| `src/pages/AccountSettings.jsx` | New "Your account ID" card + prior age/gender editor |

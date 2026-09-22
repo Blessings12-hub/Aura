@@ -192,7 +192,7 @@ service cloud.firestore {
     // This is temporary storage, not permanent: api/verify-submission.js
     // writes it, a decision (by an admin or by api/escalate-verifications.js
     // after an hour of inaction) deletes it immediately, and anything that
-    // somehow survives past 48h gets swept by the same escalation job as a
+    // somehow survives past 24h gets swept by the same escalation job as a
     // backstop. No client ever creates, updates, or deletes this directly —
     // only the server, and even an admin only ever reads it, never writes.
     // The owner of the images themselves cannot read this collection at
@@ -202,6 +202,25 @@ service cloud.firestore {
     match /verificationImages/{uid} {
       allow get: if isAdmin();
       allow list, create, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // VERIFICATION IMAGE ACCESS LOG — a record of which admin looked at
+    // which person's verification photos, and when. This exists because
+    // storing sensitive images at all (even temporarily) creates a real
+    // accountability question: given that scanning through the codebase
+    // is not a realistic way to audit who saw what, an actual access
+    // record is. Write-only from the app's perspective — nobody reads
+    // this through the client; it exists for you (or anyone auditing
+    // this later) to inspect directly in the Firebase Console if it's
+    // ever needed. Each admin can only write a record of their OWN
+    // access, and can never edit or delete an existing entry, so this
+    // can't be tampered with after the fact.
+    // ------------------------------------------------------------------
+    match /verificationImageAccessLog/{logId} {
+      allow read: if false;
+      allow create: if isAdmin() && request.resource.data.adminId == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // ------------------------------------------------------------------
