@@ -7,6 +7,7 @@ import {
 import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useIsAdmin } from '../hooks/useIsAdmin';
+import { sendNotification } from '../lib/sendNotification';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 
@@ -25,6 +26,28 @@ export default function AdminReports() {
   const [loadError, setLoadError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [bannedStatus, setBannedStatus] = useState({}); // { [uid]: true | false }
+  // Images are deliberately NOT bulk-loaded with the request list — see
+  // the verificationImages rule in firestore.rules, which only allows a
+  // single-document get(), not a list(), specifically so this screen
+  // can't pull every stored ID photo at once just by rendering. Each
+  // entry here is fetched on demand when an admin clicks "View photos"
+  // for that one request; { loading: true } while in flight, then either
+  // the fetched { selfieBase64, idBase64, ... } or { error: '...' }.
+  const [loadedImages, setLoadedImages] = useState({});
+
+  const loadImages = async (uid) => {
+    setLoadedImages((prev) => ({ ...prev, [uid]: { loading: true } }));
+    try {
+      const snap = await getDoc(doc(db, 'verificationImages', uid));
+      if (!snap.exists()) {
+        setLoadedImages((prev) => ({ ...prev, [uid]: { error: 'No photos on file — likely already reviewed and cleaned up, or the automatic hourly check already handled this one.' } }));
+        return;
+      }
+      setLoadedImages((prev) => ({ ...prev, [uid]: snap.data() }));
+    } catch (err) {
+      setLoadedImages((prev) => ({ ...prev, [uid]: { error: `Could not load photos. (${err?.code || 'unknown'})` } }));
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) return undefined;
@@ -58,6 +81,22 @@ export default function AdminReports() {
         verifiedSex: request.gender || '',
         verifiedAt: Timestamp.now(),
         verificationExpiresAt: Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      });
+      // Review is done — the photos have served their one purpose. Delete
+      // them now rather than waiting for the 48h backstop sweep in
+      // api/escalate-verifications.js; there's no reason to keep them a
+      // moment longer than necessary once a decision exists.
+      await deleteDoc(doc(db, 'verificationImages', request.id)).catch(() => {});
+      setLoadedImages((prev) => {
+        const next = { ...prev };
+        delete next[request.id];
+        return next;
+      });
+      await sendNotification({
+        uid: request.id,
+        title: status === 'approved' ? "You're verified!" : 'Verification update',
+        body: status === 'approved' ? 'Match Finder is unlocked.' : 'Your verification was declined — open Aura for details.',
+        path: '/login',
       });
     } catch (err) {
       setLoadError(`Couldn't update verification. (${err?.code || 'unknown'})`);
@@ -143,25 +182,58 @@ export default function AdminReports() {
         {loadError && <p className="aura-login-error" data-testid="admin-reports-error">{loadError}</p>}
         <section className="aura-card" style={{ marginBottom: 16 }} data-testid="verification-review-queue">
           <h2 style={{ marginTop: 0 }}>Manual verification requests</h2>
-          <p className="aura-muted">Everything here already went through automatic checking (see api/verify-document.js) and came back inconclusive — no confident read, a flagged concern, or the AI service unavailable. Review the printed document detail below against the person&apos;s self-reported age/gender.</p>
-          {verificationRequests.filter((r) => r.status === 'pending').length === 0 ? <p className="aura-muted">No pending verification requests.</p> : verificationRequests.filter((r) => r.status === 'pending').map((r) => (
-            <div key={r.id} className="aura-row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--aura-border)', padding: '12px 0' }}>
-              <div>
-                <strong>{r.id.slice(0, 10)}</strong>
-                <div className="aura-muted">Self-reported: age {r.age || '—'} · {r.gender || '—'}</div>
-                <div className="aura-muted" style={{ fontSize: '0.82rem' }}>
-                  Document read: DOB {r.ocrDateOfBirth || '—'}{typeof r.ocrAge === 'number' ? ` (~age ${r.ocrAge})` : ''} · confidence {typeof r.ocrConfidence === 'number' ? `${Math.round(r.ocrConfidence * 100)}%` : '—'}
-                  {typeof r.ocrAge === 'number' && r.age && r.ocrAge !== Number(r.age) && (
-                    <strong style={{ color: '#ef4444' }}> · mismatch vs. self-reported age</strong>
+          <p className="aura-muted">
+            Each submission includes a selfie and an ID photo — load them below to compare. Anything you haven&apos;t decided on within an hour of submission is checked automatically (see api/escalate-verifications.js) and disappears from this list either way.
+          </p>
+          {verificationRequests.filter((r) => r.status === 'pending').length === 0 ? <p className="aura-muted">No pending verification requests.</p> : verificationRequests.filter((r) => r.status === 'pending').map((r) => {
+            const submittedMs = r.submittedAt?.toMillis?.() || 0;
+            const minutesAgo = submittedMs ? Math.round((Date.now() - submittedMs) / 60000) : null;
+            const minutesLeft = minutesAgo === null ? null : Math.max(0, 60 - minutesAgo);
+            const imageState = loadedImages[r.id];
+            return (
+              <div key={r.id} className="aura-row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--aura-border)', padding: '12px 0', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <strong>{r.id.slice(0, 10)}</strong>
+                  <div className="aura-muted">Age {r.age || '—'} · {r.gender || '—'}</div>
+                  {minutesAgo !== null && (
+                    <div className="aura-muted" style={{ fontSize: '0.82rem' }}>
+                      Submitted {minutesAgo < 1 ? 'just now' : `${minutesAgo}m ago`}
+                      {minutesLeft !== null && minutesLeft > 0 && ` · auto-checked in ~${minutesLeft}m if left unreviewed`}
+                    </div>
+                  )}
+
+                  {!imageState && (
+                    <button type="button" className="aura-btn aura-btn-secondary" style={{ marginTop: 8 }} onClick={() => loadImages(r.id)} data-testid={`load-images-${r.id}`}>
+                      View photos
+                    </button>
+                  )}
+                  {imageState?.loading && <p className="aura-muted" style={{ fontSize: '0.82rem' }}>Loading…</p>}
+                  {imageState?.error && <p className="aura-muted" style={{ fontSize: '0.82rem' }}>{imageState.error}</p>}
+                  {imageState && !imageState.loading && !imageState.error && (
+                    <div className="aura-row" style={{ gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+                      <div>
+                        <div className="aura-muted" style={{ fontSize: '0.75rem' }}>Selfie</div>
+                        <img
+                          src={`data:${imageState.selfieMimeType || 'image/jpeg'};base64,${imageState.selfieBase64}`}
+                          alt="Submitted selfie"
+                          style={{ width: 140, borderRadius: 8, display: 'block' }}
+                        />
+                      </div>
+                      <div>
+                        <div className="aura-muted" style={{ fontSize: '0.75rem' }}>ID document</div>
+                        <img
+                          src={`data:${imageState.idMimeType || 'image/jpeg'};base64,${imageState.idBase64}`}
+                          alt="Submitted ID document"
+                          style={{ width: 200, borderRadius: 8, display: 'block' }}
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
-                {Array.isArray(r.ocrConcerns) && r.ocrConcerns.length > 0 && (
-                  <div className="aura-muted" style={{ fontSize: '0.82rem' }}>Flagged: {r.ocrConcerns.join(', ')}</div>
-                )}
+                <div className="aura-row"><button type="button" className="aura-btn aura-btn-secondary" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'declined')}>Decline</button><button type="button" className="aura-btn" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'approved')}>Approve</button></div>
               </div>
-              <div className="aura-row"><button type="button" className="aura-btn aura-btn-secondary" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'declined')}>Decline</button><button type="button" className="aura-btn" disabled={busyId === r.id} onClick={() => reviewVerification(r, 'approved')}>Approve</button></div>
-            </div>
-          ))}
+            );
+          })}
         </section>
         {reports.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}>

@@ -7,7 +7,7 @@ import {
 } from '../lib/firebaseClient';
 import { doc, getDoc, setDoc, onSnapshot, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
-import { submitIdentityDocument } from '../lib/verificationService';
+import { submitVerification } from '../lib/verificationService';
 import { useAuthUid } from '../hooks/useAuthUid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import SelfieVerification from '../components/SelfieVerification';
@@ -40,6 +40,11 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  // TIGHTENED, per explicit request: no more either/or fast path. Every
+  // submission needs both a live selfie and an ID document together — see
+  // the matching change in MatchFinder.jsx and the header comment in
+  // api/verify-submission.js.
+  const [selfieBase64, setSelfieBase64] = useState('');
   const [verificationFile, setVerificationFile] = useState(null);
   // TIGHTENED, per explicit request: verification now gates the whole app,
   // not just Match Finder — so this screen is no longer skippable once an
@@ -264,26 +269,34 @@ export default function Login() {
     }
   };
 
-  // Runs only from the post-signup step below, once users/{uid} is
+  // Runs only from the verification step below, once users/{uid} is
   // guaranteed to already exist (see the FIXED comment in handleLogin).
-  const handleVerifyDocument = async () => {
+  const handleVerifySubmission = async () => {
     setVerifyError('');
     setVerifyMessage('');
+    if (!selfieBase64) {
+      setVerifyError('Capture a selfie first.');
+      return;
+    }
     if (!verificationFile) {
-      setVerifyError('Choose a clear photo of a government-issued ID first.');
+      setVerifyError('Choose a clear photo of a government-issued ID.');
       return;
     }
     setVerifying(true);
     try {
-      const result = await submitIdentityDocument({
-        userId, file: verificationFile, age: Number(age), gender,
+      const result = await submitVerification({
+        userId, selfieBase64, idFile: verificationFile, age: Number(age), gender,
       });
-      if (result.status === 'approved') {
-        setVerifyMessage("You're verified! Match Finder is unlocked.");
-      } else if (result.status === 'declined') {
-        setVerifyError(result.declineReason || 'This document was declined. You can try again with a clearer photo.');
+      if (result.alreadyVerified) {
+        setVerifyMessage("You're already verified! Continuing now.");
       } else {
-        setVerifyMessage('Document received. A reviewer will finish checking it shortly — Match Finder will unlock automatically once approved.');
+        // Nothing decides instantly anymore — see api/verify-submission.js.
+        // The live listener above will pick up the eventual decision
+        // (by a human, or by api/escalate-verifications.js after an
+        // hour) and continue on its own.
+        setVerifyMessage('Submitted for review. Most requests are reviewed within an hour — this continues automatically once approved.');
+        setSelfieBase64('');
+        setVerificationFile(null);
       }
     } catch (err) {
       console.error('identity verification submission failed', err);
@@ -307,7 +320,7 @@ export default function Login() {
 
             {requestStatus === 'pending' && (
               <p role="alert" className="aura-login-error" data-testid="login-verify-pending" style={{ margin: '0 0 12px' }}>
-                Your document is being reviewed. This continues automatically once it's approved — no need to resubmit or refresh.
+                Your submission is being reviewed. This continues automatically once it's approved — no need to resubmit or refresh.
               </p>
             )}
             {requestStatus === 'declined' && (
@@ -321,12 +334,16 @@ export default function Login() {
                 You haven&apos;t completed verification yet — nothing past this screen is accessible until you do.
               </p>
             )}
+            <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '0 0 12px' }}>
+              A selfie and an ID document, reviewed together — usually by a person within an hour, automatically if not. Both images are kept only until your request is decided, then deleted.
+            </p>
 
             <div className="aura-field">
-              <SelfieVerification userId={userId} age={age} gender={gender} />
+              <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
 
-              <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 8px' }}>Or submit an ID document — always works, no camera needed:</p>
+              <label className="aura-field-label" htmlFor="login-verification-file">Government-issued ID photo</label>
               <input
+                id="login-verification-file"
                 className="aura-input"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
@@ -334,8 +351,8 @@ export default function Login() {
                 disabled={verifying}
                 data-testid="login-verification-file"
               />
-              <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerifyDocument} disabled={verifying || !verificationFile} data-testid="login-verify-btn">
-                {verifying ? 'Checking…' : 'Submit verification'}
+              <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerifySubmission} disabled={verifying || !verificationFile || !selfieBase64} data-testid="login-verify-btn">
+                {verifying ? 'Submitting…' : 'Submit verification'}
               </button>
               {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
               {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}

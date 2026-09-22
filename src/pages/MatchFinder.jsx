@@ -19,7 +19,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import { AVATAR_COLORS } from '../constants/moods';
-import { submitIdentityDocument } from '../lib/verificationService';
+import { submitVerification } from '../lib/verificationService';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
@@ -53,14 +53,22 @@ export default function MatchFinder() {
   const [age, setAge] = useState('');
   const [ageConsent, setAgeConsent] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  // TIGHTENED, per explicit request: verification is no longer either/or
+  // (a fast selfie check OR a document upload). Every submission now
+  // needs BOTH — a live-captured selfie AND an ID document file — held
+  // here until the person is ready to send them together. See
+  // SelfieVerification.jsx (now capture-only, no independent submit) and
+  // api/verify-submission.js.
+  const [selfieBase64, setSelfieBase64] = useState('');
   const [verificationFile, setVerificationFile] = useState(null);
   const [verifyError, setVerifyError] = useState('');
   const [verifyMessage, setVerifyMessage] = useState('');
   // The live status of this person's OWN verificationRequests/{uid} doc —
   // separate from user.verificationStatus, which only ever reflects the
   // last COMPLETED review. This tracks a request that's still 'pending'
-  // (submitted, AI inconclusive, waiting on a human) or was 'declined', so
-  // the gate below can say something more useful than a blank form.
+  // (submitted, waiting on a human or the hourly AI fallback) or was
+  // 'declined', so the gate below can say something more useful than a
+  // blank form.
   const [requestStatus, setRequestStatus] = useState(null);
   const [requestDeclineReason, setRequestDeclineReason] = useState('');
   useEffect(() => {
@@ -81,8 +89,12 @@ export default function MatchFinder() {
   const handleVerify = async () => {
     setVerifyError('');
     setVerifyMessage('');
+    if (!selfieBase64) {
+      setVerifyError('Capture a selfie first.');
+      return;
+    }
     if (!verificationFile) {
-      setVerifyError('Choose a clear photo of a government-issued ID first.');
+      setVerifyError('Choose a clear photo of a government-issued ID.');
       return;
     }
     if (!userId) {
@@ -90,29 +102,29 @@ export default function MatchFinder() {
       return;
     }
     if (!age || Number(age) < MIN_MATCH_AGE) {
-      setVerifyError(`Enter your age above (${MIN_MATCH_AGE}+) before submitting a document — it's checked against what's printed on the ID.`);
+      setVerifyError(`Enter your age above (${MIN_MATCH_AGE}+) before submitting — it's checked against what's printed on the ID.`);
       return;
     }
     if (!gender) {
-      setVerifyError('Choose a gender above before submitting a document.');
+      setVerifyError('Choose a gender above before submitting.');
       return;
     }
     setVerifying(true);
     try {
-      const result = await submitIdentityDocument({
-        userId, file: verificationFile, age: Number(age), gender,
+      const result = await submitVerification({
+        userId, selfieBase64, idFile: verificationFile, age: Number(age), gender,
       });
-      // The server (see api/verify-document.js) may have already decided —
-      // Groq's vision check often resolves in a few seconds — so reflect
-      // whatever came back rather than always saying "we'll be in touch".
-      // The onSnapshot listener above will also pick this up, but showing
-      // it immediately avoids a UI that looks stuck while that arrives.
-      if (result.status === 'approved') {
-        setVerifyMessage("You're verified! Match Finder is unlocking now.");
-      } else if (result.status === 'declined') {
-        setVerifyError(result.declineReason || 'This document was declined. You can try again with a clearer photo.');
+      if (result.alreadyVerified) {
+        setVerifyMessage("You're already verified! This page will unlock now.");
       } else {
-        setVerifyMessage('Document received. A reviewer will finish checking it shortly — this page will unlock automatically once approved.');
+        // Nothing decides instantly anymore — every submission goes to a
+        // human first, with an automatic AI fallback after an hour of no
+        // action (see api/escalate-verifications.js). The onSnapshot
+        // listener above will pick up whatever the eventual decision is
+        // and unlock this page on its own; no need to poll or refresh.
+        setVerifyMessage('Submitted for review. Most requests are reviewed within an hour — this page will unlock automatically once approved.');
+        setSelfieBase64('');
+        setVerificationFile(null);
       }
     } catch (err) {
       console.error('identity verification submission failed', err);
@@ -121,6 +133,7 @@ export default function MatchFinder() {
       setVerifying(false);
     }
   };
+
 
 
   const [gender, setGender] = useState('');
@@ -580,12 +593,12 @@ export default function MatchFinder() {
           <div className="aura-card aura-section fade-in" data-testid="match-verify-gate">
             <h2 className="aura-title">Verify your age to use Match Finder</h2>
             <p className="aura-muted" style={{ margin: '0 0 12px' }}>
-              Match Finder connects you with real people, so it's the one activity on Aura that requires age verification. Try the quick selfie check below, or upload a clear photo of a government-issued ID — either is checked automatically and usually confirmed within a few seconds; anything unclear goes to a human reviewer. Nothing you submit is stored.
+              Match Finder connects you with real people, so it's the one activity on Aura that requires age verification. Capture a selfie and upload a photo of a government-issued ID — a real person reviews the two together, usually within an hour; anything not reviewed by hand within that hour is checked automatically. Both images are kept only until your request is decided, then deleted.
             </p>
 
             {requestStatus === 'pending' && (
               <p role="alert" className="aura-login-error" data-testid="match-verify-pending" style={{ margin: '0 0 12px' }}>
-                Your document is being reviewed. This page will unlock automatically once it's approved — no need to resubmit or refresh.
+                Your submission is being reviewed. This page will unlock automatically once it's approved — no need to resubmit or refresh.
               </p>
             )}
             {requestStatus === 'declined' && (
@@ -633,19 +646,22 @@ export default function MatchFinder() {
               </div>
             </div>
 
-            <SelfieVerification userId={userId} age={age} gender={gender} />
+            <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
 
-            <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '2px 0 8px' }}>Or submit an ID document — always works, no camera needed:</p>
-            <input
-              className="aura-input"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
-              disabled={verifying}
-              data-testid="match-verification-file"
-            />
-            <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerify} disabled={verifying || !verificationFile} data-testid="match-verify-btn">
-              {verifying ? 'Checking…' : 'Submit verification'}
+            <div className="aura-field">
+              <label className="aura-field-label" htmlFor="match-verification-file">Government-issued ID photo</label>
+              <input
+                id="match-verification-file"
+                className="aura-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+                disabled={verifying}
+                data-testid="match-verification-file"
+              />
+            </div>
+            <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerify} disabled={verifying || !verificationFile || !selfieBase64} data-testid="match-verify-btn">
+              {verifying ? 'Submitting…' : 'Submit verification'}
             </button>
             {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
             {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
