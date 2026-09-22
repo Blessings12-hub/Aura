@@ -60,6 +60,13 @@ export default function MatchFinder() {
   // SelfieVerification.jsx (now capture-only, no independent submit) and
   // api/verify-submission.js.
   const [selfieBase64, setSelfieBase64] = useState('');
+  // TIGHTENED, per explicit request to handle the image-storage change
+  // safely: unlike every other action on Aura, this one involves storing
+  // sensitive images, even temporarily. Requiring an explicit, informed
+  // opt-in BEFORE the camera or file picker even opens — not just before
+  // the final submit — means nothing gets captured at all until the
+  // person has actually seen and agreed to what happens with it.
+  const [verifyConsent, setVerifyConsent] = useState(false);
   const [verificationFile, setVerificationFile] = useState(null);
   const [verifyError, setVerifyError] = useState('');
   const [verifyMessage, setVerifyMessage] = useState('');
@@ -646,23 +653,40 @@ export default function MatchFinder() {
               </div>
             </div>
 
-            <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
-
-            <div className="aura-field">
-              <label className="aura-field-label" htmlFor="match-verification-file">Government-issued ID photo</label>
+            <label className="aura-field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }} data-testid="match-verify-consent-label">
               <input
-                id="match-verification-file"
-                className="aura-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
-                disabled={verifying}
-                data-testid="match-verification-file"
+                type="checkbox"
+                checked={verifyConsent}
+                onChange={(e) => setVerifyConsent(e.target.checked)}
+                style={{ marginTop: 3 }}
+                data-testid="match-verify-consent-checkbox"
               />
-            </div>
-            <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerify} disabled={verifying || !verificationFile || !selfieBase64} data-testid="match-verify-btn">
-              {verifying ? 'Submitting…' : 'Submit verification'}
-            </button>
+              <span className="aura-muted" style={{ fontSize: '0.82rem' }}>
+                I understand my selfie and ID photo will be stored temporarily so they can be reviewed, and deleted as soon as my request is decided.
+              </span>
+            </label>
+
+            {verifyConsent && (
+              <>
+                <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
+
+                <div className="aura-field">
+                  <label className="aura-field-label" htmlFor="match-verification-file">Government-issued ID photo</label>
+                  <input
+                    id="match-verification-file"
+                    className="aura-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+                    disabled={verifying}
+                    data-testid="match-verification-file"
+                  />
+                </div>
+                <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerify} disabled={verifying || !verificationFile || !selfieBase64} data-testid="match-verify-btn">
+                  {verifying ? 'Submitting…' : 'Submit verification'}
+                </button>
+              </>
+            )}
             {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
             {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
           </div>

@@ -46,6 +46,9 @@ export default function Login() {
   // api/verify-submission.js.
   const [selfieBase64, setSelfieBase64] = useState('');
   const [verificationFile, setVerificationFile] = useState(null);
+  // See the matching comment in MatchFinder.jsx — explicit opt-in required
+  // before the camera or file picker even opens, not just before submit.
+  const [verifyConsent, setVerifyConsent] = useState(false);
   // TIGHTENED, per explicit request: verification now gates the whole app,
   // not just Match Finder — so this screen is no longer skippable once an
   // account exists. showVerificationStep covers both a brand-new signup
@@ -339,21 +342,38 @@ export default function Login() {
             </p>
 
             <div className="aura-field">
-              <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
+              <label className="aura-field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: 0 }} data-testid="login-verify-consent-label">
+                <input
+                  type="checkbox"
+                  checked={verifyConsent}
+                  onChange={(e) => setVerifyConsent(e.target.checked)}
+                  style={{ marginTop: 3 }}
+                  data-testid="login-verify-consent-checkbox"
+                />
+                <span className="aura-muted" style={{ fontSize: '0.82rem' }}>
+                  I understand my selfie and ID photo will be stored temporarily so they can be reviewed, and deleted as soon as my request is decided.
+                </span>
+              </label>
 
-              <label className="aura-field-label" htmlFor="login-verification-file">Government-issued ID photo</label>
-              <input
-                id="login-verification-file"
-                className="aura-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
-                disabled={verifying}
-                data-testid="login-verification-file"
-              />
-              <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerifySubmission} disabled={verifying || !verificationFile || !selfieBase64} data-testid="login-verify-btn">
-                {verifying ? 'Submitting…' : 'Submit verification'}
-              </button>
+              {verifyConsent && (
+                <>
+                  <SelfieVerification captured={!!selfieBase64} onCapture={setSelfieBase64} onRetake={() => setSelfieBase64('')} />
+
+                  <label className="aura-field-label" htmlFor="login-verification-file">Government-issued ID photo</label>
+                  <input
+                    id="login-verification-file"
+                    className="aura-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => { setVerificationFile(event.target.files?.[0] || null); setVerifyError(''); setVerifyMessage(''); }}
+                    disabled={verifying}
+                    data-testid="login-verification-file"
+                  />
+                  <button type="button" className="aura-btn aura-btn-primary" style={{ marginTop: 10 }} onClick={handleVerifySubmission} disabled={verifying || !verificationFile || !selfieBase64} data-testid="login-verify-btn">
+                    {verifying ? 'Submitting…' : 'Submit verification'}
+                  </button>
+                </>
+              )}
               {verifyMessage && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }}>{verifyMessage}</p>}
               {verifyError && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{verifyError}</p>}
             </div>

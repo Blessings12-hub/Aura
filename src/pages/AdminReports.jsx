@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, Timestamp, COLLECTIONS, db,
+  collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, Timestamp, COLLECTIONS, db,
 } from '../lib/firestoreClient';
 import { ShieldAlert, Check, Trash2, Ban, ShieldOff } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -39,6 +39,17 @@ export default function AdminReports() {
     setLoadedImages((prev) => ({ ...prev, [uid]: { loading: true } }));
     try {
       const snap = await getDoc(doc(db, 'verificationImages', uid));
+      // Logged BEFORE checking whether images actually still exist — the
+      // access attempt itself (an admin choosing to view this person's
+      // photos) is what's being recorded, not just successful views. This
+      // never blocks or fails the actual photo load; if the log write
+      // fails for some reason, viewing photos still works, it just won't
+      // have been recorded that time.
+      addDoc(collection(db, 'verificationImageAccessLog'), {
+        adminId: userId,
+        subjectUid: uid,
+        viewedAt: Timestamp.now(),
+      }).catch((err) => console.error('access log write failed', err));
       if (!snap.exists()) {
         setLoadedImages((prev) => ({ ...prev, [uid]: { error: 'No photos on file — likely already reviewed and cleaned up, or the automatic hourly check already handled this one.' } }));
         return;
