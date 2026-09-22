@@ -1,111 +1,80 @@
-# Aura — safety hardening + cron secret + admin setup
+# Aura — standalone admin panel (outside the app)
 
-Answering your three follow-ups. Files below are the FULL updated set —
-this supersedes the previous zip entirely, apply this one on its own
-rather than layering it on top.
+Two files: `api/admin-panel.js` (secured endpoint) and
+`public/admin-panel.html` (the page itself — plain static HTML, no build
+step, no React, no Firebase Auth). Once deployed it's live at:
 
----
+**https://aura-blush-zeta.vercel.app/admin-panel.html**
 
-## 1. "Make it safe" — what actually changed
+## Setup
 
-**Retention cut from 48h to 24h.** The backstop sweep (for anything that
-somehow stays undecided across many hourly runs) now deletes images after
-24 hours instead of 48. Normal operation never reaches this anyway — a
-request is either decided within an hour or two (images deleted
-immediately either way) or retried every hour until it is.
-
-**Explicit informed consent, before anything is even captured.** Both
-Login and Match Finder now show a checkbox — "I understand my selfie and
-ID photo will be stored temporarily so they can be reviewed, and deleted
-as soon as my request is decided" — and the camera/file picker don't even
-appear until it's checked. This isn't just a submit-time disclaimer; the
-consent gate sits before any capture happens at all.
-
-**An access log — who looked at whose photos, and when.** New
-`verificationImageAccessLog` collection: every time an admin clicks "View
-photos" in Admin Reports, it's recorded (`adminId`, `subjectUid`,
-`viewedAt`) — before the photos even finish loading, so the access
-attempt itself is what's logged. Write-only from the app's side; nobody
-reads it through the client, it's there for you to check directly in the
-Firebase Console if you ever need to. Each admin can only write a record
-of their own access and can never edit or delete an entry afterward, so
-it can't be tampered with after the fact.
-
-**Worth saying plainly: I can hurt harden the engineering, I can't rule on
-the legal question.** These changes reduce the exposure window and add
-accountability, which is what's actually in my control. Whether 24 hours,
-this consent language, and this access log actually satisfy Zambia's Data
-Protection Act (or wherever else your users are) is a real legal
-question — genuinely worth a real check, not something I can certify from
-here.
-
----
-
-## 2. Where to get the cron secret
-
-I generated one — cryptographically random, nothing to design yourself:
+Generate a secret, same idea as `CRON_SECRET` — here's one ready to use:
 
 ```
-ab52f37977dd9420cef8c4fb8b52d032038a8580be2c21eee4e84b133ba92101
+ea2b9ebcce6bca10c50b8538892bdc1521ae9b5998fcebc43cb5d0077e990cec
 ```
 
-Put this **exact same value** in two places:
+Add it to Vercel → Settings → Environment Variables as
+**`ADMIN_PANEL_SECRET`**, then redeploy. That's the only setup step. No
+Firestore `admins` collection, no signing into Aura itself, nothing tied
+to a browser or device — just this one page and this one secret.
 
-1. **Vercel**: your project → Settings → Environment Variables → Add New
-   → Name: `CRON_SECRET`, Value: the string above → Save → redeploy.
-2. **GitHub**: your repo → Settings → Secrets and variables → Actions →
-   New repository secret → Name: `CRON_SECRET`, Value: the same string →
-   Add secret.
+Open the URL above, paste the secret in once (it's remembered in that
+browser after), and you'll see the same pending queue as the in-app Admin
+Reports screen: age/gender, how long ago it was submitted, a "View
+photos" button that loads the selfie + ID on demand, and Approve/Decline.
+Either button does exactly what the in-app version does — writes the
+decision, deletes the stored images immediately, and notifies the
+applicant.
 
-Both steps are plain web pages, no terminal needed. If you ever want a
-fresh one later, any password generator's "64 random hex characters"
-option works the same way — this isn't a one-time-use value tied to
-anything else, it just needs to match in both places.
+**This is a second door into the same room, not a separate system** — it
+reads and writes the exact same Firestore documents as everything else
+already built. Use whichever is more convenient at the time; they'll
+never conflict since a request only gets decided once regardless of
+which path does it.
 
----
-
-## 3. Setting yourself up as an admin
-
-1. Open **Account Settings** in Aura (this patch adds a new "Your account
-   ID" card at the top of that screen) and copy your account ID.
-2. Go to **console.firebase.google.com** on your phone or computer →
-   select the Aura project → **Firestore Database** → **Data** tab.
-3. If there's no `admins` collection yet, click **Start collection**,
-   name it exactly `admins`.
-4. For the **Document ID**, paste your copied account ID — don't use
-   "Auto-ID", it has to be exactly your ID.
-5. Add any one field to the document — the content doesn't matter, only
-   that the document exists (`firestore.rules`' `isAdmin()` just checks
-   `exists(...)`). A field like `role` (string) = `owner` is fine.
-6. Save. Reload Aura, go to `/aura/admin/reports` — you should now see
-   the review queue.
-
-**One real risk worth knowing before you rely on this:** Aura signs
-people in anonymously — there's no email or password behind your account
-ID, it's tied to this specific browser/device. If you ever clear this
-browser's storage, or open Aura fresh on a different device, that account
-(and the admin access tied to it) is gone with no recovery path — unless
-you'd linked a Google account first. Account Settings already has a "link
-Google account" option from earlier in this build; worth doing that
-*before* you're depending on admin access, not after you've lost it.
+**Treat that secret like a password.** Anyone who has it can approve or
+decline any pending request. It's deliberately a different value from
+`CRON_SECRET` — this one gets typed into a browser and sits in that
+browser's localStorage, a different exposure profile than a value that
+only ever lives inside Vercel/GitHub's own secret stores.
 
 ---
 
-## Files (complete set, all 15)
+## Why the automatic hour-later approval hasn't fired
 
-| File | |
-|---|---|
-| `api/verify-submission.js` | Intake — stores both images, notifies admins |
-| `api/escalate-verifications.js` | Hourly AI fallback + 24h backstop sweep (was 48h) |
-| `api/verify-document.js` | Retired, stubbed to 410 |
-| `api/verify-selfie.js` | Retired, stubbed to 410 |
-| `.github/workflows/verification-escalation.yml` | Hourly trigger |
-| `firestore.indexes.json` | Composite index the escalation query needs |
-| `firebase.json` | References the indexes file |
-| `firestore.rules` | `verificationImages` + new `verificationImageAccessLog` |
-| `src/lib/verificationService.js` | Unified `submitVerification` |
-| `src/components/SelfieVerification.jsx` | Capture-only, no independent decide |
-| `src/pages/MatchFinder.jsx` | Consent gate + unified selfie+ID submission |
-| `src/pages/Login.jsx` | Same, in the verification step |
-| `src/pages/AdminReports.jsx` | Photo review + access logging + notify-on-decision |
-| `src/pages/AccountSettings.jsx` | New "Your account ID" card + prior age/gender editor |
+Worth checking these in order — I can't see your GitHub/Vercel dashboards,
+so this is where to look rather than something I can diagnose blind:
+
+1. **Did the GitHub Actions workflow actually run at all?** Your repo →
+   Actions tab → look for "Verification escalation" in the list. If it's
+   not there, the workflow file (`.github/workflows/verification-escalation.yml`
+   from the earlier patch) may not have been pushed/merged to your default
+   branch yet — scheduled workflows only trigger once the file exists there.
+   You can also trigger it manually right now: open the workflow in the
+   Actions tab → "Run workflow" button (this works because the file
+   includes `workflow_dispatch`) — no need to wait for the next hour to
+   test it.
+
+2. **If it ran but shows as failed** (red X in the Actions tab), click
+   into that run and read the logged response — the workflow prints the
+   HTTP status and body from `api/escalate-verifications.js`. The most
+   likely causes, both self-explanatory once you see the actual error:
+   - `CRON_SECRET` mismatched or missing in one of the two places (Vercel
+     env var / GitHub repo secret) — shows as `401 Unauthorized`.
+   - The Firestore composite index from `firestore.indexes.json` was
+     never deployed — shows as an index-required error with a direct link
+     to create it.
+
+3. **If it ran successfully (green check) but nothing got decided:**
+   check whether `GROQ_API_KEY` is actually set in Vercel. This is a
+   silent one by design — if it's missing, `analyzeSubmission()` returns
+   `null`, the decision logic has nothing to act on, and the request just
+   stays `pending` forever with no error anywhere. The workflow would show
+   success (the endpoint ran fine, it just had nothing to decide with).
+
+The standalone panel above works regardless of which of these turns out
+to be the cause — it doesn't depend on the GitHub Action, `CRON_SECRET`,
+or `GROQ_API_KEY` at all, only `ADMIN_PANEL_SECRET` and Firebase
+credentials that are already working (confirmed, since the rest of
+verification is functioning).
