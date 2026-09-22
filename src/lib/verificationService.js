@@ -1,29 +1,24 @@
 // src/lib/verificationService.js
 //
-// Sends the ID photo to /api/verify-document, which runs it past OCR.space
-// and Groq's vision model and writes the decision straight to Firestore
-// itself (see the header comment in that file for why). This module does
-// two things only: shrink the image so it doesn't blow past Vercel's
-// request-body limit, and make the authenticated request.
-//
-// This file used to ALSO write the OCR result to Firestore itself
-// (setDoc(verificationRequests, { ocrStatus, ... })). That's gone — the
-// server is now the only writer, which is both simpler and closes a real
-// hole: a client could previously fabricate its own "OCR result" by writing
-// directly. See firestore.rules, verificationRequests, for the matching
-// tightening.
+// One function now: submitVerification. It sends BOTH a selfie and an ID
+// photo together to /api/verify-submission, which stores them and queues
+// the request for review — either by hand (Admin Reports) or, an hour
+// later, automatically (api/escalate-verifications.js). Nothing decides
+// anything at submission time anymore; see that endpoint's header comment
+// for the full reasoning on why the old instant-approval fast path was
+// retired.
 import { ensureFirebaseSession, requireFirebase } from './firebaseClient';
 
-// IDs need more resolution than the 320px avatar photo (resizePhotoToDataUrl
-// in photoUpload.js) — small printed text like a date of birth has to stay
-// legible after resizing, both for OCR.space's regex pass and for Groq's
-// vision model. 1400px on the long edge is a reasonable middle ground: a
-// typical 12MP phone photo of an ID (often 6-10MB as JPEG) comes down to
-// somewhere around a few hundred KB at this size and quality, comfortably
-// inside Vercel's default ~4.5MB function body limit even after base64's
-// ~33% size overhead.
-const MAX_DIMENSION = 1400;
-const JPEG_QUALITY = 0.85;
+// IDs need more resolution than a face does — small printed text like a
+// date of birth has to stay legible after resizing. But this now also has
+// to share a combined ~700KB budget with the selfie inside ONE Firestore
+// document (see MAX_COMBINED_BYTES in api/verify-submission.js — Firestore
+// caps a document at 1 MiB total), which the old document-only flow never
+// had to worry about. 1100px/0.8 quality is a deliberately tighter budget
+// than this project used before, chosen to leave real headroom under that
+// cap rather than sitting right at the edge of it.
+const MAX_DIMENSION = 1100;
+const JPEG_QUALITY = 0.8;
 
 function resizeIdPhoto(file) {
   return new Promise((resolve, reject) => {
@@ -55,10 +50,10 @@ function resizeIdPhoto(file) {
 }
 
 // Turns a captured video frame into a compressed base64 JPEG. Faces don't
-// need the resolution an ID's printed text does, so this stays smaller than
-// resizeIdPhoto — smaller upload, less Groq bandwidth, faster round trip.
+// need the resolution an ID's printed text does, so this stays smaller —
+// less to store, less for Groq to process.
 const SELFIE_MAX_DIMENSION = 900;
-const SELFIE_JPEG_QUALITY = 0.85;
+const SELFIE_JPEG_QUALITY = 0.8;
 
 export function captureVideoFrameAsBase64(videoEl) {
   const scale = Math.min(1, SELFIE_MAX_DIMENSION / Math.max(videoEl.videoWidth, videoEl.videoHeight));
@@ -72,28 +67,36 @@ export function captureVideoFrameAsBase64(videoEl) {
   return canvas.toDataURL('image/jpeg', SELFIE_JPEG_QUALITY).split(',')[1] || '';
 }
 
-// The fast, conservative first pass described in api/verify-selfie.js — can
-// only ever come back approved or "not confident, use the document upload
-// instead". It never declines anyone and never touches verificationRequests
-// beyond rate-limit bookkeeping unless it approves. See that file for why.
-export async function submitSelfieCheck({
-  userId, fileBase64, age, gender,
+// selfieBase64 comes from captureVideoFrameAsBase64 (already a compressed
+// JPEG); idFile is the raw File from a <input type="file">, resized here.
+// age/gender are re-validated server-side regardless of what's sent.
+export async function submitVerification({
+  userId, selfieBase64, idFile, age, gender,
 }) {
   requireFirebase();
-  if (!fileBase64 || !userId) throw new Error('A photo is required.');
+  if (!selfieBase64) throw new Error('A selfie photo is required.');
+  if (!idFile) throw new Error('An ID document is required.');
+  if (!userId) throw new Error('You need to be signed in to verify.');
 
   const user = await ensureFirebaseSession();
   if (!user) throw new Error('You need to be signed in to verify.');
 
   const idToken = await user.getIdToken();
-  const response = await fetch('/api/verify-selfie', {
+  const idBase64 = await resizeIdPhoto(idFile);
+
+  const response = await fetch('/api/verify-submission', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({
-      fileBase64, mimeType: 'image/jpeg', age: Number(age), gender,
+      selfieBase64,
+      selfieMimeType: 'image/jpeg',
+      idBase64,
+      idMimeType: 'image/jpeg',
+      age: Number(age),
+      gender,
     }),
   });
 
@@ -105,56 +108,11 @@ export async function submitSelfieCheck({
     } catch {
       detail = `HTTP ${response.status}`;
     }
-    throw new Error(detail || 'Could not run the selfie check.');
+    throw new Error(detail || 'Verification could not be submitted.');
   }
 
-  // { approved: boolean, alreadyVerified?: boolean, reason?: 'no_single_face' | 'inconclusive' | 'unavailable' }
-  return response.json();
-}
-
-// age/gender are the values the person entered on the form calling this
-// (Login or MatchFinder) — the server re-validates both and stores them on
-// the request record; nothing here trusts the client's OCR opinion, because
-// there isn't one anymore.
-export async function submitIdentityDocument({
-  userId, file, age, gender,
-}) {
-  requireFirebase();
-  if (!file || !userId) throw new Error('A verification document is required.');
-
-  const user = await ensureFirebaseSession();
-  if (!user) throw new Error('You need to be signed in to verify.');
-
-  const idToken = await user.getIdToken();
-  const fileBase64 = await resizeIdPhoto(file);
-
-  const response = await fetch('/api/verify-document', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({
-      fileBase64, mimeType: 'image/jpeg', age: Number(age), gender,
-    }),
-  });
-
-  if (!response.ok) {
-    let detail = '';
-    try {
-      const body = await response.json();
-      detail = body?.error || '';
-    } catch {
-      detail = response.status === 404
-        ? 'the /api/verify-document endpoint was not found — run `vercel dev` rather than `vite` if you are testing locally'
-        : `HTTP ${response.status}`;
-    }
-    throw new Error(detail || 'Verification could not process this document.');
-  }
-
-  // { status: 'approved' | 'declined' | 'pending', dateOfBirth, confidence,
-  //   concerns, declineReason } — the server has already written this to
-  // Firestore; the caller uses the return value purely to show an
-  // immediate message without waiting on a snapshot listener to catch up.
+  // { status: 'pending' } on a normal submission, or
+  // { status: 'approved', alreadyVerified: true } if they were already
+  // verified and this call was redundant.
   return response.json();
 }
