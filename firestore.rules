@@ -158,27 +158,50 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // MANUAL VERIFICATION — users may submit/read their own request;
-    // only allowlisted admins may review it. Documents and ID images are
-    // intentionally not stored here; reviewers use an approved private
-    // process outside the public profile data model.
+    // MANUAL VERIFICATION — users submit through api/verify-submission.js
+    // (Admin SDK, not subject to these rules); only allowlisted admins may
+    // review it. This document itself never holds images — see
+    // verificationImages below for those, which is a deliberately
+    // separate, tighter-scoped collection.
     // ------------------------------------------------------------------
     match /verificationRequests/{uid} {
       allow get: if isOwner(uid) || isAdmin();
       allow list: if isAdmin();
-      // TIGHTENED: a client can no longer create or update this document at
-      // all, including its own 'pending' status or an OCR/AI result. Every
-      // write now comes from api/verify-document.js using the Firebase Admin
-      // SDK, which isn't subject to these rules in the first place — so this
-      // isn't loosening anything, it's closing the door that used to let a
-      // client forge its own verification result (e.g. writing
-      // ocrConfidence: 1 directly). The owner can still read their own
-      // request to show status, and withdraw it.
+      // A client can't create or update this document at all — every
+      // write comes from the server (api/verify-submission.js or
+      // api/escalate-verifications.js) via the Admin SDK, which isn't
+      // subject to these rules in the first place. This closes the door
+      // that would otherwise let a client forge its own verification
+      // result. The owner can still read their own request to show
+      // status, and withdraw it.
       allow create: if false;
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewerId'])
         && request.resource.data.status in ['approved', 'declined'];
       allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // VERIFICATION IMAGES — the selfie + ID photo submitted together for
+    // manual review, base64-encoded. Deliberately its own collection, not
+    // fields on verificationRequests: everything else in that document is
+    // read constantly (the owner's own live status listener, the admin
+    // queue list); keeping the actual image payloads elsewhere means none
+    // of those reads ever pull image bytes they don't need.
+    //
+    // This is temporary storage, not permanent: api/verify-submission.js
+    // writes it, a decision (by an admin or by api/escalate-verifications.js
+    // after an hour of inaction) deletes it immediately, and anything that
+    // somehow survives past 48h gets swept by the same escalation job as a
+    // backstop. No client ever creates, updates, or deletes this directly —
+    // only the server, and even an admin only ever reads it, never writes.
+    // The owner of the images themselves cannot read this collection at
+    // all: they already know what they submitted, and there is no product
+    // reason for them to re-view it, so read access is admin-only.
+    // ------------------------------------------------------------------
+    match /verificationImages/{uid} {
+      allow get: if isAdmin();
+      allow list, create, update, delete: if false;
     }
 
     // ------------------------------------------------------------------
