@@ -1,35 +1,32 @@
 // src/components/SelfieVerification.jsx
 //
-// One component, used from both Login.jsx and MatchFinder.jsx, so the
-// camera-handling logic exists exactly once. It is entirely self-contained:
-// it manages its own camera stream and result message, and needs nothing
-// back from its parent, because the actual outcome (an approval) is written
-// server-side and arrives back through Firestore listeners that already
-// exist elsewhere — useCurrentUser's onSnapshot on users/{uid}, and
-// MatchFinder's onSnapshot on verificationRequests/{uid}. This component's
-// only job is to run the check and say, locally, whether it worked.
+// REWORKED: this used to be a self-contained widget that captured a photo
+// AND submitted it AND could get someone instantly approved on its own —
+// the old "quick check" fast path. That path is retired. Verification now
+// always requires both a selfie and an ID document, reviewed by a human
+// or, an hour later, by AI — see api/verify-submission.js and
+// api/escalate-verifications.js. There is no longer anything for a
+// selfie alone to instantly decide.
 //
-// HONEST ABOUT WHAT THIS IS: a live camera capture is not the same thing as
-// liveness detection. Nothing here proves the photo wasn't a phone held up
-// to another phone. That's a real limitation of doing this for free instead
-// of through a vendor like Persona/Yoti — see the conversation that led
-// here. It's mitigated, not solved, by requiring the capture to come from
-// getUserMedia rather than a file picker, and by the conservative
-// approval bar in api/verify-selfie.js (see that file for the reasoning).
+// So this component's job shrank to exactly one thing: drive the camera,
+// let the person capture a frame, and hand that frame back to whichever
+// page is using it via onCapture. The parent (Login.jsx or
+// MatchFinder.jsx) holds onto that captured image alongside a chosen ID
+// file, and submits both together when the person is ready.
+//
+// Still honest about the same limitation as before: a live camera capture
+// is not liveness detection. Nothing here proves the photo wasn't a phone
+// held up to another screen — see the conversation that led here for the
+// full reasoning on why a free selfie check can't fully close that gap.
 import { useEffect, useRef, useState } from 'react';
-import { captureVideoFrameAsBase64, submitSelfieCheck } from '../lib/verificationService';
+import { captureVideoFrameAsBase64 } from '../lib/verificationService';
 
-const MIN_AGE = 18;
-
-export default function SelfieVerification({ userId, age, gender }) {
+export default function SelfieVerification({ onCapture, captured, onRetake }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [cameraOn, setCameraOn] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [approved, setApproved] = useState(false);
   const [cameraUnavailable, setCameraUnavailable] = useState(false);
+  const [error, setError] = useState('');
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -38,25 +35,13 @@ export default function SelfieVerification({ userId, age, gender }) {
   };
 
   // Release the camera on unmount no matter how the component leaves —
-  // navigating away mid-check should never leave the camera light on.
+  // navigating away mid-capture should never leave the camera light on.
   useEffect(() => () => stopCamera(), []);
 
-  // THE BUG: this used to set videoRef.current.srcObject = stream, then
-  // await videoRef.current.play(), and only THEN call setCameraOn(true).
-  // But the <video> element only exists in the DOM once cameraOn is
-  // already true (see the JSX below) — so at the moment that code ran,
-  // videoRef.current was still null, the `if (videoRef.current)` guard
-  // silently skipped the whole block, and setCameraOn(true) then rendered
-  // a <video> with nothing ever attached to it. getUserMedia had already
-  // succeeded — the permission prompt fired, the stream existed — it just
-  // never reached the screen. A blank box with no visible feed is
-  // indistinguishable from "the camera never opened" to someone using it,
-  // which is exactly the deterministic, every-device, every-time symptom
-  // this was reported as.
-  //
-  // Fixed by doing this in the right order: acquire the stream, THEN flip
-  // cameraOn (which mounts the <video>), and attach the stream in an
-  // effect that runs once that element actually exists.
+  // Attach the stream once the <video> element actually exists in the DOM
+  // (it only mounts once cameraOn is true) — doing this before that point
+  // used to be the bug that made the camera permanently blank; see the
+  // conversation history for the full diagnosis.
   useEffect(() => {
     if (cameraOn && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -67,11 +52,8 @@ export default function SelfieVerification({ userId, age, gender }) {
     }
   }, [cameraOn]);
 
-  const eligible = Number(age) >= MIN_AGE && !!gender;
-
   const startCamera = async () => {
     setError('');
-    setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraUnavailable(true);
       return;
@@ -81,73 +63,45 @@ export default function SelfieVerification({ userId, age, gender }) {
       streamRef.current = stream;
       setCameraOn(true);
     } catch (err) {
-      // Distinguishing these matters for anyone debugging this again later
-      // — "permission denied" and "no camera found" need different fixes
-      // than a generic "unavailable" ever suggested.
       console.error('getUserMedia failed', err?.name, err?.message);
       if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
-        setError('Camera permission was denied. Check your browser/site settings, or use the ID upload below instead.');
+        setError('Camera permission was denied. Check your browser/site settings.');
       } else if (err?.name === 'NotFoundError') {
-        setError('No camera was found on this device. Use the ID upload below instead.');
+        setError('No camera was found on this device.');
       }
       setCameraUnavailable(true);
     }
   };
 
-  const captureAndCheck = async () => {
-    if (!videoRef.current || !userId) return;
-    setChecking(true);
-    setError('');
-    setMessage('');
-    try {
-      const fileBase64 = captureVideoFrameAsBase64(videoRef.current);
-      stopCamera();
-      const result = await submitSelfieCheck({
-        userId, fileBase64, age, gender,
-      });
-      if (result.approved) {
-        setApproved(true);
-        setMessage(result.alreadyVerified ? "You're already verified." : "You're verified! This unlocks automatically.");
-      } else if (result.reason === 'no_single_face') {
-        setMessage("Couldn't find a clear single face in that photo — try again, or submit an ID document below instead.");
-      } else {
-        setMessage("Couldn't confidently confirm your age from that photo — please submit an ID document below instead.");
-      }
-    } catch (err) {
-      setError(err?.message || 'Could not run the selfie check.');
-    } finally {
-      setChecking(false);
-    }
+  const capture = () => {
+    if (!videoRef.current) return;
+    const fileBase64 = captureVideoFrameAsBase64(videoRef.current);
+    stopCamera();
+    onCapture(fileBase64);
   };
 
-  if (approved) {
-    return <p role="status" className="aura-field-hint" data-testid="selfie-verify-approved">{message}</p>;
-  }
-
-  if (!eligible) {
+  if (captured) {
     return (
-      <p className="aura-muted" style={{ fontSize: '0.82rem' }}>
-        Enter your age (18+) and gender above to try the quick selfie check.
-      </p>
+      <div className="aura-field">
+        <p role="status" className="aura-field-hint" data-testid="selfie-captured">Selfie captured.</p>
+        <button type="button" className="aura-btn aura-btn-secondary" onClick={onRetake} data-testid="selfie-retake-btn">
+          Retake
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="aura-card" style={{ margin: '10px 0' }} data-testid="selfie-verify-widget">
-      <p style={{ margin: '0 0 6px', fontWeight: 700 }}>Quick check (optional)</p>
-      <p className="aura-muted" style={{ margin: '0 0 10px', fontSize: '0.82rem' }}>
-        A live photo can confirm you&apos;re an adult in a few seconds. It only ever approves obvious, confident cases — anything less clear just falls through to the ID upload below, no harm done. The photo is never stored.
-      </p>
-
-      {cameraUnavailable && !error && (
-        <p className="aura-muted" style={{ fontSize: '0.82rem' }}>
-          Camera isn&apos;t available here — no problem, use the ID upload below instead.
+    <div className="aura-field">
+      {cameraUnavailable && (
+        <p role="alert" className="aura-login-error" style={{ fontSize: '0.82rem' }}>
+          {error || "Camera isn't available here."}
         </p>
       )}
 
       {!cameraUnavailable && !cameraOn && (
-        <button type="button" className="aura-btn aura-btn-secondary" onClick={startCamera} data-testid="selfie-verify-start">
-          Start quick check
+        <button type="button" className="aura-btn aura-btn-secondary" onClick={startCamera} data-testid="selfie-start-btn">
+          Open camera
         </button>
       )}
 
@@ -162,18 +116,17 @@ export default function SelfieVerification({ userId, age, gender }) {
             }}
           />
           <div className="aura-row" style={{ marginTop: 8, gap: 8 }}>
-            <button type="button" className="aura-btn aura-btn-primary" onClick={captureAndCheck} disabled={checking} data-testid="selfie-verify-capture">
-              {checking ? 'Checking…' : 'Capture & check'}
+            <button type="button" className="aura-btn aura-btn-primary" onClick={capture} data-testid="selfie-capture-btn">
+              Capture
             </button>
-            <button type="button" className="aura-btn aura-btn-secondary" onClick={stopCamera} disabled={checking}>
+            <button type="button" className="aura-btn aura-btn-secondary" onClick={stopCamera}>
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {message && !approved && <p role="status" className="aura-field-hint" style={{ margin: '8px 0 0' }} data-testid="selfie-verify-message">{message}</p>}
-      {error && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0' }}>{error}</p>}
+      {error && !cameraUnavailable && <p role="alert" className="aura-login-error" style={{ margin: '8px 0 0', fontSize: '0.82rem' }}>{error}</p>}
     </div>
   );
 }
