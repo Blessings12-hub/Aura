@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Aura — Admin review</title>
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f0f1a; color: #e8e8f0; min-height: 100vh;
+    padding: env(safe-area-inset-top, 16px) 16px calc(env(safe-area-inset-bottom, 16px) + 16px);
+  }
+  h1 { font-size: 1.3rem; margin: 8px 0 4px; }
+  .muted { color: #9a9ab0; font-size: 0.85rem; }
+  .card {
+    background: #1a1a2e; border: 1px solid #2c2c44; border-radius: 12px;
+    padding: 14px; margin: 12px 0;
+  }
+  input[type="password"], input[type="text"] {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #2c2c44;
+    background: #12121f; color: #e8e8f0; font-size: 1rem; margin: 6px 0;
+  }
+  button {
+    border: none; border-radius: 8px; padding: 10px 16px; font-size: 0.95rem; font-weight: 600;
+    cursor: pointer; margin: 4px 4px 4px 0;
+  }
+  .btn-primary { background: linear-gradient(90deg, #6a5cff, #ff5cb3); color: white; }
+  .btn-secondary { background: #2c2c44; color: #e8e8f0; }
+  .btn-danger { background: #3a1a1a; color: #ff8a8a; border: 1px solid #5a2a2a; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  img { max-width: 100%; border-radius: 8px; display: block; }
+  .img-selfie { width: 140px; }
+  .img-id { width: 220px; }
+  .error { color: #ff8a8a; font-size: 0.85rem; }
+  .status { color: #8affc1; font-size: 0.85rem; }
+  #lockScreen { max-width: 360px; margin: 40px auto; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="lockScreen">
+  <h1>Aura admin review</h1>
+  <p class="muted">Enter the admin panel secret (ADMIN_PANEL_SECRET in Vercel) to continue.</p>
+  <input type="password" id="secretInput" placeholder="Secret" autocomplete="off" />
+  <button class="btn-primary" id="unlockBtn">Unlock</button>
+  <p class="error" id="lockError"></p>
+</div>
+
+<div id="mainScreen" style="display:none;">
+  <div class="row" style="justify-content: space-between; align-items: center;">
+    <h1>Pending verification requests</h1>
+    <div>
+      <button class="btn-secondary" id="refreshBtn">Refresh</button>
+      <button class="btn-secondary" id="lockBtn">Lock</button>
+    </div>
+  </div>
+  <p class="muted">Same queue as Aura's in-app Admin Reports screen — approving or declining here does exactly the same thing (deletes the photos, notifies the applicant).</p>
+  <p class="error" id="listError"></p>
+  <div id="list"></div>
+</div>
+
+<script>
+// Nothing here talks to Firebase directly — every read/write goes through
+// api/admin-panel.js, authenticated with the secret below. The secret is
+// kept in localStorage purely for convenience (so you don't retype it
+// every visit); it never leaves this browser except as the x-admin-secret
+// header on requests to your own /api/admin-panel endpoint.
+const STORAGE_KEY = 'aura-admin-panel-secret';
+let secret = localStorage.getItem(STORAGE_KEY) || '';
+
+const lockScreen = document.getElementById('lockScreen');
+const mainScreen = document.getElementById('mainScreen');
+const secretInput = document.getElementById('secretInput');
+const lockError = document.getElementById('lockError');
+const listError = document.getElementById('listError');
+const listEl = document.getElementById('list');
+
+function showMain() {
+  lockScreen.style.display = 'none';
+  mainScreen.style.display = 'block';
+  loadList();
+}
+function showLock() {
+  mainScreen.style.display = 'none';
+  lockScreen.style.display = 'block';
+  secretInput.value = '';
+  secretInput.focus();
+}
+
+async function api(action, { method = 'GET', body, uid } = {}) {
+  const params = new URLSearchParams({ action });
+  if (uid) params.set('uid', uid);
+  const response = await fetch(`/api/admin-panel?${params.toString()}`, {
+    method,
+    headers: {
+      'x-admin-secret': secret,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+document.getElementById('unlockBtn').addEventListener('click', async () => {
+  const candidate = secretInput.value.trim();
+  if (!candidate) return;
+  secret = candidate;
+  lockError.textContent = '';
+  try {
+    await api('list'); // Used purely to validate the secret before committing to it.
+    localStorage.setItem(STORAGE_KEY, secret);
+    showMain();
+  } catch (err) {
+    lockError.textContent = err.message.includes('Wrong secret') ? 'Wrong secret.' : `Could not connect: ${err.message}`;
+  }
+});
+secretInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('unlockBtn').click(); });
+
+document.getElementById('lockBtn').addEventListener('click', () => {
+  localStorage.removeItem(STORAGE_KEY);
+  secret = '';
+  showLock();
+});
+document.getElementById('refreshBtn').addEventListener('click', loadList);
+
+async function loadList() {
+  listError.textContent = '';
+  listEl.innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const { items } = await api('list');
+    if (!items.length) {
+      listEl.innerHTML = '<p class="muted">No pending requests.</p>';
+      return;
+    }
+    listEl.innerHTML = '';
+    items.forEach((item) => listEl.appendChild(renderCard(item)));
+  } catch (err) {
+    listEl.innerHTML = '';
+    listError.textContent = err.message;
+    if (err.message.includes('Wrong secret')) showLock();
+  }
+}
+
+function renderCard(item) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const timeLabel = item.minutesAgo === null ? '' : item.minutesAgo < 1 ? 'just now' : `${item.minutesAgo}m ago`;
+  card.innerHTML = `
+    <strong>${item.uid.slice(0, 10)}</strong>
+    <div class="muted">Age ${item.age ?? '—'} · ${item.gender ?? '—'} · submitted ${timeLabel}</div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn-secondary" data-action="photos">View photos</button>
+      <button class="btn-danger" data-action="decline">Decline</button>
+      <button class="btn-primary" data-action="approve">Approve</button>
+    </div>
+    <div class="images"></div>
+    <p class="status"></p>
+    <p class="error"></p>
+  `;
+  const imagesEl = card.querySelector('.images');
+  const statusEl = card.querySelector('.status');
+  const errorEl = card.querySelector('.error');
+  const buttons = card.querySelectorAll('button');
+
+  card.querySelector('[data-action="photos"]').addEventListener('click', async () => {
+    errorEl.textContent = '';
+    imagesEl.innerHTML = '<p class="muted">Loading photos…</p>';
+    try {
+      const images = await api('images', { uid: item.uid });
+      imagesEl.innerHTML = `
+        <div class="row">
+          <div>
+            <div class="muted" style="font-size:0.75rem;">Selfie</div>
+            <img class="img-selfie" src="data:${images.selfieMimeType};base64,${images.selfieBase64}" alt="Selfie" />
+          </div>
+          <div>
+            <div class="muted" style="font-size:0.75rem;">ID document</div>
+            <img class="img-id" src="data:${images.idMimeType};base64,${images.idBase64}" alt="ID document" />
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      imagesEl.innerHTML = '';
+      errorEl.textContent = err.message;
+    }
+  });
+
+  const decide = async (decision) => {
+    errorEl.textContent = '';
+    buttons.forEach((b) => { b.disabled = true; });
+    statusEl.textContent = decision === 'approved' ? 'Approving…' : 'Declining…';
+    try {
+      await api('decide', { method: 'POST', body: { uid: item.uid, decision } });
+      statusEl.textContent = decision === 'approved' ? 'Approved.' : 'Declined.';
+      setTimeout(() => card.remove(), 800);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      buttons.forEach((b) => { b.disabled = false; });
+      statusEl.textContent = '';
+    }
+  };
+  card.querySelector('[data-action="approve"]').addEventListener('click', () => decide('approved'));
+  card.querySelector('[data-action="decline"]').addEventListener('click', () => decide('declined'));
+
+  return card;
+}
+
+if (secret) showMain(); else showLock();
+</script>
+</body>
+</html>
