@@ -260,6 +260,23 @@ async function runEscalation() {
       await db.collection('users').doc(uid).set({
         verified: status === 'approved',
         verificationStatus: status,
+        // FIXED: this used to write only verifiedSex, never the base
+        // gender/age fields. Match Finder's profile editor prefills its
+        // own gender field from the base `gender`, not `verifiedSex` —
+        // and firestore.rules' validMatchAge() requires those two to be
+        // EQUAL before a match card can be saved at all. Anyone who was
+        // verified with a different gender than whatever their account
+        // doc already held (picked a different option at the gate than
+        // what was on file, or edited it in Account Settings afterward)
+        // would pass verification but then get "permission-denied" on
+        // every attempt to save a Match Finder profile — an unrelated-
+        // looking action, no error message pointing anywhere near the
+        // actual cause. Writing gender/age here alongside verifiedSex
+        // keeps the account's base fields in sync with whatever was
+        // actually verified, which is the only copy that should matter
+        // once a decision exists.
+        gender: request.gender || '',
+        age: request.age,
         verifiedSex: request.gender || '',
         verifiedAt: Timestamp.now(),
         verificationExpiresAt: Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60 * 1000),

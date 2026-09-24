@@ -147,6 +147,12 @@ async function decide(req, res) {
   await db.collection('users').doc(uid).set({
     verified: decision === 'approved',
     verificationStatus: decision,
+    // See the matching FIXED comment in api/escalate-verifications.js —
+    // without this, a gender mismatch between the account's base field
+    // and what was actually verified silently breaks Match Finder's
+    // profile save with an unrelated-looking permission-denied error.
+    gender: request.gender || '',
+    age: request.age,
     verifiedSex: request.gender || '',
     verifiedAt: Timestamp.now(),
     verificationExpiresAt: Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60 * 1000),
