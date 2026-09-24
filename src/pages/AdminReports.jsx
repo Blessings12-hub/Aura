@@ -89,6 +89,22 @@ export default function AdminReports() {
       await updateDoc(doc(db, 'users', request.id), {
         verified: status === 'approved',
         verificationStatus: status,
+        // FIXED: this used to write only verifiedSex, never the base
+        // gender/age fields on the account. Match Finder's profile editor
+        // prefills its own gender field from the account's base `gender`,
+        // NOT `verifiedSex` — and firestore.rules' validMatchAge()
+        // requires those two to be EQUAL before a card can be saved.
+        // Anyone verified with a different gender than what their
+        // account doc already held (picked something different at the
+        // verification screen, or edited it afterward in Account
+        // Settings) would pass verification fine, then hit
+        // "permission-denied" on every Match Finder save attempt — an
+        // unrelated-looking action with no error pointing anywhere near
+        // the real cause. This also needed 'gender' and 'age' added to
+        // the admin allowlist in firestore.rules, or this write itself
+        // would now fail the same way.
+        gender: request.gender || '',
+        age: request.age,
         verifiedSex: request.gender || '',
         verifiedAt: Timestamp.now(),
         verificationExpiresAt: Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60 * 1000),

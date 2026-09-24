@@ -5,7 +5,7 @@ import {
 } from '../lib/firestoreClient';
 import { useNavigate } from 'react-router-dom';
 import {
-  Download, Trash2, AlertTriangle, ShieldCheck, UserCog, KeyRound,
+  Download, Trash2, AlertTriangle, ShieldCheck, UserCog,
 } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import TopBar from '../components/TopBar';
@@ -39,18 +39,6 @@ export default function AccountSettings() {
   const navigate = useNavigate();
   const { user, userId, loading } = useCurrentUser();
   const [exporting, setExporting] = useState(false);
-  const [uidCopied, setUidCopied] = useState(false);
-  const copyUid = async () => {
-    try {
-      await navigator.clipboard.writeText(userId);
-      setUidCopied(true);
-      setTimeout(() => setUidCopied(false), 2000);
-    } catch {
-      // Clipboard API can be unavailable (very old browser, insecure
-      // context) — the ID is still shown as plain selectable text either
-      // way, so there's always a fallback.
-    }
-  };
   const [deleting, setDeleting] = useState(false);
   const [linking, setLinking] = useState(false);
   const [linkedEmail, setLinkedEmail] = useState(user?.linkedEmail || null);
@@ -208,30 +196,6 @@ export default function AccountSettings() {
       <div className="aura-shell">
         <TopBar title="Account settings" onBack={() => navigate('/aura')} />
 
-        <div className="aura-card fade-in" style={{ marginTop: 16 }}>
-          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <KeyRound size={18} /> Your account ID
-          </h2>
-          <p className="aura-muted">
-            This is what identifies your account — you&apos;ll need it if you&apos;re setting yourself up as an admin (see Firebase Console → Firestore → create an <code>admins</code> collection → a document whose ID is exactly this value).
-          </p>
-          <div className="aura-row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <code
-              style={{
-                background: 'var(--aura-input-bg, rgba(255,255,255,0.06))', padding: '6px 10px', borderRadius: 8, fontSize: '0.85rem', userSelect: 'all', wordBreak: 'break-all',
-              }}
-              data-testid="account-uid-display"
-            >
-              {userId}
-            </code>
-            <button type="button" className="aura-btn aura-btn-secondary" onClick={copyUid} data-testid="account-uid-copy-btn">
-              {uidCopied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
-          <p className="aura-muted" style={{ fontSize: '0.82rem', marginTop: 8 }}>
-            Aura signs you in anonymously — this ID is tied to this browser/device, not an email or password. If you ever clear this browser&apos;s data or switch devices without linking a Google account first (see below), there is no way to recover it. Worth linking Google before relying on this for admin access.
-          </p>
-        </div>
 
         <div className="aura-card fade-in" style={{ marginTop: 16 }}>
           <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
