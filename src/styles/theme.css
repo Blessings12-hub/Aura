@@ -78,7 +78,19 @@ button, input, textarea, select { font: inherit; color: var(--text); max-width: 
 a { color: var(--primary); }
 
 /* Layout */
-.aura-page { min-height: 100vh; padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); }
+.aura-page {
+  min-height: 100vh;
+  /* FIXED: top padding was a flat 20px with no safe-area consideration —
+     index.html already sets viewport-fit=cover (needed for env() to be
+     non-zero at all), and .aura-page's own BOTTOM padding already
+     accounted for env(safe-area-inset-bottom), but the TOP never did.
+     On any notch/Dynamic-Island/status-bar device that meant page
+     content — and .aura-topbar below, which is `position: sticky` and
+     therefore sticks relative to THIS padding, not the raw viewport —
+     started rendering right under, or behind, the system status bar
+     instead of below it. */
+  padding: calc(20px + env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom));
+}
 .aura-shell { width: 100%; max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 
 .aura-card {
@@ -316,7 +328,13 @@ a { color: var(--primary); }
 .fade-in.delay-3 { animation-delay: 180ms; }
 
 /* Login */
-.aura-login-page { display: grid; place-items: center; padding: 24px; }
+/* FIXED: this is combined with .aura-page (className="aura-page
+   aura-login-page") on the Login screen, and since it's defined LATER in
+   this file, its flat `padding: 24px` was winning the cascade and
+   completely replacing .aura-page's padding — including the
+   safe-area-inset-top fix above. Login specifically needed its own fix,
+   not just .aura-page's. */
+.aura-login-page { display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); }
 .aura-login-shell { display: grid; gap: 20px; }
 .aura-login-card { padding: clamp(28px, 4vw, 44px); max-width: 460px; margin: 0 auto; width: 100%; border: 1px solid var(--border-strong); }
 .aura-login-mark {
