@@ -10,6 +10,7 @@ import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp,
   addDoc, COLLECTIONS, db,
 } from './firestoreClient';
+import { ensureFirebaseSession } from './firebaseClient';
 
 const blockDocId = (blockerId, blockedId) => `${blockerId}_${blockedId}`;
 
@@ -43,6 +44,29 @@ export async function reportUser(reporterId, reportedId, { context, contextId, r
     createdAt: new Date().toISOString(),
     reviewedAt: '',
   });
+
+  // FOUND IN A READINESS REVIEW: this report was already being written
+  // correctly, but nothing ever told an admin it existed — Admin Reports
+  // just sat there until someone happened to open it. This pings every
+  // admin's device the moment a report lands, same pattern already used
+  // for verification requests. Deliberately best-effort: the report
+  // above is already safely saved by this point, so a failure here
+  // (network hiccup, no admin has notifications enabled yet) should never
+  // surface as an error to the person reporting — from where they're
+  // standing, reporting someone already worked.
+  try {
+    const user = await ensureFirebaseSession();
+    const idToken = await user?.getIdToken();
+    if (idToken) {
+      await fetch('/api/notify-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ reason, context: context || 'unknown' }),
+      });
+    }
+  } catch (err) {
+    console.error('report notification failed', err);
+  }
 }
 
 // Live-subscribes to the uids the current user has blocked. onChange is
