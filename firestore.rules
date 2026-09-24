@@ -268,7 +268,15 @@ service cloud.firestore {
                             || request.resource.data.verificationExpiresAt == resource.data.get('verificationExpiresAt', 0))
                         && (!('banned' in request.resource.data)
                             || request.resource.data.banned == resource.data.get('banned', false)))
-                    || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt', 'verified', 'verificationStatus', 'verifiedSex', 'verifiedAt', 'verificationExpiresAt']));
+                    // FIXED: 'gender' and 'age' added to this list — see
+                    // the matching FIXED comment in AdminReports.jsx.
+                    // Admin approval now syncs the account's base
+                    // gender/age to whatever was actually verified
+                    // (fixing a bug where a mismatch here silently broke
+                    // Match Finder's own, unrelated-looking, profile-save
+                    // permission check), and that write needs these two
+                    // fields to be allowed here or it fails the same way.
+                    || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banned', 'banReason', 'bannedAt', 'verified', 'verificationStatus', 'verifiedSex', 'verifiedAt', 'verificationExpiresAt', 'gender', 'age']));
       // Was `if false` — meaning nobody, not even the account's own
       // owner, could ever delete it. That made a genuine self-service
       // "delete my account" feature impossible at the rules level,

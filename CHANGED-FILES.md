@@ -1,80 +1,94 @@
-# Aura — standalone admin panel (outside the app)
+# Aura — four fixes: gender-sync bug, language switcher, safe area, settings cleanup
 
-Two files: `api/admin-panel.js` (secured endpoint) and
-`public/admin-panel.html` (the page itself — plain static HTML, no build
-step, no React, no Firebase Auth). Once deployed it's live at:
-
-**https://aura-blush-zeta.vercel.app/admin-panel.html**
-
-## Setup
-
-Generate a secret, same idea as `CRON_SECRET` — here's one ready to use:
-
-```
-ea2b9ebcce6bca10c50b8538892bdc1521ae9b5998fcebc43cb5d0077e990cec
-```
-
-Add it to Vercel → Settings → Environment Variables as
-**`ADMIN_PANEL_SECRET`**, then redeploy. That's the only setup step. No
-Firestore `admins` collection, no signing into Aura itself, nothing tied
-to a browser or device — just this one page and this one secret.
-
-Open the URL above, paste the secret in once (it's remembered in that
-browser after), and you'll see the same pending queue as the in-app Admin
-Reports screen: age/gender, how long ago it was submitted, a "View
-photos" button that loads the selfie + ID on demand, and Approve/Decline.
-Either button does exactly what the in-app version does — writes the
-decision, deletes the stored images immediately, and notifies the
-applicant.
-
-**This is a second door into the same room, not a separate system** — it
-reads and writes the exact same Firestore documents as everything else
-already built. Use whichever is more convenient at the time; they'll
-never conflict since a request only gets decided once regardless of
-which path does it.
-
-**Treat that secret like a password.** Anyone who has it can approve or
-decline any pending request. It's deliberately a different value from
-`CRON_SECRET` — this one gets typed into a browser and sits in that
-browser's localStorage, a different exposure profile than a value that
-only ever lives inside Vercel/GitHub's own secret stores.
+7 files. Redeploy both the app and `firestore.rules`.
 
 ---
 
-## Why the automatic hour-later approval hasn't fired
+## 1. "Couldn't save your profile" (permission-denied)
 
-Worth checking these in order — I can't see your GitHub/Vercel dashboards,
-so this is where to look rather than something I can diagnose blind:
+Found it. `validMatchAge()` in `firestore.rules` requires the gender on
+a Match Finder card to exactly equal `verifiedSex` on the account. Every
+approval path (`AdminReports.jsx`, `api/admin-panel.js`,
+`api/escalate-verifications.js`) was writing `verifiedSex` but never
+syncing the account's base `gender` field to match. Match Finder's
+profile editor prefills its gender picker from that base field, not from
+`verifiedSex` — so anyone verified with a different gender than whatever
+was already on their account (picked something different at the
+verification screen, or edited it afterward in the Account Settings
+editor from a few patches back) would pass verification cleanly, then
+hit permission-denied on every single save attempt, with an error
+message that gives no hint the real cause is a gender field mismatch.
 
-1. **Did the GitHub Actions workflow actually run at all?** Your repo →
-   Actions tab → look for "Verification escalation" in the list. If it's
-   not there, the workflow file (`.github/workflows/verification-escalation.yml`
-   from the earlier patch) may not have been pushed/merged to your default
-   branch yet — scheduled workflows only trigger once the file exists there.
-   You can also trigger it manually right now: open the workflow in the
-   Actions tab → "Run workflow" button (this works because the file
-   includes `workflow_dispatch`) — no need to wait for the next hour to
-   test it.
+Fixed in all three approval paths: `gender` and `age` now get written
+alongside `verifiedSex` on approval, so the account's base fields always
+match whatever was actually verified. `firestore.rules` also needed
+`gender`/`age` added to the admin's allowed-field list — the two
+server-side paths use the Admin SDK and aren't affected by rules at all,
+but `AdminReports.jsx` writes from the client and would have hit the
+exact same permission-denied error on this new field otherwise.
 
-2. **If it ran but shows as failed** (red X in the Actions tab), click
-   into that run and read the logged response — the workflow prints the
-   HTTP status and body from `api/escalate-verifications.js`. The most
-   likely causes, both self-explanatory once you see the actual error:
-   - `CRON_SECRET` mismatched or missing in one of the two places (Vercel
-     env var / GitHub repo secret) — shows as `401 Unauthorized`.
-   - The Firestore composite index from `firestore.indexes.json` was
-     never deployed — shows as an index-required error with a direct link
-     to create it.
+**This only prevents the mismatch going forward — it doesn't retroactively
+fix an account already stuck on it**, including whichever one is in your
+screenshot. Simplest fix for that: submit verification again now that
+this is deployed — the new approval will correctly sync it. If you'd
+rather not resubmit, you can manually set that account's `gender` field
+in Firebase Console to match its `verifiedSex` value directly.
 
-3. **If it ran successfully (green check) but nothing got decided:**
-   check whether `GROQ_API_KEY` is actually set in Vercel. This is a
-   silent one by design — if it's missing, `analyzeSubmission()` returns
-   `null`, the decision logic has nothing to act on, and the request just
-   stays `pending` forever with no error anywhere. The workflow would show
-   success (the endpoint ran fine, it just had nothing to decide with).
+## 2. Language switcher cut off at the screen edge
 
-The standalone panel above works regardless of which of these turns out
-to be the cause — it doesn't depend on the GitHub Action, `CRON_SECRET`,
-or `GROQ_API_KEY` at all, only `ADMIN_PANEL_SECRET` and Firebase
-credentials that are already working (confirmed, since the rest of
-verification is functioning).
+The dropdown was `position: absolute; right: 0`, anchored purely in CSS
+relative to its own trigger button. That's fine when the trigger sits
+deep inside a wide, padded card (like on Login) — but the same component
+renders `compact` inside every page's TopBar icon row too, where the
+trigger sits much closer to the actual screen edge. `body` already has
+`overflow-x: hidden` set globally (to stop unwanted horizontal scroll
+elsewhere) — so on a narrow phone, whatever part of that 180px-wide
+dropdown computed past the edge of the viewport wasn't just spilling
+over visually, it was being clipped and made invisible. That's "half
+hides in the phone's sides."
+
+Fixed by computing the dropdown's position in JavaScript from the
+trigger's actual on-screen location, then clamping both edges to stay
+within the viewport (minus a small margin) — works the same everywhere
+it's used now, regardless of how close to the edge the trigger sits.
+
+## 3. Content overlapping the phone's status bar
+
+`index.html` already had `viewport-fit=cover` set (needed for
+`env(safe-area-inset-*)` to be non-zero at all), and `.aura-page`'s
+bottom padding already accounted for `env(safe-area-inset-bottom)` — but
+its TOP padding was a flat `20px` with no safe-area consideration.
+`.aura-topbar` is `position: sticky`, which sticks relative to that
+padding, not the raw viewport — so on any notch/Dynamic-Island/status-bar
+device, both page content and the sticky header started rendering right
+under, or behind, the system status bar.
+
+Two places needed the fix, not one: `.aura-page` itself, and separately
+`.aura-login-page` — Login uses both classes together
+(`className="aura-page aura-login-page"`), and since `.aura-login-page`
+is defined later in the stylesheet, its own flat `padding: 24px` was
+winning the cascade and silently overriding `.aura-page`'s fix entirely
+on the one screen that renders before anyone's even signed in.
+
+## 4. Account ID card removed from Settings
+
+Gone, per request. If you need your account ID again later (for the
+Firebase Console admin setup, or anything else), "Export my data" in
+Account Settings still downloads a file named
+`aura-account-data-<your-id>.json` — the ID is right there in the
+filename, or you already have it saved from when you set up admin access
+the first time.
+
+---
+
+## Files
+
+| File | |
+|---|---|
+| `api/escalate-verifications.js` | Syncs gender/age on AI approval |
+| `api/admin-panel.js` | Syncs gender/age on standalone-panel approval |
+| `src/pages/AdminReports.jsx` | Syncs gender/age on in-app manual approval |
+| `firestore.rules` | Admin allowlist now includes gender/age |
+| `src/components/LanguageSwitcher.jsx` | Viewport-clamped fixed positioning |
+| `src/styles/theme.css` | Safe-area-aware top padding, both `.aura-page` and `.aura-login-page` |
+| `src/pages/AccountSettings.jsx` | Account ID card removed |
