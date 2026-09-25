@@ -15,12 +15,14 @@ import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messagi
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyD3SJuB_zajVYspjfXWccVHoENx6E-HXhk",
+  authDomain: "aura-5693e.firebaseapp.com",
+  databaseURL: "https://aura-5693e-default-rtdb.firebaseio.com",
+  projectId: "aura-5693e",
+  storageBucket: "aura-5693e.firebasestorage.app",
+  messagingSenderId: "1028269030459",
+  appId: "1:1028269030459:web:43762becb2ccccb61c301e",
+  measurementId: "G-9PG36HYYR7"
 };
 
 export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean);
