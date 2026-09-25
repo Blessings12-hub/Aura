@@ -12,6 +12,7 @@ import {
   deleteUser,
 } from 'firebase/auth';
 import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -24,6 +25,51 @@ const firebaseConfig = {
 
 export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean);
 const app = firebaseConfigured ? (getApps()[0] || initializeApp(firebaseConfig)) : null;
+
+// FOUND IN A READINESS REVIEW: useSendCooldown.js's own comment already
+// said this plainly — the message-send throttle it implements is
+// client-side only, and "anyone calling the Firestore SDK directly
+// bypasses this entirely." That's true of every write in this app, not
+// just chat messages: nothing stopped a script from calling
+// signInAnonymously() directly (trivial — it's a public, unauthenticated
+// Firebase Auth method) and then writing to Firestore as fast as the
+// network allows, completely outside this web app.
+//
+// App Check closes that specific gap: once enabled, Firestore requires
+// every client-SDK request to carry proof it's coming from a real
+// instance of THIS app running in a real browser (reCAPTCHA v3, invisible
+// to users — no challenge to solve) rather than a bare script holding
+// stolen or freshly-minted credentials. It does not replace real rate
+// limiting for a legitimate user double-tapping "send" (that's still
+// useSendCooldown's job) — it stops the class of abuse that skips the UI
+// entirely.
+//
+// SEQUENCING MATTERS HERE — read this before touching the Firebase
+// Console: enabling Firestore enforcement (a toggle in Firebase Console →
+// App Check) is an ALL-OR-NOTHING switch for every client Firestore call
+// in the entire app, not just chat. If VITE_RECAPTCHA_SITE_KEY below is
+// missing, wrong, or this code hasn't actually been deployed yet,
+// enabling enforcement will reject every Firestore read and write from
+// every user — the whole app goes down, not just message spam. Deploy
+// this file FIRST, confirm (Firebase Console → App Check → your app
+// should show real request volume within a few minutes of normal use)
+// that tokens are actually being issued, and only THEN flip enforcement
+// on. Enforcement stays OFF by default until you turn it on — deploying
+// this alone changes nothing for users.
+if (app && import.meta.env.VITE_RECAPTCHA_SITE_KEY) {
+  try {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    // Never let App Check's own setup break the app that depends on it —
+    // worst case here is enforcement (once turned on) starts rejecting
+    // requests, which is loud and immediately obvious, rather than this
+    // throwing during startup and taking everything down silently.
+    console.error('App Check init failed', err);
+  }
+}
 export const firebaseAuth = app ? getAuth(app) : null;
 
 export function requireFirebase() {
