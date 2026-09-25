@@ -1,94 +1,66 @@
-# Aura — four fixes: gender-sync bug, language switcher, safe area, settings cleanup
+# Aura — App Check: the real fix for the rate-limit gap
 
-7 files. Redeploy both the app and `firestore.rules`.
+One file: `src/lib/firebaseClient.js`. This is the code half of the fix —
+there's a manual setup process outside the code that has to happen in a
+specific order, or you can take the whole app down. Read this fully
+before doing anything in the Firebase Console.
 
----
+## What this actually fixes
 
-## 1. "Couldn't save your profile" (permission-denied)
+`useSendCooldown.js` already says it plainly in its own comment: the
+message-send throttle is client-side only, and "anyone calling the
+Firestore SDK directly bypasses this entirely." That's true of every
+write in this app, not just chat — nothing stops a script from calling
+Firebase's anonymous sign-in directly (it's a public, unauthenticated
+method) and then writing to Firestore as fast as the network allows,
+completely outside your actual web app.
 
-Found it. `validMatchAge()` in `firestore.rules` requires the gender on
-a Match Finder card to exactly equal `verifiedSex` on the account. Every
-approval path (`AdminReports.jsx`, `api/admin-panel.js`,
-`api/escalate-verifications.js`) was writing `verifiedSex` but never
-syncing the account's base `gender` field to match. Match Finder's
-profile editor prefills its gender picker from that base field, not from
-`verifiedSex` — so anyone verified with a different gender than whatever
-was already on their account (picked something different at the
-verification screen, or edited it afterward in the Account Settings
-editor from a few patches back) would pass verification cleanly, then
-hit permission-denied on every single save attempt, with an error
-message that gives no hint the real cause is a gender field mismatch.
+App Check closes that: once enabled, Firestore requires every client-SDK
+request to prove it's coming from a real instance of your app running in
+a real browser (via reCAPTCHA v3 — invisible, no puzzle for users to
+solve) rather than a bare script. It doesn't replace `useSendCooldown`
+for a legitimate user double-tapping send; it stops the class of abuse
+that skips your UI entirely.
 
-Fixed in all three approval paths: `gender` and `age` now get written
-alongside `verifiedSex` on approval, so the account's base fields always
-match whatever was actually verified. `firestore.rules` also needed
-`gender`/`age` added to the admin's allowed-field list — the two
-server-side paths use the Admin SDK and aren't affected by rules at all,
-but `AdminReports.jsx` writes from the client and would have hit the
-exact same permission-denied error on this new field otherwise.
+## Setup — four steps, in this order, do not skip the order
 
-**This only prevents the mismatch going forward — it doesn't retroactively
-fix an account already stuck on it**, including whichever one is in your
-screenshot. Simplest fix for that: submit verification again now that
-this is deployed — the new approval will correctly sync it. If you'd
-rather not resubmit, you can manually set that account's `gender` field
-in Firebase Console to match its `verifiedSex` value directly.
+**1. Register a reCAPTCHA v3 site.** Go to
+`google.com/recaptcha/admin/create`, choose **reCAPTCHA v3**, and add
+your domain (`aura-blush-zeta.vercel.app`, and `localhost` too if you
+test locally). You'll get a **Site key** and a **Secret key** — the site
+key is meant to be public and goes in your code; the secret key stays in
+the Firebase Console only, never in your repo.
 
-## 2. Language switcher cut off at the screen edge
+**2. Register App Check in Firebase Console.** Your project → Build →
+App Check → Apps → find your web app → Register → paste in the reCAPTCHA
+**secret key** (not the site key) when asked.
 
-The dropdown was `position: absolute; right: 0`, anchored purely in CSS
-relative to its own trigger button. That's fine when the trigger sits
-deep inside a wide, padded card (like on Login) — but the same component
-renders `compact` inside every page's TopBar icon row too, where the
-trigger sits much closer to the actual screen edge. `body` already has
-`overflow-x: hidden` set globally (to stop unwanted horizontal scroll
-elsewhere) — so on a narrow phone, whatever part of that 180px-wide
-dropdown computed past the edge of the viewport wasn't just spilling
-over visually, it was being clipped and made invisible. That's "half
-hides in the phone's sides."
+**3. Add the site key to Vercel and deploy — enforcement is still OFF at
+this point.** Add `VITE_RECAPTCHA_SITE_KEY` (the site key from step 1) to
+Vercel's environment variables, redeploy. Nothing changes for users yet —
+this file only *starts issuing* App Check tokens; nothing is rejecting
+requests without one until step 4.
 
-Fixed by computing the dropdown's position in JavaScript from the
-trigger's actual on-screen location, then clamping both edges to stay
-within the viewport (minus a small margin) — works the same everywhere
-it's used now, regardless of how close to the edge the trigger sits.
+**4. Confirm tokens are actually flowing, THEN enable enforcement.**
+Firebase Console → App Check → your app should show real request metrics
+within a few minutes of normal use (open the deployed app, click around).
+Once you see that traffic, THEN go to App Check → APIs → Cloud
+Firestore → Enforce.
 
-## 3. Content overlapping the phone's status bar
+**Why the order matters this much:** enforcement is an all-or-nothing
+switch for every client Firestore call in the entire app, not just chat
+messages. If you enable it before step 3 is actually deployed and
+confirmed working, every single Firestore read and write from every user
+starts failing at once — not a message-spam fix, a full outage. Deploying
+this file alone changes nothing; only the Console toggle in step 4 does.
 
-`index.html` already had `viewport-fit=cover` set (needed for
-`env(safe-area-inset-*)` to be non-zero at all), and `.aura-page`'s
-bottom padding already accounted for `env(safe-area-inset-bottom)` — but
-its TOP padding was a flat `20px` with no safe-area consideration.
-`.aura-topbar` is `position: sticky`, which sticks relative to that
-padding, not the raw viewport — so on any notch/Dynamic-Island/status-bar
-device, both page content and the sticky header started rendering right
-under, or behind, the system status bar.
+## What this doesn't cover
 
-Two places needed the fix, not one: `.aura-page` itself, and separately
-`.aura-login-page` — Login uses both classes together
-(`className="aura-page aura-login-page"`), and since `.aura-login-page`
-is defined later in the stylesheet, its own flat `padding: 24px` was
-winning the cascade and silently overriding `.aura-page`'s fix entirely
-on the one screen that renders before anyone's even signed in.
-
-## 4. Account ID card removed from Settings
-
-Gone, per request. If you need your account ID again later (for the
-Firebase Console admin setup, or anything else), "Export my data" in
-Account Settings still downloads a file named
-`aura-account-data-<your-id>.json` — the ID is right there in the
-filename, or you already have it saved from when you set up admin access
-the first time.
-
----
-
-## Files
-
-| File | |
-|---|---|
-| `api/escalate-verifications.js` | Syncs gender/age on AI approval |
-| `api/admin-panel.js` | Syncs gender/age on standalone-panel approval |
-| `src/pages/AdminReports.jsx` | Syncs gender/age on in-app manual approval |
-| `firestore.rules` | Admin allowlist now includes gender/age |
-| `src/components/LanguageSwitcher.jsx` | Viewport-clamped fixed positioning |
-| `src/styles/theme.css` | Safe-area-aware top padding, both `.aura-page` and `.aura-login-page` |
-| `src/pages/AccountSettings.jsx` | Account ID card removed |
+This protects Firestore access through the client SDK — which is where
+chat messages, profile saves, and most of the app's reads/writes happen.
+It does not add App Check verification to your custom Vercel API routes
+(`verify-submission.js`, `notify-report.js`, etc.) — those are already
+gated by a real Firebase Auth ID token check, which is a meaningful bar
+on its own, just a different one. Worth adding App Check there too as a
+second layer if you want to go further, but it's not needed to close the
+specific gap this patch addresses.
