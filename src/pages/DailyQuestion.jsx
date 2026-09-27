@@ -78,13 +78,20 @@ export default function DailyQuestion() {
   const dragStateRef = useRef(null);
 
   const day = todayKey();
+  // See the matching comment in MoodChat.jsx — same age-tier separation,
+  // same reasoning, same server-side enforcement in firestore.rules'
+  // inOwnAgeTierRoom(). `day` stays the plain date key everyone sees the
+  // same question for; `roomKey` is the actual answers-collection path,
+  // which forks for a minor's account.
+  const isTeen = typeof user?.age === 'number' && user.age < 18;
+  const roomKey = isTeen ? `${day}-teen` : day;
   const question = questionForDate();
   const questionIndex = Math.max(DAILY_QUESTIONS.indexOf(question), 0);
 
   // Genuine "who's actually in this room right now" — server-enforced via
   // RTDB onDisconnect, same as Mood Chat.
   const { count: onlineCount, error: presenceError } = useRoomPresence(
-    `daily-${day}`,
+    `daily-${roomKey}`,
     userId,
     { color: user?.avatarColor },
   );
@@ -92,7 +99,7 @@ export default function DailyQuestion() {
   useEffect(() => {
     setChatError('');
     const q = query(
-      collection(db, 'dailyQuestions', day, 'answers'),
+      collection(db, 'dailyQuestions', roomKey, 'answers'),
       orderBy('createdAt', 'asc'),
     );
     return subscribe(q, (snap) => {
@@ -107,7 +114,7 @@ export default function DailyQuestion() {
       setMessages(all);
       requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
     }, () => setChatError('Answers could not be loaded. Check your connection and try again.'), `daily question (${day})`);
-  }, [day, userId, t]);
+  }, [roomKey, userId, t]);
 
   useEffect(() => () => { clearInterval(recTimerRef.current); clearTimeout(longPressTimerRef.current); }, []);
 
@@ -126,10 +133,10 @@ export default function DailyQuestion() {
       const patch = {};
       if (!m.deliveredBy?.[userId]) patch[`deliveredBy.${userId}`] = true;
       if (isVisible && !m.seenBy?.[userId]) patch[`seenBy.${userId}`] = true;
-      if (Object.keys(patch).length) batch.update(doc(db, 'dailyQuestions', day, 'answers', m.id), patch);
+      if (Object.keys(patch).length) batch.update(doc(db, 'dailyQuestions', roomKey, 'answers', m.id), patch);
     });
     batch.commit().catch((err) => console.error('Could not update read receipts:', err));
-  }, [messages, day, userId]);
+  }, [messages, roomKey, userId]);
 
   useEffect(() => { markReceipts(); }, [markReceipts]);
 
@@ -240,7 +247,7 @@ export default function DailyQuestion() {
     // eslint-disable-next-line no-alert
     if (!window.confirm(t('delete_message_confirm'))) return;
     try {
-      await deleteDoc(doc(db, 'dailyQuestions', day, 'answers', m.id));
+      await deleteDoc(doc(db, 'dailyQuestions', roomKey, 'answers', m.id));
     } catch (err) {
       setChatError(`Couldn't delete that message. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
@@ -258,7 +265,7 @@ export default function DailyQuestion() {
   // failures in practice. See the comment in firestore.rules where those
   // functions used to live for the full reasoning. Back to a plain write.
   const sendWithCooldownBump = async (payload) => {
-    await addDoc(collection(db, 'dailyQuestions', day, 'answers'), payload);
+    await addDoc(collection(db, 'dailyQuestions', roomKey, 'answers'), payload);
   };
 
   const send = async () => {
@@ -388,7 +395,7 @@ export default function DailyQuestion() {
     if (!userId) return;
     const alreadyReacted = !!m.reactions?.[userId];
     try {
-      await updateDoc(doc(db, 'dailyQuestions', day, 'answers', m.id), {
+      await updateDoc(doc(db, 'dailyQuestions', roomKey, 'answers', m.id), {
         [`reactions.${userId}`]: alreadyReacted ? deleteField() : true,
       });
     } catch (err) {
@@ -460,7 +467,7 @@ export default function DailyQuestion() {
                       <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
                     </div>
                     {m.userId !== userId && (
-                      <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="dailyQuestion" contextId={day} compact />
+                      <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="dailyQuestion" contextId={roomKey} compact />
                     )}
                   </div>
                   <div className="message__bubble" ref={(el) => { bubbleElsRef.current[m.id] = el; }}>

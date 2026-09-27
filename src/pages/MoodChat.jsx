@@ -56,6 +56,18 @@ export default function MoodChat() {
   const blockedUsers = useBlockedUsers(userId);
   const { ready: sendReady, trigger: triggerCooldown } = useSendCooldown();
   const [mood, setMood] = useState('');
+  // TIGHTENED, per explicit request: minors (16-17) and adults (18+)
+  // never share a mood room. `mood` stays the person's plain mood
+  // selection (used for the picker UI, translations, etc.) — `roomKey`
+  // is the actual Firestore path segment, with a "-teen" suffix appended
+  // for a minor's account so their messages live in a completely
+  // separate collection from the adult room of the same mood. This is
+  // enforced server-side too (see inOwnAgeTierRoom() in firestore.rules)
+  // — the routing here is what gets someone to the RIGHT room by
+  // default, the rules are what stop anyone from reaching the other one
+  // on purpose.
+  const isTeen = typeof user?.age === 'number' && user.age < 18;
+  const roomKey = mood ? (isTeen ? `${mood}-teen` : mood) : '';
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
@@ -92,7 +104,7 @@ export default function MoodChat() {
   // RTDB onDisconnect, so it stays accurate even if someone's tab crashes
   // rather than closes cleanly.
   const { count: onlineCount, error: presenceError } = useRoomPresence(
-    mood ? `mood-${mood}` : null,
+    roomKey ? `mood-${roomKey}` : null,
     userId,
     { color: user?.avatarColor },
   );
@@ -113,7 +125,7 @@ export default function MoodChat() {
     // new message arrives, the oldest one in view drops out once the cap
     // is exceeded. Reversed below so the UI still renders oldest-first.
     const q = query(
-      collection(db, 'chats', mood, 'messages'),
+      collection(db, 'chats', roomKey, 'messages'),
       where('createdAt', '>=', last24HoursTimestamp()),
       orderBy('createdAt', 'desc'),
       limit(LIVE_MESSAGE_LIMIT),
@@ -138,7 +150,7 @@ export default function MoodChat() {
       setMessages(all);
       requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
     }, () => setChatError('Messages could not be loaded. Check your connection and try reopening this mood.'), `mood chat (${mood})`);
-  }, [mood, userId, t]);
+  }, [roomKey, userId, t]);
 
   useEffect(() => () => { clearInterval(recTimerRef.current); clearTimeout(longPressTimerRef.current); }, []);
 
@@ -160,10 +172,10 @@ export default function MoodChat() {
       const patch = {};
       if (!m.deliveredBy?.[userId]) patch[`deliveredBy.${userId}`] = true;
       if (isVisible && !m.seenBy?.[userId]) patch[`seenBy.${userId}`] = true;
-      if (Object.keys(patch).length) batch.update(doc(db, 'chats', mood, 'messages', m.id), patch);
+      if (Object.keys(patch).length) batch.update(doc(db, 'chats', roomKey, 'messages', m.id), patch);
     });
     batch.commit().catch((err) => console.error('Could not update read receipts:', err));
-  }, [messages, mood, userId]);
+  }, [messages, roomKey, userId]);
 
   useEffect(() => { markReceipts(); }, [markReceipts]);
 
@@ -276,7 +288,7 @@ export default function MoodChat() {
     // eslint-disable-next-line no-alert
     if (!window.confirm(t('delete_message_confirm'))) return;
     try {
-      await deleteDoc(doc(db, 'chats', mood, 'messages', m.id));
+      await deleteDoc(doc(db, 'chats', roomKey, 'messages', m.id));
     } catch (err) {
       setChatError(`Couldn't delete that message. (${err?.code || 'unknown'}: ${err?.message || err})`);
     }
@@ -297,7 +309,7 @@ export default function MoodChat() {
   // plain write; useSendCooldown() below (a debounce on the send button)
   // is the only cooldown left, same as before that experiment.
   const sendWithCooldownBump = async (payload) => {
-    await addDoc(collection(db, 'chats', mood, 'messages'), payload);
+    await addDoc(collection(db, 'chats', roomKey, 'messages'), payload);
   };
 
   const send = async () => {
@@ -469,7 +481,7 @@ export default function MoodChat() {
                         <span className="message__meta">Person {m.userId?.slice(0, 6)} • {m.userAge} • {m.userGender}</span>
                       </div>
                       {m.userId !== userId && (
-                        <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="moodChat" contextId={mood} compact />
+                        <ReportBlockMenu userId={userId} otherUserId={m.userId} blocked={blockedUsers.has(m.userId)} context="moodChat" contextId={roomKey} compact />
                       )}
                     </div>
                     <div className="message__bubble" ref={(el) => { bubbleElsRef.current[m.id] = el; }}>
