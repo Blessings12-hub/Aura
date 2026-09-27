@@ -153,6 +153,16 @@ export default function MatchFinder() {
   const [lookingFor, setLookingFor] = useState('');
   const [myCardId, setMyCardId] = useState(null);
   const [profiles, setProfiles] = useState([]);
+  // Discovery preferences — client-side only, never written anywhere.
+  // genderFilter '' means "show everyone"; minAgeFilter/maxAgeFilter are
+  // strings so an empty input can mean "no bound" without a stray 0.
+  // This narrows the same `profiles` list that's already fetched (public
+  // cards only carry age/gender, never identity, until matched — see the
+  // comment on MIN_MATCH_AGE above) rather than adding a new query, so it
+  // costs nothing server-side.
+  const [genderFilter, setGenderFilter] = useState('');
+  const [minAgeFilter, setMinAgeFilter] = useState('');
+  const [maxAgeFilter, setMaxAgeFilter] = useState('');
   // Split into two slices (one per `where` query) that each get FULLY
   // replaced on every snapshot, then merged below. The old approach kept a
   // single map and only ever merged new data in — a pair that disappeared
@@ -582,6 +592,18 @@ export default function MatchFinder() {
     .map(([id, m]) => ({ id, ...m }))
     .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
 
+  // Discovery deck, narrowed by the preferences above. Applied after the
+  // existing self/blocked/incoming exclusions so it's a pure additional
+  // filter, not a replacement for them.
+  const minAgeNum = minAgeFilter ? Number(minAgeFilter) : null;
+  const maxAgeNum = maxAgeFilter ? Number(maxAgeFilter) : null;
+  const discoverableProfiles = profiles
+    .filter((p) => p.userId !== userId && !blockedUsers.has(p.userId) && !incomingUids.has(p.userId))
+    .filter((p) => !genderFilter || p.gender === genderFilter)
+    .filter((p) => minAgeNum == null || (typeof p.age === 'number' && p.age >= minAgeNum))
+    .filter((p) => maxAgeNum == null || (typeof p.age === 'number' && p.age <= maxAgeNum));
+  const hasActiveFilter = !!genderFilter || !!minAgeFilter || !!maxAgeFilter;
+
   if (loading || !user) return <PageSkeleton />;
 
   // TIGHTENED: this used to be a soft nag — a card wedged into the profile
@@ -882,10 +904,66 @@ export default function MatchFinder() {
           </div>
         )}
 
-        <h2 className="aura-title">{t('available_matches')} ({profiles.length})</h2>
+        <h2 className="aura-title">{t('available_matches')} ({discoverableProfiles.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="match-load-error">{loadError}</p>}
+
+        <div className="aura-card aura-section fade-in" data-testid="match-filters">
+          <div className="aura-row" style={{ justifyContent: 'space-between', marginBottom: hasActiveFilter ? 10 : 0 }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Show me…</h3>
+            {hasActiveFilter && (
+              <button
+                type="button"
+                onClick={() => { setGenderFilter(''); setMinAgeFilter(''); setMaxAgeFilter(''); }}
+                className="aura-btn aura-btn-secondary aura-btn-pill"
+                data-testid="clear-match-filters"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+          <div className="aura-row" style={{ flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+            <select
+              className="aura-select"
+              style={{ flex: '1 1 160px' }}
+              value={genderFilter}
+              onChange={(e) => setGenderFilter(e.target.value)}
+              data-testid="match-filter-gender"
+            >
+              <option value="">Any gender</option>
+              {GENDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              className="aura-input"
+              style={{ flex: '1 1 100px' }}
+              placeholder="Min age"
+              min={MIN_MATCH_AGE}
+              value={minAgeFilter}
+              onChange={(e) => setMinAgeFilter(e.target.value)}
+              data-testid="match-filter-min-age"
+            />
+            <input
+              type="number"
+              className="aura-input"
+              style={{ flex: '1 1 100px' }}
+              placeholder="Max age"
+              min={MIN_MATCH_AGE}
+              value={maxAgeFilter}
+              onChange={(e) => setMaxAgeFilter(e.target.value)}
+              data-testid="match-filter-max-age"
+            />
+          </div>
+        </div>
+
         <div className="match-deck">
-          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId) && !incomingUids.has(p.userId)).map((p, i) => {
+          {discoverableProfiles.length === 0 && (
+            <div className="aura-card" style={{ textAlign: 'center' }}>
+              <p className="aura-muted">{hasActiveFilter ? 'No one matches those filters right now — try widening them.' : t('empty_no_matches')}</p>
+            </div>
+          )}
+          {discoverableProfiles.map((p, i) => {
             const state = getMatchState(p);
             const matched = state.status === 'matched';
             const identity = matched ? identities[p.userId] : null;
@@ -940,9 +1018,6 @@ export default function MatchFinder() {
               </div>
             );
           })}
-          {profiles.filter((p) => p.userId !== userId && !blockedUsers.has(p.userId) && !incomingUids.has(p.userId)).length === 0 && (
-            <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_matches')}</p></div>
-          )}
         </div>
       </div>
 

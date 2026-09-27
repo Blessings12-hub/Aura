@@ -30,6 +30,7 @@ export default function SkillSwap() {
   const { count: onlineCount, error: presenceError } = useRoomPresence('skill-swap', userId, { color: user?.avatarColor });
   const [skill, setSkill] = useState('');
   const [want, setWant] = useState('');
+  const [search, setSearch] = useState('');
   const [items, setItems] = useState([]);
   const [pairs, setPairs] = useState({});
   const [loadError, setLoadError] = useState('');
@@ -199,6 +200,14 @@ export default function SkillSwap() {
     .map(([id, p]) => ({ id, ...p }))
     .sort((a, b) => (b.matchedAt?.toMillis?.() || 0) - (a.matchedAt?.toMillis?.() || 0));
 
+  // Free-text filter over the two fields every card already shows — pure
+  // client-side narrowing of the same `items` list, no new query or
+  // schema field, since skill/want are already searchable strings.
+  const searchLower = search.trim().toLowerCase();
+  const visibleItems = items
+    .filter((i) => i.userId !== userId && !blockedUsers.has(i.userId) && !incomingUids.has(i.userId))
+    .filter((i) => !searchLower || i.skill?.toLowerCase().includes(searchLower) || i.want?.toLowerCase().includes(searchLower));
+
   if (loading || !user) return <PageSkeleton />;
 
   return (
@@ -279,13 +288,25 @@ export default function SkillSwap() {
           </div>
         )}
 
-        <h2 className="aura-title">{t('available_swaps')} ({items.length})</h2>
+        <h2 className="aura-title">{t('available_swaps')} ({visibleItems.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="swap-load-error">{loadError}</p>}
+        {items.length > 0 && (
+          <input
+            className="aura-input"
+            style={{ marginBottom: 14 }}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by skill or what they want to learn…"
+            data-testid="swap-search"
+          />
+        )}
         {items.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_swaps')}</p></div>
+        ) : visibleItems.length === 0 ? (
+          <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">No swaps match that search.</p></div>
         ) : (
           <div className="aura-grid">
-            {items.filter((i) => i.userId !== userId && !blockedUsers.has(i.userId) && !incomingUids.has(i.userId)).map((item) => {
+            {visibleItems.map((item) => {
               const id = pairId(userId, item.userId);
               const p = pairs[id];
               const matched = p?.userAAccepted && p?.userBAccepted;

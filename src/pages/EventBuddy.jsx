@@ -18,6 +18,22 @@ import PageSkeleton from '../components/PageSkeleton';
 import Avatar from '../components/Avatar';
 import ReportBlockMenu from '../components/ReportBlockMenu';
 
+// "2026-10-02" -> "Today" / "Tomorrow" / "In 5 days" / the raw date once
+// it's far enough out that a relative count stops being useful at a
+// glance. Purely a display label — the actual sort/filter still runs on
+// the plain date string, this just makes the list easier to scan.
+const relativeDateLabel = (dateStr) => {
+  if (!dateStr) return '';
+  const today = todayKey();
+  if (dateStr === today) return 'Today';
+  const [ty, tm, td] = today.split('-').map(Number);
+  const [ey, em, ed] = dateStr.split('-').map(Number);
+  const diffDays = Math.round((new Date(ey, em - 1, ed) - new Date(ty, tm - 1, td)) / 86400000);
+  if (diffDays === 1) return 'Tomorrow';
+  if (diffDays > 1 && diffDays <= 6) return `In ${diffDays} days`;
+  return dateStr;
+};
+
 export default function EventBuddy() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -29,6 +45,7 @@ export default function EventBuddy() {
   const [time, setTime] = useState('');
   const [place, setPlace] = useState('');
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
   const [events, setEvents] = useState([]);
   const [joins, setJoins] = useState({});
   const [loadError, setLoadError] = useState('');
@@ -169,7 +186,10 @@ export default function EventBuddy() {
   // above), so this date check is just a defensive backup for any old
   // event docs missing a `date` field — the real filtering already
   // happened server-side instead of downloading the full history first.
-  const visibleEvents = events.filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()));
+  const searchLower = search.trim().toLowerCase();
+  const visibleEvents = events
+    .filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()))
+    .filter((ev) => !searchLower || ev.eventName?.toLowerCase().includes(searchLower) || ev.place?.toLowerCase().includes(searchLower));
 
   return (
     <div className="aura-page activity-theme--event-buddy">
@@ -193,8 +213,20 @@ export default function EventBuddy() {
 
         <h2 className="aura-title">{t('available_events')} ({visibleEvents.length})</h2>
         {loadError && <p className="aura-login-error" data-testid="event-load-error">{loadError}</p>}
-        {visibleEvents.length === 0 ? (
+        {events.length > 0 && (
+          <input
+            className="aura-input"
+            style={{ marginBottom: 14 }}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by event name or place…"
+            data-testid="event-search"
+          />
+        )}
+        {events.length === 0 ? (
           <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">{t('empty_no_events')}</p></div>
+        ) : visibleEvents.length === 0 ? (
+          <div className="aura-card" style={{ textAlign: 'center' }}><p className="aura-muted">No events match that search.</p></div>
         ) : (
           <div className="aura-grid">
             {visibleEvents.map((ev) => {
@@ -225,7 +257,7 @@ export default function EventBuddy() {
                     />
                   </div>
                   <h3 style={{ color: 'var(--primary)', margin: '0 0 8px' }}>{ev.eventName}</h3>
-                  <p style={{ margin: '4px 0' }}><strong>When:</strong> {ev.date} • {ev.time}</p>
+                  <p style={{ margin: '4px 0' }}><strong>When:</strong> {relativeDateLabel(ev.date)} • {ev.time}</p>
                   <p style={{ margin: '4px 0 12px' }}><strong>Where:</strong> {ev.place}</p>
 
                   {isHost ? (

@@ -12,6 +12,21 @@ import { moderateText, MODERATION_MESSAGES } from '../lib/contentFilter';
 import TopBar from '../components/TopBar';
 import PageSkeleton from '../components/PageSkeleton';
 
+// Optional context for whoever ends up reading a letter — Letters gets no
+// reactions, streaks, or thread the way the other activities do (see the
+// v1-scope note below: text-only, one exchange, deliberately contained),
+// so this is the one lightweight addition that still fits that shape: a
+// tag chosen when writing, not a second field to reply to. It just tells
+// the stranger who claims it what kind of letter they're about to read,
+// the way a subject line would, without opening up a second exchange.
+const LETTER_TOPICS = [
+  { value: 'vent', label: '😔 Need to vent' },
+  { value: 'advice', label: '🤔 Need advice' },
+  { value: 'grateful', label: '🙏 Feeling grateful' },
+  { value: 'share', label: '💬 Just sharing' },
+];
+const topicLabel = (value) => LETTER_TOPICS.find((t) => t.value === value)?.label;
+
 // Replaces Collab Studio. The design intent, from the conversation that
 // decided this: every other activity in Aura is built around some kind of
 // shared vulnerability between strangers — a mood, a daily prompt, a
@@ -35,6 +50,7 @@ export default function AnonymousLetters() {
   const [myLetters, setMyLetters] = useState([]);
   const [pendingReply, setPendingReply] = useState(null); // a letter I've claimed but not yet replied to
   const [draftLetter, setDraftLetter] = useState('');
+  const [draftTopic, setDraftTopic] = useState('');
   const [draftReply, setDraftReply] = useState('');
   const [sending, setSending] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -105,8 +121,10 @@ export default function AnonymousLetters() {
         text: draftLetter.trim(),
         status: 'open',
         createdAt: Timestamp.now(),
+        ...(draftTopic ? { topic: draftTopic } : {}),
       });
       setDraftLetter('');
+      setDraftTopic('');
     } catch (err) {
       setError(`Couldn't send that letter. (${err?.code || 'unknown'})`);
     } finally {
@@ -185,6 +203,9 @@ export default function AnonymousLetters() {
             <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Inbox size={18} /> A letter for you to answer
             </h2>
+            {topicLabel(pendingReply.topic) && (
+              <span className="chip" style={{ marginBottom: 10 }} data-testid="pending-letter-topic">{topicLabel(pendingReply.topic)}</span>
+            )}
             <p style={{ whiteSpace: 'pre-wrap' }}>{pendingReply.text}</p>
             <textarea
               className="aura-input"
@@ -223,6 +244,20 @@ export default function AnonymousLetters() {
             <Mail size={18} /> Write a letter
           </h2>
           <p className="aura-muted">Say whatever you need to. A random stranger will read it and can write back once.</p>
+          <div className="aura-row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 10 }} data-testid="letter-topic-picker">
+            {LETTER_TOPICS.map((topic) => (
+              <button
+                key={topic.value}
+                type="button"
+                onClick={() => setDraftTopic((cur) => (cur === topic.value ? '' : topic.value))}
+                className={`chip${draftTopic === topic.value ? ' chip--active' : ''}`}
+                style={draftTopic === topic.value ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : undefined}
+                data-testid={`letter-topic-${topic.value}`}
+              >
+                {topic.label}
+              </button>
+            ))}
+          </div>
           <textarea
             className="aura-input"
             style={{ minHeight: 140, resize: 'vertical', fontFamily: 'inherit' }}
@@ -249,6 +284,7 @@ export default function AnonymousLetters() {
             <h2 style={{ marginTop: 0 }}>Your letters</h2>
             {myLetters.map((l) => (
               <div key={l.id} style={{ padding: '10px 0', borderTop: '1px solid var(--border)' }} data-testid={`my-letter-${l.id}`}>
+                {topicLabel(l.topic) && <span className="chip" style={{ marginBottom: 6 }}>{topicLabel(l.topic)}</span>}
                 <p style={{ margin: '0 0 4px', whiteSpace: 'pre-wrap' }}>{l.text}</p>
                 {l.status === 'replied' ? (
                   <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: '2px solid var(--accent)' }}>
