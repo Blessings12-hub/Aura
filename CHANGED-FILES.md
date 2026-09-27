@@ -1,66 +1,67 @@
-# Aura — App Check: the real fix for the rate-limit gap
+# Aura — Mood Chat & Daily Question: minors and adults never share a room
 
-One file: `src/lib/firebaseClient.js`. This is the code half of the fix —
-there's a manual setup process outside the code that has to happen in a
-specific order, or you can take the whole app down. Read this fully
-before doing anything in the Firebase Console.
+3 files. Redeploy the app and `firestore.rules` together — the client
+routing and the rules enforcement depend on each other; deploying one
+without the other either does nothing (rules alone, nobody's routed
+differently) or breaks the room entirely (client alone, before rules
+allow the new room keys — though in this specific case the existing
+wildcard `{mood}`/`{day}` rule pattern already matches any string, so
+client-only deployment wouldn't break anything, it just wouldn't be
+enforced server-side yet. Ship both together anyway — no reason not to.)
 
-## What this actually fixes
+## How it works
 
-`useSendCooldown.js` already says it plainly in its own comment: the
-message-send throttle is client-side only, and "anyone calling the
-Firestore SDK directly bypasses this entirely." That's true of every
-write in this app, not just chat — nothing stops a script from calling
-Firebase's anonymous sign-in directly (it's a public, unauthenticated
-method) and then writing to Firestore as fast as the network allows,
-completely outside your actual web app.
+Every room — a mood, or a day's question — already lives at a Firestore
+path keyed by that mood or date (`chats/happy/messages`,
+`dailyQuestions/2026-09-25/answers`). A minor's account (age 16-17) now
+gets routed to a parallel path with `-teen` appended
+(`chats/happy-teen/messages`) — a completely separate collection, not a
+filtered view of the same one. Adults see no change at all: same paths
+as before, same rooms, same everyone who was already there.
 
-App Check closes that: once enabled, Firestore requires every client-SDK
-request to prove it's coming from a real instance of your app running in
-a real browser (via reCAPTCHA v3 — invisible, no puzzle for users to
-solve) rather than a bare script. It doesn't replace `useSendCooldown`
-for a legitimate user double-tapping send; it stops the class of abuse
-that skips your UI entirely.
+This is invisible by design right now — no "you're in the under-18 room"
+label anywhere. That was a scope call, not an oversight: you asked for
+separation, not necessarily disclosure of it, and a label risks feeling
+like a callout. Easy to add if you want one later.
 
-## Setup — four steps, in this order, do not skip the order
+## Why this is enforced in `firestore.rules`, not just the app's routing
 
-**1. Register a reCAPTCHA v3 site.** Go to
-`google.com/recaptcha/admin/create`, choose **reCAPTCHA v3**, and add
-your domain (`aura-blush-zeta.vercel.app`, and `localhost` too if you
-test locally). You'll get a **Site key** and a **Secret key** — the site
-key is meant to be public and goes in your code; the secret key stays in
-the Firebase Console only, never in your repo.
+The app choosing the right room for someone is a UX nicety, not a safety
+boundary on its own — anyone can skip your actual web app and call the
+Firestore SDK directly with whatever room key they want. The scenario
+this specifically has to stop is an adult doing exactly that: querying or
+writing straight into a `-teen` room to reach minors, bypassing the app
+entirely. So the real enforcement is `inOwnAgeTierRoom()` in
+`firestore.rules` — it reads the room key someone's trying to access,
+reads their own account's age from Firestore (not anything the client
+claims about itself in the request, which could be spoofed), and denies
+the request outright if those two don't match. This applies to reading a
+room, not just writing to one — an adult silently reading a minors-only
+room without ever sending a message is still a real problem, so both are
+checked identically.
 
-**2. Register App Check in Firebase Console.** Your project → Build →
-App Check → Apps → find your web app → Register → paste in the reCAPTCHA
-**secret key** (not the site key) when asked.
+## What this does not cover
 
-**3. Add the site key to Vercel and deploy — enforcement is still OFF at
-this point.** Add `VITE_RECAPTCHA_SITE_KEY` (the site key from step 1) to
-Vercel's environment variables, redeploy. Nothing changes for users yet —
-this file only *starts issuing* App Check tokens; nothing is rejecting
-requests without one until step 4.
+**Scoped to exactly what you asked for: Mood Chat and Daily Question.**
+Skill Swap, Event Buddy, and Letters weren't touched, and I don't think
+they should be assumed to need the identical fix without a separate look
+— those work through a matching step before any conversation starts,
+which is a different exposure pattern (a minor could still end up
+one-on-one with a stranger through matching, not just in an open room)
+and deserves its own explicit decision rather than being silently bundled
+in here.
 
-**4. Confirm tokens are actually flowing, THEN enable enforcement.**
-Firebase Console → App Check → your app should show real request metrics
-within a few minutes of normal use (open the deployed app, click around).
-Once you see that traffic, THEN go to App Check → APIs → Cloud
-Firestore → Enforce.
+**The public daily activity counts stay combined** (e.g. "42 messages
+today in Happy" mixes both rooms) — that's just an aggregate number with
+no message content or identity in it, so splitting it felt like scope
+creep for something this touches only cosmetically. Report context now
+correctly shows which room a report came from (`happy-teen` vs `happy`),
+which matters more for actually reviewing something.
 
-**Why the order matters this much:** enforcement is an all-or-nothing
-switch for every client Firestore call in the entire app, not just chat
-messages. If you enable it before step 3 is actually deployed and
-confirmed working, every single Firestore read and write from every user
-starts failing at once — not a message-spam fix, a full outage. Deploying
-this file alone changes nothing; only the Console toggle in step 4 does.
+## Files
 
-## What this doesn't cover
-
-This protects Firestore access through the client SDK — which is where
-chat messages, profile saves, and most of the app's reads/writes happen.
-It does not add App Check verification to your custom Vercel API routes
-(`verify-submission.js`, `notify-report.js`, etc.) — those are already
-gated by a real Firebase Auth ID token check, which is a meaningful bar
-on its own, just a different one. Worth adding App Check there too as a
-second layer if you want to go further, but it's not needed to close the
-specific gap this patch addresses.
+| File | |
+|---|---|
+| `firestore.rules` | New `isTeenRoom()` / `accountIsTeen()` / `inOwnAgeTierRoom()`, applied to both `chats` and `dailyQuestions` read/create/update |
+| `src/pages/MoodChat.jsx` | Computes and routes through the age-tier room key |
+| `src/pages/DailyQuestion.jsx` | Same, for the daily question |

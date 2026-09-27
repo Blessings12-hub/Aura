@@ -43,6 +43,40 @@ function isOwner(uid) {
   return signedIn() && request.auth.uid == uid;
 }
 
+// ------------------------------------------------------------------
+// AGE-TIER ROOM SEPARATION — per explicit request, minors (16-17) and
+// adults (18+) never share a Mood Chat or Daily Question room. The room
+// key itself carries the tier: a minors' room key always ends in
+// "-teen" (e.g. "happy-teen", "2026-09-25-teen"); an adult room key
+// never does (plain "happy", "2026-09-25"). isTeenRoom() reads that
+// suffix from the key a client is trying to read or write; accountIsTeen()
+// reads the WRITER'S OWN age from their account doc — not from anything
+// the client claims in the request, so this can't be spoofed by a
+// tampered client sending a fake age alongside the message.
+//
+// This is enforced here, not just in the app's own room-key routing
+// logic (see MoodChat.jsx / DailyQuestion.jsx), specifically because
+// client-side routing alone is a UX convenience, not a safety boundary —
+// anyone can bypass a web app's own UI and call the Firestore SDK
+// directly with whatever room key they want. The scenario this exists to
+// stop is exactly that: an adult deliberately querying or writing
+// straight into a "-teen" room to reach minors, skipping the app
+// entirely. Both read AND write are checked identically here — an adult
+// silently reading a minors-only room is still a real problem even if
+// they never send a message.
+function isTeenRoom(roomKey) {
+  return roomKey.matches('.*-teen$');
+}
+
+function accountIsTeen(uid) {
+  let account = get(/databases/$(database)/documents/users/$(uid)).data;
+  return account.get('age', 18) < 18;
+}
+
+function inOwnAgeTierRoom(roomKey) {
+  return isTeenRoom(roomKey) == accountIsTeen(request.auth.uid);
+}
+
 // A server-enforced per-message cooldown used to live here, requiring
 // every send to arrive as an atomic batch bumping users/{uid}.lastMessageAt
 // alongside the message (verified via getAfter()). It was removed after
@@ -351,8 +385,9 @@ service cloud.firestore {
     // message as yourself, and can only delete your own message.
     // ------------------------------------------------------------------
     match /chats/{mood}/messages/{messageId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+      allow read: if signedIn() && inOwnAgeTierRoom(mood);
+      allow create: if signedIn() && inOwnAgeTierRoom(mood)
+                    && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Voice notes ship as embedded base64, same as
                     // stickers/photos below — no Storage bucket on this
@@ -371,7 +406,7 @@ service cloud.firestore {
       // etc.) stays immutable — and only by someone who isn't the
       // message's own sender, and only by writing their OWN uid into the
       // map (never altering or removing anyone else's entry).
-      allow update: if signedIn() && request.auth.uid != resource.data.userId
+      allow update: if signedIn() && inOwnAgeTierRoom(mood) && request.auth.uid != resource.data.userId
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredBy', 'seenBy'])
                     && (!('deliveredBy' in request.resource.data.diff(resource.data).affectedKeys())
                         || (request.resource.data.deliveredBy.diff(resource.data.get('deliveredBy', {})).affectedKeys().hasOnly([request.auth.uid])
@@ -595,8 +630,9 @@ service cloud.firestore {
     // voice notes, stickers, replies and group delivered/seen receipts.
     // ------------------------------------------------------------------
     match /dailyQuestions/{day}/answers/{answerId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+      allow read: if signedIn() && inOwnAgeTierRoom(day);
+      allow create: if signedIn() && inOwnAgeTierRoom(day)
+                    && request.resource.data.userId == request.auth.uid
                     && validText(request.resource.data.get('text', ''), 3000)
                     // Voice notes ship as embedded base64, same as
                     // stickers/photos below — no Storage bucket on this
@@ -621,7 +657,7 @@ service cloud.firestore {
       // your own answer is allowed (each person still only ever gets one
       // vote, so it's not really gameable), unlike marking your own
       // message as delivered/seen, which never made sense to allow.
-      allow update: if signedIn()
+      allow update: if signedIn() && inOwnAgeTierRoom(day)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredBy', 'seenBy', 'reactions'])
                     && (!('deliveredBy' in request.resource.data.diff(resource.data).affectedKeys())
                         || (request.auth.uid != resource.data.userId
