@@ -72,7 +72,7 @@ export default function MatchCall() {
 
   if (consented === false) {
     return (
-      <div className="aura-page">
+      <div className="aura-page activity-theme--match-finder">
         <div className="aura-shell">
           <TopBar title={t('match_finder')} onBack={() => navigate(-1)} />
           <div className="aura-card aura-section fade-in" style={{ textAlign: 'center' }} data-testid="call-not-consented">
@@ -90,7 +90,7 @@ export default function MatchCall() {
   }
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--match-finder">
       <div className="aura-shell">
         <TopBar title={isVideoMode ? 'Video call' : 'Voice call'} subtitle={status} onBack={endCall} />
         <div className="aura-card aura-section fade-in">

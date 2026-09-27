@@ -72,7 +72,7 @@ export default function SkillSwapCall() {
 
   if (consented === false) {
     return (
-      <div className="aura-page">
+      <div className="aura-page activity-theme--skill-swap">
         <div className="aura-shell">
           <TopBar title={t('skill_swap')} onBack={() => navigate(-1)} />
           <div className="aura-card aura-section fade-in" style={{ textAlign: 'center' }} data-testid="video-not-consented">
@@ -90,7 +90,7 @@ export default function SkillSwapCall() {
   }
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--skill-swap">
       <div className="aura-shell">
         <TopBar title="Skill Swap Call" subtitle={status} onBack={endCall} />
         <div className="aura-card aura-section fade-in">

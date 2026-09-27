@@ -405,7 +405,7 @@ export default function DailyQuestion() {
   const lastMineId = [...visibleMessages].reverse().find((m) => m.userId === userId)?.id;
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--daily-question">
       <div className="aura-shell">
         <TopBar
           title={t('daily_question')}

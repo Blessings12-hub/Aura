@@ -202,7 +202,7 @@ export default function SkillSwap() {
   if (loading || !user) return <PageSkeleton />;
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--skill-swap">
       <div className="aura-shell">
         <TopBar title={t('skill_swap')} subtitle={`${t('skill_swap_desc')} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}`} onBack={() => navigate(-1)} />
 

@@ -174,7 +174,7 @@ export default function AnonymousLetters() {
   };
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--anonymous-letters">
       <div className="aura-shell">
         <TopBar title="Anonymous Letters" subtitle={`Write one, or answer a stranger's • ${presenceError ? 'presence unavailable' : `${onlineCount} online now`}`} onBack={() => navigate('/aura')} />
 

@@ -594,7 +594,7 @@ export default function MatchFinder() {
   // call useCurrentUser's verification fields and are unaffected.
   if (!verifiedForMatch) {
     return (
-      <div className="aura-page">
+      <div className="aura-page activity-theme--match-finder">
         <div className="aura-shell">
           <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
           <div className="aura-card aura-section fade-in" data-testid="match-verify-gate">
@@ -696,7 +696,7 @@ export default function MatchFinder() {
   }
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--match-finder">
       <div className="aura-shell">
         <TopBar title={t('match_finder')} subtitle={t('match_finder_desc')} onBack={() => navigate(-1)} />
 

@@ -105,7 +105,7 @@ export default function SkillSwapChat() {
   if (loading) return <PageSkeleton />;
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--skill-swap">
       <div className="aura-shell">
         <TopBar
           title={t('skill_swap')}

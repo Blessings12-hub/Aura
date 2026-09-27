@@ -69,7 +69,7 @@ export default function EventChat() {
   const visibleMessages = messages.filter((m) => !blockedUsers.has(m.userId));
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--event-buddy">
       <div className="aura-shell">
         <TopBar title={ev?.eventName || t('event_buddy')} subtitle={ev ? `${ev.date} • ${ev.time} • ${ev.place}` : ''} onBack={() => navigate(-1)} />
         <div className="aura-card chat-card fade-in">

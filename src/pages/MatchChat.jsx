@@ -533,7 +533,7 @@ export default function MatchChat() {
       : t('start_chat');
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--match-finder">
       <div className="aura-shell">
         <TopBar
           title={(

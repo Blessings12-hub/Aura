@@ -416,7 +416,7 @@ export default function MoodChat() {
   const messagesToday = moodActivityToday[mood] || 0;
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--mood-chat">
       <div className="aura-shell">
         <TopBar title={t('mood_chat')} subtitle={mood ? `${mood} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}` : t('pick_a_mood')} onBack={() => navigate(-1)} />
 

@@ -172,7 +172,7 @@ export default function EventBuddy() {
   const visibleEvents = events.filter((ev) => !blockedUsers.has(ev.userId) && (!ev.date || ev.date >= todayKey()));
 
   return (
-    <div className="aura-page">
+    <div className="aura-page activity-theme--event-buddy">
       <div className="aura-shell">
         <TopBar title={t('event_buddy')} subtitle={`${t('event_buddy_desc')} • ${presenceError ? t('presence_unavailable') : `${onlineCount} ${t('online_now')}`}`} onBack={() => navigate(-1)} />
 
