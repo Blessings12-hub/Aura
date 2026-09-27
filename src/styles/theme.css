@@ -552,6 +552,13 @@ a { color: var(--primary); }
   font-size: 0.78rem;
   color: var(--muted);
 }
+/* A <button className="chip"> (e.g. the letter-topic picker) needs the
+   native button chrome stripped back down to plain chip styling, plus a
+   pressed/selected state — everywhere else .chip is a static <span>/<div>
+   so this only ever applies where a chip is deliberately made clickable. */
+button.chip { cursor: pointer; font-family: inherit; transition: border-color 150ms ease, color 150ms ease; }
+button.chip:hover { background: var(--surface-3); }
+.chip--active { font-weight: 600; }
 
 /* Modal */
 .aura-modal-backdrop {
