@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import {
-  ensureFirebaseSession, signInWithGoogleRecovery, firebaseConfigured,
+  ensureFirebaseSession, signInWithGoogleRecovery, consumeGoogleRedirectResult, firebaseConfigured,
 } from '../lib/firebaseClient';
 import { doc, getDoc, setDoc, onSnapshot, COLLECTIONS, db } from '../lib/firestoreClient';
 import { AVATAR_COLORS } from '../constants/moods';
@@ -78,22 +78,51 @@ export default function Login() {
   // firebaseClient.js); if it was never linked, Firebase silently creates
   // a brand-new account instead, so a missing users/{uid} doc here means
   // "genuinely nothing to recover", not an error.
+  // FIXED: this used to call signInWithGoogleRecovery() and await a
+  // signed-in user straight back — that only ever worked with the old
+  // popup-based implementation. Google's OAuth popup is blocked outright
+  // on a lot of phones (any in-app browser, many mobile Safari/Chrome
+  // configurations, installed PWAs) with no visible error, which is the
+  // single most likely reason "recover a previous account" silently did
+  // nothing for someone on their phone. It's now a full-page redirect —
+  // see the note in firebaseClient.js — so this just starts that
+  // navigation, and the result is picked up by the effect below once the
+  // browser lands back on this page.
   const handleRecover = async () => {
     setError('');
     setRecovering(true);
     try {
-      const user = await signInWithGoogleRecovery();
-      const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
-      if (snap.exists()) {
-        navigate('/aura', { replace: true });
-      } else {
-        setError('No previous Aura account is linked to that Google account.');
-      }
+      await signInWithGoogleRecovery();
     } catch (err) {
       console.error('account recovery failed', err);
-      setError('Could not recover an account with that Google sign-in.');
-    } finally { setRecovering(false); }
+      setError('Could not start Google sign-in. Please try again.');
+      setRecovering(false);
+    }
   };
+
+  // Picks up the result of handleRecover() above after the redirect
+  // returns. Safe on every load — with nothing pending it resolves null.
+  useEffect(() => {
+    let active = true;
+    consumeGoogleRedirectResult()
+      .then(async (user) => {
+        if (!active || !user) return;
+        const snap = await getDoc(doc(db, COLLECTIONS.users, user.uid));
+        if (!active) return;
+        if (snap.exists()) {
+          navigate('/aura', { replace: true });
+        } else {
+          setError('No previous Aura account is linked to that Google account.');
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('account recovery failed', err);
+        setError('Could not recover an account with that Google sign-in.');
+      })
+      .finally(() => { if (active) setRecovering(false); });
+    return () => { active = false; };
+  }, [navigate]);
 
   // Single source of truth for "is Firebase Auth actually ready yet".
   // Waits for sign-in/session-restore to actually finish before reading

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { linkGoogleAccount, deleteCurrentFirebaseUser } from '../lib/firebaseClient';
+import {
+  linkGoogleAccount, deleteCurrentFirebaseUser, consumeGoogleRedirectResult, firebaseAuth,
+} from '../lib/firebaseClient';
 import {
   doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, COLLECTIONS, db,
 } from '../lib/firestoreClient';
@@ -61,6 +63,41 @@ export default function AccountSettings() {
     if (user.gender) setGenderDraft(user.gender);
   }, [user, profileTouched]);
 
+  // FIXED: linkedEmail used to be seeded only from `user?.linkedEmail` —
+  // a users/{uid} Firestore field nothing in the app ever actually
+  // writes — so "✓ Linked to ___" only ever showed for the rest of the
+  // session a popup link succeeded in, and reverted to looking unlinked
+  // on the very next reload even though the Google account really was
+  // still linked at the Auth level underneath. Reading it straight off
+  // firebaseAuth.currentUser.providerData (what Firebase itself is
+  // actually tracking) instead makes the status correct and durable.
+  useEffect(() => {
+    const googleLink = firebaseAuth?.currentUser?.providerData?.find((p) => p.providerId === 'google.com');
+    if (googleLink) setLinkedEmail(googleLink.email || 'your Google account');
+  }, []);
+
+  // Picks up the result of the redirect handleLinkGoogle() below kicks
+  // off — see the redirect-vs-popup note in firebaseClient.js. Safe to
+  // call on every load: with nothing pending it just resolves to null.
+  useEffect(() => {
+    let active = true;
+    consumeGoogleRedirectResult()
+      .then((linkedUser) => {
+        if (!active || !linkedUser) return;
+        const googleLink = linkedUser.providerData?.find((p) => p.providerId === 'google.com');
+        setLinkedEmail(googleLink?.email || linkedUser.email || 'your Google account');
+      })
+      .catch((e) => {
+        if (!active) return;
+        console.error('Google link redirect failed', e);
+        setError(e?.code === 'auth/credential-already-in-use'
+          ? 'That Google account is already linked to a different Aura account.'
+          : 'Could not link your Google account. Please try again.');
+      })
+      .finally(() => { if (active) setLinking(false); });
+    return () => { active = false; };
+  }, []);
+
   if (loading || !user) return <PageSkeleton />;
 
   // Anonymous accounts (what everyone on Aura starts as) have no password
@@ -76,14 +113,18 @@ export default function AccountSettings() {
     setError('');
     setLinking(true);
     try {
-      const linkedUser = await linkGoogleAccount();
-      setLinkedEmail(linkedUser.email || 'your Google account');
+      // This navigates the whole page away to Google's sign-in and back —
+      // it does not resolve with a signed-in user the way the old popup
+      // version did. The result is picked up by the redirect-result effect
+      // above once the browser lands back on this page, which is also what
+      // clears `linking` — leaving it true here isn't wrong, it's just the
+      // loading state you'll briefly see right up to the point of navigating
+      // away, and again for a moment after landing back before that effect
+      // resolves.
+      await linkGoogleAccount();
     } catch (e) {
       console.error('Google link failed', e);
-      setError(e?.code === 'auth/credential-already-in-use'
-        ? 'That Google account is already linked to a different Aura account.'
-        : 'Could not link your Google account. Please try again.');
-    } finally {
+      setError('Could not start Google sign-in. Please try again.');
       setLinking(false);
     }
   };
