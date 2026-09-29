@@ -68,9 +68,19 @@ function isTeenRoom(roomKey) {
   return roomKey.matches('.*-teen$');
 }
 
+// FIXED: this used to call get(...).data unconditionally. get() on a
+// document that does not exist throws during rule evaluation (this is
+// documented Firestore behavior, not a bug in the evaluator) rather than
+// returning something empty — so any signed-in user whose users/{uid}
+// doc hadn't been created yet (partway through signup, or any account
+// doc write that failed) got a hard permission-denied reading or writing
+// EVERY Mood Chat / Daily Question room, every time, with no way to
+// self-recover short of that doc appearing. Guarding with exists() first,
+// the same safe pattern isBanned() below already uses, makes a missing
+// doc default to "treat as an adult room" instead of throwing.
 function accountIsTeen(uid) {
-  let account = get(/databases/$(database)/documents/users/$(uid)).data;
-  return account.get('age', 18) < 18;
+  let userPath = /databases/$(database)/documents/users/$(uid);
+  return exists(userPath) && get(userPath).data.get('age', 18) < 18;
 }
 
 function inOwnAgeTierRoom(roomKey) {
@@ -129,15 +139,21 @@ function validAge(data) {
 // denies. AdminReports writes this field as a Timestamp, so defaulting to
 // request.time keeps the comparison timestamp-to-timestamp and evaluates to
 // false when the field is missing, which is the intended outcome.
+  // FIXED: same class of bug as accountIsTeen() above — `get(userPath).data`
+  // ran unconditionally, before the exists() check that was supposed to
+  // guard it, so posting or editing a Match Finder card for any account
+  // whose users/{uid} doc didn't (yet) exist threw during evaluation
+  // instead of cleanly failing the isVerified check. exists() now short-
+  // circuits the whole thing first, so a missing account doc just means
+  // "not verified" (denied, as intended) rather than a hard error.
   function validMatchAge(uid, data) {
   let userPath = /databases/$(database)/documents/users/$(uid);
-  let account = get(userPath).data;
   let isVerified = exists(userPath)
-    && account.get('verificationStatus', '') == 'approved'
-    && account.get('verificationExpiresAt', request.time) > request.time;
+    && get(userPath).data.get('verificationStatus', '') == 'approved'
+    && get(userPath).data.get('verificationExpiresAt', request.time) > request.time;
   return data.age is int && data.age >= 18 && data.ageConfirmed18 == true
     && isVerified
-    && data.get('gender', '') == account.get('verifiedSex', '');
+    && data.get('gender', '') == get(userPath).data.get('verifiedSex', '');
   }
 
 // Caps how long a public text field is allowed to be. Uses .get(field, '')
