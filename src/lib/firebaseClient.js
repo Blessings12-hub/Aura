@@ -7,8 +7,9 @@ import {
   setPersistence,
   browserLocalPersistence,
   GoogleAuthProvider,
-  linkWithPopup,
-  signInWithPopup,
+  linkWithRedirect,
+  signInWithRedirect,
+  getRedirectResult,
   deleteUser,
 } from 'firebase/auth';
 import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
@@ -184,17 +185,34 @@ export async function signOutFirebase() {
   resetSessionCache();
 }
 
-// Links a Google account to the CURRENT anonymous session, so the same
-// uid (and therefore the same users/{uid} doc, matches, history) can be
-// recovered later on a new device. This is the "Link a Google account"
-// button in Account Settings.
+// FIXED: linkGoogleAccount() and signInWithGoogleRecovery() used to open
+// a popup (linkWithPopup / signInWithPopup). That works fine on a
+// desktop browser, but on a phone it's exactly the flow most likely to
+// silently fail: Safari/Chrome on iOS and Android routinely block
+// window.open() unless it happens synchronously inside the original tap
+// (async code between the tap and the call — which this had, via
+// ensureFirebaseSession() — is enough to lose that), and any in-app
+// browser (Instagram, TikTok, Facebook, etc.) or installed-PWA context
+// blocks Google's OAuth popup outright with "This browser or app may
+// not be secure." The person taps "Link a Google account", nothing
+// visibly happens, and there's no error to show because the popup call
+// itself often just hangs or rejects with a vague auth/popup-blocked.
+//
+// A full-page redirect has none of that problem — it's the same
+// navigation a link click does, so nothing can block it as a popup.
+// The tradeoff is that the app reloads: signInWithRedirect/linkWithRedirect
+// resolve as soon as the browser starts navigating away (not once the
+// user has actually finished signing in), so there's nothing meaningful
+// to await here. The real result is picked up by
+// consumeGoogleRedirectResult() below, called once on mount by whichever
+// page can trigger this (AccountSettings for linking, Login for
+// recovery) after the browser lands back on that same page.
 export async function linkGoogleAccount() {
   const auth = requireFirebase();
   const current = auth.currentUser || (await ensureFirebaseSession());
   if (!current) throw new Error('No active session to link.');
   const provider = new GoogleAuthProvider();
-  const result = await linkWithPopup(current, provider);
-  return result.user;
+  await linkWithRedirect(current, provider);
 }
 
 // Signs in with Google on a NEW device/browser to recover a previously-
@@ -202,13 +220,28 @@ export async function linkGoogleAccount() {
 // resolves straight back to that same uid; if it was never linked,
 // Firebase creates a brand-new (non-anonymous) account instead — the
 // caller should treat that as "nothing to recover" the same way the old
-// Appwrite recovery flow did.
+// Appwrite recovery flow did. See the redirect-vs-popup note above.
 export async function signInWithGoogleRecovery() {
   const auth = requireFirebase();
   const provider = new GoogleAuthProvider();
-  const result = await signInWithPopup(auth, provider);
-  resetSessionCache();
-  return result.user;
+  // No resetSessionCache() call needed here the way the old popup version
+  // had one after success: a redirect is a full page reload, so the
+  // module-level sessionPromise this would clear is gone anyway. By the
+  // time the page comes back, auth.currentUser already reflects whichever
+  // account Firebase resolved the redirect to — ensureFirebaseSession()
+  // picks that up on its own the normal way, no special-casing needed.
+  await signInWithRedirect(auth, provider);
+}
+
+// Resolves the redirect started by linkGoogleAccount() or
+// signInWithGoogleRecovery() above, once the browser lands back on the
+// page that started it. Safe to call on every normal page load too —
+// with no pending redirect it just resolves to null almost immediately,
+// so callers don't need to know in advance whether one is pending.
+export async function consumeGoogleRedirectResult() {
+  const auth = requireFirebase();
+  const result = await getRedirectResult(auth);
+  return result?.user || null;
 }
 
 export async function deleteCurrentFirebaseUser() {
