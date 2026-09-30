@@ -36,6 +36,8 @@ const EventChat = lazy(() => import('./pages/EventChat'));
 const AnonymousLetters = lazy(() => import('./pages/AnonymousLetters'));
 const AdminReports = lazy(() => import('./pages/AdminReports'));
 const AccountSettings = lazy(() => import('./pages/AccountSettings'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 
 export default function App() {
   const protectedElement = (element) => <RequireLogin>{element}</RequireLogin>;
@@ -63,6 +65,11 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Login />} />
                   <Route path="/login" element={<Login />} />
+                  {/* Deliberately NOT behind verifiedElement/protectedElement — someone
+                      should be able to read these before signing in at all, e.g. from
+                      the Login page footer link. */}
+                  <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/terms" element={<TermsOfService />} />
                   <Route path="/aura" element={verifiedElement(<Home />)} />
                   <Route path="/aura/chat" element={verifiedElement(<MoodChat />)} />
                   <Route path="/aura/match" element={verifiedElement(<MatchFinder />)} />
