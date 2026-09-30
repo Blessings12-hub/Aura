@@ -164,6 +164,43 @@ function validText(value, maxLen) {
   return value is string && value.size() <= maxLen;
 }
 
+// Server-side backstop for src/lib/contentFilter.js, which only ever ran
+// in the browser — anyone calling the Firestore SDK directly (a script,
+// not this web app) skipped it completely, on every public surface it's
+// meant to cover (Mood Chat, Daily Question, and the public bios/listings
+// on Match Finder / Skill Swap / Event Buddy cards; deliberately NOT
+// applied to matchChats/swapChats/eventChats — see contentFilter.js's own
+// comment on why 1:1 chats between already-matched people aren't scanned).
+// This is NOT a full port of that file: RE2, the regex engine Firestore
+// rules run on, doesn't support backreferences at all (a deliberate RE2
+// limitation — no catastrophic-backtracking regexes are allowed), so the
+// "aaaaaaaaaa" repeated-character check can't be expressed here and is
+// skipped server-side; the client-side check still catches it for anyone
+// going through the actual app. This also can't run contentFilter.js's
+// leetspeak/lookalike normalization, so it's a plainer word-boundary
+// check on the lowercased text. Client-side stays the friendlier first
+// line (an inline error before anything is even sent); this is what
+// actually stops the bypass case.
+function passesContentFilter(text) {
+  let lower = text.lower();
+  return !lower.matches('.*(https?://|www\\.).*')
+    && !text.matches('.*[A-Z]{15,}.*')
+    && !lower.matches('.*(fuck|shit|bitch|asshole|bastard|dick|piss|cunt|whore|slut|faggot|retard).*');
+}
+
+// Same idea as validText() — safe to call on a field that's legitimately
+// absent (defaults to '', which trivially passes) — but also runs the
+// content filter above. Use this instead of plain validText() for any
+// public-surface free-text field a stranger will read before any match
+// or mutual consent exists.
+function validPublicText(value, maxLen) {
+  // validText() runs first and short-circuits on anything that isn't a
+  // string, so passesContentFilter() below only ever runs against a
+  // value already confirmed to be one — including '', which trivially
+  // passes every check in it.
+  return validText(value, maxLen) && passesContentFilter(value);
+}
+
 // True if request.auth.uid is matched with `otherUid` in matchPairs.
 function isMatchedWith(otherUid) {
   return signedIn() && (
@@ -404,7 +441,7 @@ service cloud.firestore {
       allow read: if signedIn() && inOwnAgeTierRoom(mood);
       allow create: if signedIn() && inOwnAgeTierRoom(mood)
                     && request.resource.data.userId == request.auth.uid
-                    && validText(request.resource.data.get('text', ''), 3000)
+                    && validPublicText(request.resource.data.get('text', ''), 3000)
                     // Voice notes ship as embedded base64, same as
                     // stickers/photos below — no Storage bucket on this
                     // plan (see uploadVoiceNote in chatMedia.js).
@@ -455,16 +492,16 @@ service cloud.firestore {
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
-                    && validText(request.resource.data.get('bio', ''), 300)
-                    && validText(request.resource.data.get('hobbies', ''), 300)
-                    && validText(request.resource.data.get('lookingFor', ''), 300);
+                    && validPublicText(request.resource.data.get('bio', ''), 300)
+                    && validPublicText(request.resource.data.get('hobbies', ''), 300)
+                    && validPublicText(request.resource.data.get('lookingFor', ''), 300);
       allow update: if isOwner(resource.data.userId) && validMatchAge(resource.data.userId, request.resource.data)
                     && !('displayName' in request.resource.data)
                     && !('photoURL' in request.resource.data)
                     && validText(request.resource.data.get('gender', ''), 40)
-                    && validText(request.resource.data.get('bio', ''), 300)
-                    && validText(request.resource.data.get('hobbies', ''), 300)
-                    && validText(request.resource.data.get('lookingFor', ''), 300);
+                    && validPublicText(request.resource.data.get('bio', ''), 300)
+                    && validPublicText(request.resource.data.get('hobbies', ''), 300)
+                    && validPublicText(request.resource.data.get('lookingFor', ''), 300);
       allow delete: if isOwner(resource.data.userId);
     }
 
@@ -541,8 +578,8 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && !('userAge' in request.resource.data)
                     && !('userGender' in request.resource.data)
-                    && validText(request.resource.data.get('skill', ''), 300)
-                    && validText(request.resource.data.get('want', ''), 300);
+                    && validPublicText(request.resource.data.get('skill', ''), 300)
+                    && validPublicText(request.resource.data.get('want', ''), 300);
       allow update, delete: if isOwner(resource.data.userId);
     }
 
@@ -611,8 +648,8 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
                     && !('userAge' in request.resource.data)
                     && !('userGender' in request.resource.data)
-                    && validText(request.resource.data.get('eventName', ''), 150)
-                    && validText(request.resource.data.get('place', ''), 200);
+                    && validPublicText(request.resource.data.get('eventName', ''), 150)
+                    && validPublicText(request.resource.data.get('place', ''), 200);
       allow update, delete: if isOwner(resource.data.userId);
     }
 
@@ -649,7 +686,7 @@ service cloud.firestore {
       allow read: if signedIn() && inOwnAgeTierRoom(day);
       allow create: if signedIn() && inOwnAgeTierRoom(day)
                     && request.resource.data.userId == request.auth.uid
-                    && validText(request.resource.data.get('text', ''), 3000)
+                    && validPublicText(request.resource.data.get('text', ''), 3000)
                     // Voice notes ship as embedded base64, same as
                     // stickers/photos below — no Storage bucket on this
                     // plan (see uploadVoiceNote in chatMedia.js).
@@ -716,7 +753,7 @@ service cloud.firestore {
                     && request.resource.data.status == 'open'
                     && !('recipientId' in request.resource.data)
                     && !('replyText' in request.resource.data)
-                    && validText(request.resource.data.get('text', ''), 2000);
+                    && validPublicText(request.resource.data.get('text', ''), 2000);
       // Two very different kinds of update, kept strictly separate:
       //
       // CLAIMING (open -> delivered): anyone except the author can claim
@@ -743,7 +780,7 @@ service cloud.firestore {
           && resource.data.recipientId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'replyText', 'repliedAt'])
           && request.resource.data.status == 'replied'
-          && validText(request.resource.data.get('replyText', ''), 2000))
+          && validPublicText(request.resource.data.get('replyText', ''), 2000))
       );
       allow delete: if isOwner(resource.data.authorId);
     }
