@@ -7,8 +7,9 @@ const DISMISS_KEY = 'aura_push_banner_dismissed_v1';
 
 // Shown on Home when push notifications are available but not yet granted
 // or declined. This is what actually closes the "the other person never
-// finds out" gap for real — enabling it means a Cloud Function can reach
-// this device even when the app isn't open (see functions/index.js).
+// finds out" gap for real — enabling it means api/send-notification.js
+// can reach this device even when the app isn't open (see
+// src/lib/sendNotification.js and its callers).
 export default function NotificationOptInBanner({ userId }) {
   const { t } = useTranslation();
   const { permission, enable, syncing } = useFcmToken(userId);

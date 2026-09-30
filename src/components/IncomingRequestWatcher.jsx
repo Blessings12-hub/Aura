@@ -18,8 +18,11 @@ import { pushAuraNotification } from '../notifications/NotificationManager';
 // IMPORTANT LIMITATION: this only works while the app is open in a tab
 // somewhere on this device — it's the browser Notification API, not a true
 // push. If the person has fully closed the browser/tab, nothing fires.
-// Real cross-device delivery (phone locked, app closed) needs a server-side
-// trigger — see functions/index.js and the README section on deploying it.
+// Real cross-device delivery (phone locked, app closed) is what
+// api/send-notification.js is for — called by the client right after
+// the action that should notify someone (see src/lib/sendNotification.js
+// and its callers in MatchFinder.jsx, MatchChat.jsx, SkillSwap.jsx,
+// EventBuddy.jsx).
 export default function IncomingRequestWatcher({ userId }) {
   const { matchRequests, swapRequests, eventRequests } = useIncomingRequests(userId);
   const seenIds = useRef(new Set());
