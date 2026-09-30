@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  linkGoogleAccount, deleteCurrentFirebaseUser, consumeGoogleRedirectResult, firebaseAuth,
+  consumeGoogleRedirectResult, firebaseAuth, linkGoogleAccount, signOutFirebase,
 } from '../lib/firebaseClient';
+import { exportAccountData, deleteAccountServerSide } from '../lib/accountData';
 import {
-  doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, COLLECTIONS, db,
+  doc, getDoc, setDoc, COLLECTIONS, db,
 } from '../lib/firestoreClient';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Download, Trash2, AlertTriangle, ShieldCheck, UserCog,
 } from 'lucide-react';
@@ -27,16 +28,16 @@ const GENDER_OPTIONS = [
   { value: 'Prefer not to say', label: 'Prefer not to say' },
 ];
 
-// Honest scope note, also shown in the UI below: this covers the account
-// itself — the users/{uid}, userIdentities/{uid}, matchProfiles, and
-// pushTokens/{uid} docs, all of which the client can read/write/delete
-// directly per firestore.rules. It deliberately does NOT reach into every
-// mood-chat/daily-question/skill-swap/event message the person has ever
-// sent, scattered across many collections and subcollections — a true
-// full erasure of that needs a server-side Cloud Function that can walk
-// and batch-delete across all of them (similar to the push-notification
-// functions already in functions/index.js). That's a real, separate,
-// larger piece of work, not something to fake here.
+// FIXED (readiness review): export and delete used to run entirely
+// client-side, reaching only users/{uid}, userIdentities/{uid},
+// matchProfiles, and pushTokens/{uid} — with an honest comment here
+// admitting neither one reached the mood-chat/daily-question/skill-swap/
+// event messages the person had actually sent, scattered across many
+// collections and subcollections. Both now call server-side endpoints
+// (api/export-account.js, api/delete-account.js) that run as
+// firebase-admin and reach everything: see those files for the full
+// account of what's covered and why this needed to move server-side to
+// be complete.
 export default function AccountSettings() {
   const navigate = useNavigate();
   const { user, userId, loading } = useCurrentUser();
@@ -175,25 +176,19 @@ export default function AccountSettings() {
     }
   };
 
-  const gatherAccountData = async () => {
-    const [identitySnap, cardsSnap] = await Promise.all([
-      getDoc(doc(db, 'userIdentities', userId)),
-      getDocs(query(collection(db, 'matchProfiles'), where('userId', '==', userId))),
-    ]);
-    return {
-      exportedAt: new Date().toISOString(),
-      account: user,
-      matchIdentity: identitySnap.exists() ? identitySnap.data() : null,
-      matchProfileCards: cardsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      note: 'This export covers your account profile and Match Finder identity/cards. It does not include individual chat messages you\'ve sent across Mood Chat, Daily Question, Skill Swap, or Event Buddy.',
-    };
-  };
-
+  // FIXED (readiness review): this used to only gather users/{uid} and
+  // Match Finder's identity/cards, with an honest comment admitting it
+  // skipped every message sent across every other activity. Now backed
+  // by api/export-account.js, which runs as firebase-admin server-side
+  // and reaches everything: Skill Swap/Event Buddy listings, Letters
+  // written, match/swap pairings, event joins, and every message or
+  // Daily Question answer sent anywhere — see that file for the full
+  // explanation of why this needed to move server-side to be complete.
   const handleExport = async () => {
     setError('');
     setExporting(true);
     try {
-      const data = await gatherAccountData();
+      const data = await exportAccountData();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -211,19 +206,21 @@ export default function AccountSettings() {
     }
   };
 
+  // FIXED (readiness review): same gap as export above, now backed by
+  // api/delete-account.js — full erasure across every collection this
+  // account touched, not just the four docs this used to reach client-
+  // side. The server also deletes the Auth user itself now (admin SDK,
+  // no reauth prompt possible the way a stale client-side session could
+  // hit) — deleteCurrentFirebaseUser() is no longer called here at all;
+  // signOutFirebase() just clears the now-invalid local session after
+  // the server confirms there's nothing left to sign out of.
   const handleDelete = async () => {
     if (confirmText.trim().toUpperCase() !== 'DELETE') return;
     setError('');
     setDeleting(true);
     try {
-      const cardsSnap = await getDocs(query(collection(db, 'matchProfiles'), where('userId', '==', userId)));
-      await Promise.all([
-        ...cardsSnap.docs.map((d) => deleteDoc(doc(db, 'matchProfiles', d.id))),
-        deleteDoc(doc(db, 'userIdentities', userId)).catch(() => {}),
-        deleteDoc(doc(db, 'pushTokens', userId)).catch(() => {}),
-        deleteDoc(doc(db, 'users', userId)),
-      ]);
-      await deleteCurrentFirebaseUser();
+      await deleteAccountServerSide();
+      await signOutFirebase();
       navigate('/');
     } catch (e) {
       console.error('account deletion failed', e);
@@ -326,7 +323,9 @@ export default function AccountSettings() {
         <div className="aura-card fade-in" style={{ marginTop: 16 }}>
           <h2 style={{ marginTop: 0 }}>Export your data</h2>
           <p className="aura-muted">
-            Download a copy of your account profile and Match Finder identity/cards as a JSON file.
+            Download a JSON copy of everything Aura has stored under your account — your
+            profile, Match Finder identity/cards, Skill Swap and Event Buddy listings,
+            Letters you've written, and every message or Daily Question answer you've sent.
           </p>
           <button
             type="button"
@@ -345,10 +344,15 @@ export default function AccountSettings() {
             <AlertTriangle size={18} /> Delete your account
           </h2>
           <p className="aura-muted">
-            This permanently deletes your account profile, Match Finder identity, and match cards, and signs you out for good — this device won't be able to get this data back.
+            This permanently deletes everything Aura has stored under your account — your
+            profile, Match Finder identity and cards, Skill Swap and Event Buddy listings,
+            Letters you've written, every message and Daily Question answer you've sent, and
+            your account itself — and signs you out for good. This can't be undone.
           </p>
           <p className="aura-muted" style={{ fontSize: '0.85rem' }}>
-            This does not delete individual messages you've already sent in Mood Chat, Daily Question, Skill Swap, or Event Buddy — those stay as part of the conversations they're part of.
+            One limit worth knowing: this removes the message from our database, but it
+            can't reach back and delete it from another person's screen if they'd already
+            seen it — the same way deleting a text doesn't unsend it from the other phone.
           </p>
           <label className="aura-field-label" htmlFor="delete-confirm">
             Type DELETE to confirm
@@ -375,6 +379,12 @@ export default function AccountSettings() {
         </div>
 
         {error && <p className="aura-login-error" style={{ marginTop: 12 }}>{error}</p>}
+
+        <p className="aura-muted" style={{ fontSize: '0.78rem', margin: '18px 0 0', textAlign: 'center' }}>
+          <Link to="/privacy" style={{ color: 'inherit' }}>Privacy Policy</Link>
+          {' · '}
+          <Link to="/terms" style={{ color: 'inherit' }}>Terms of Service</Link>
+        </p>
       </div>
     </div>
   );

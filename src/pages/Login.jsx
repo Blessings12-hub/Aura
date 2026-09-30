@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import {
@@ -522,6 +522,11 @@ export default function Login() {
 
           <p className="aura-muted" style={{ fontSize: '0.82rem', margin: '14px 0 0', textAlign: 'center' }}>
             {t('privacy_note')}
+          </p>
+          <p className="aura-muted" style={{ fontSize: '0.78rem', margin: '6px 0 0', textAlign: 'center' }}>
+            <Link to="/privacy" style={{ color: 'inherit' }}>Privacy Policy</Link>
+            {' · '}
+            <Link to="/terms" style={{ color: 'inherit' }}>Terms of Service</Link>
           </p>
         </div>
       </div>

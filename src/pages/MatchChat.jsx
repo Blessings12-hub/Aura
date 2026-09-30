@@ -51,7 +51,14 @@ const formatDayTimeFromTimestamp = (ts) => formatDayTime(ts?.toDate?.());
 const formatDayTimeFromMillis = (ms) => formatDayTime(ms ? new Date(ms) : null);
 
 // Short one-line preview used for reply quotes and the pinned-message
-// banner — same shape as the server's messagePreview() in functions/index.js.
+// banner. There's no server-side equivalent anymore (see
+// api/send-notification.js, which just sends whatever title/body the
+// client passes it) — the notification's own body is built by a
+// separate, same-shape inline preview right where sendNotification() is
+// called below, rather than calling this function directly, since it
+// needs slightly different type-based copy ("🎤 Voice note" vs this
+// function's plain type label) for a push notification than for an
+// in-chat quote.
 const buildPreview = (m) => {
   if (!m) return '';
   switch (m.type) {
